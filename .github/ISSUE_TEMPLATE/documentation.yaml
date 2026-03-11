@@ -1,0 +1,44 @@
+name: Documentation Issue
+description: File an issue related to project documentation.
+title: "[DOCS]: "  # Prefix for the title to help categorize issues
+labels: [documentation, needs-triage]  # Add default labels to the issue
+body:
+  - type: markdown
+    attributes:
+      value: "Thank you for helping us improve our documentation. Please fill out the necessary fields below."
+  - type: textarea
+    id: describe-documentation-issue
+    attributes:
+      label: Describe the Documentation Issue
+      description: What is missing or needs enhancement?
+      placeholder: "Explain in detail..."
+    validations:
+      required: true
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Any additional information or screenshots that could help?
+      placeholder: "Add context or links..."
+    validations:
+      required: false
+  - type: checkboxes
+    id: documentation-area
+    attributes:
+      label: Documentation Areas Affected
+      description: Please check all that apply.
+      options:
+        - label: User Guides
+          required: false
+        - label: Developer Documentation
+          required: false
+        - label: Tutorials
+          required: false
+  - type: input
+    id: documentation-format
+    attributes:
+      label: Preferred Documentation Format
+      description: Specify the preferred format if any (Markdown, HTML, etc.)
+      placeholder: "Enter format here..."
+    validations:
+      required: false

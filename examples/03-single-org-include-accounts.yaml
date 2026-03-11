@@ -1,0 +1,14 @@
+# Demonstrates:
+# - Restricting execution to specific AWS account IDs
+#
+# Only listed accounts will be processed.
+
+schema_version: 1
+
+organizations:
+  - name: include-only-org
+
+    include_accounts:
+      - "111111111111"
+      - "222222222222"
+    # Only these accounts are executed; all others are ignored.

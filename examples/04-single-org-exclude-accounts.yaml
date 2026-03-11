@@ -1,0 +1,14 @@
+# Demonstrates:
+# - Excluding specific AWS accounts from execution
+#
+# All discovered accounts are executed except those listed.
+
+schema_version: 1
+
+organizations:
+  - name: exclude-some-org
+
+    exclude_accounts:
+      - "333333333333"
+      - "444444444444"
+    # Mutually exclusive with include_accounts.

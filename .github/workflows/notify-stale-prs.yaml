@@ -1,0 +1,125 @@
+name: Stale PR Reminder
+
+on:
+  schedule:
+    - cron: "0 14 * * 1-5"  # Weekdays at 9 AM CT
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  stale-and-notify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Mark stale PRs
+        uses: actions/stale@b5d41d4e1d5dceea10e7104786b73624c18a190f # v10.2.0
+        with:
+          stale-pr-message: "This PR is stale because it has been open 3 days with no activity."
+          close-pr-message: 'This PR was closed because it has been stalled for 14 days with no activity.'
+          days-before-pr-stale: 3
+          days-before-pr-close: 14
+          stale-pr-label: stale-pr
+          exempt-pr-labels: do-not-stale
+
+      - name: Ensure GitHub CLI is installed
+        run: |
+          if ! command -v gh &> /dev/null; then
+            echo "Installing gh CLI..."
+            sudo apt update && sudo apt install -y gh
+          fi
+
+      - name: Fetch stale PRs and build Slack blocks
+        id: fetch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Fetching PRs labeled as stale..."
+          gh api -X GET /repos/${{ github.repository }}/pulls \
+            -f state=open \
+            -q '[.[] | select(.labels[].name == "stale-pr")] | [.[] | {title, html_url, user: .user.login, updated_at}]' \
+            > stale_prs.json
+
+          count=$(jq 'length' stale_prs.json)
+          echo "count=$count" >> $GITHUB_OUTPUT
+
+          if [ "$count" -eq 0 ]; then
+            echo "No stale PRs to notify."
+            exit 0
+          fi
+
+          pr_blocks=$(jq -c '.[:10][]' stale_prs.json | while read pr; do
+            title=$(echo "$pr" | jq -r '.title')
+            url=$(echo "$pr" | jq -r '.html_url')
+            author=$(echo "$pr" | jq -r '.user')
+            updated=$(echo "$pr" | jq -r '.updated_at')
+
+            cat <<EOF
+          {
+            "type": "section",
+            "fields": [
+              {
+                "type": "mrkdwn",
+                "text": "*Title:*\n<$url|$title>"
+              },
+              {
+                "type": "mrkdwn",
+                "text": "*Author:*\n<https://github.com/$author|@$author>"
+              },
+              {
+                "type": "mrkdwn",
+                "text": "*Last Updated:*\n$updated"
+              }
+            ]
+          }
+          {
+            "type": "actions",
+            "elements": [
+              {
+                "type": "button",
+                "text": {
+                  "type": "plain_text",
+                  "text": "View PR",
+                  "emoji": true
+                },
+                "style": "primary",
+                "url": "$url"
+              }
+            ]
+          }
+          { "type": "divider" }
+          EOF
+          done | jq -s '.')
+
+
+          blocks=$(jq -n --argjson prs "$pr_blocks" '
+            [
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": ":hourglass_flowing_sand: *Stale PRs Detected*"
+                }
+              }
+            ] + $prs')
+
+          {
+            echo "BLOCKS_JSON<<EOF"
+            echo "$blocks"
+            echo "EOF"
+          } >> $GITHUB_ENV
+
+      - name: Notify Slack about stale PRs
+        if: steps.fetch.outputs.count != '0'
+        uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+        with:
+          token: ${{ secrets.SLACK_BOT_TOKEN }}
+          method: chat.postMessage
+          payload: |
+            channel: ${{ secrets.SLACK_CHANNEL_ID }}
+            text: "One or more stale pull requests were detected."
+            blocks: ${{ env.BLOCKS_JSON }}

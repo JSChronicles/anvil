@@ -1,0 +1,138 @@
+name: Notify Slack When PR Is Ready to Merge
+
+on:
+
+  pull_request:
+    types: [opened, reopened]
+    branches:
+      - main
+
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Commit SHA to check (for testing)"
+        required: false
+
+concurrency:
+  group: pr-merge-${{ github.event.pull_request.number || github.ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  wait-for-checks-and-notify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Determine target SHA
+        id: sha
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "sha=${{ github.event.pull_request.head.sha }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.sha }}" != "" ]; then
+            echo "sha=${{ github.event.inputs.sha }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            echo "sha=${{ github.sha }}" >> $GITHUB_OUTPUT
+          else
+            echo "No valid SHA found from pull_request, workflow_dispatch, or push"
+            exit 1
+          fi
+
+      - name: Wait for all required checks (checks + statuses)
+        if: github.event.pull_request.user.login != 'dependabot[bot]'
+        id: checks
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const sha = "${{ steps.sha.outputs.sha }}";
+            const jobName = "wait-for-checks-and-notify"; // <-- update as needed
+            const maxAttempts = 30;
+            const intervalMs = 10000;
+
+            async function waitUntilReady() {
+              for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                const [checksResp, statusesResp] = await Promise.all([
+                  github.rest.checks.listForRef({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    ref: sha
+                  }),
+                  github.rest.repos.getCombinedStatusForRef({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    ref: sha
+                  })
+                ]);
+
+                // Filter out *this* job by name (it will never complete itself)
+                const checkRuns = checksResp.data.check_runs.filter(
+                  run => run.name !== jobName
+                );
+
+                const completedChecks = checkRuns.filter(c => c.status === 'completed');
+                const passedChecks = completedChecks.filter(c => c.conclusion === 'success');
+
+                const statusContexts = statusesResp.data.statuses;
+                const completedStatuses = statusContexts.filter(s => s.state !== 'pending');
+                const passedStatuses = completedStatuses.filter(s => s.state === 'success');
+
+                const totalChecks = checkRuns.length + statusContexts.length;
+                const totalCompleted = completedChecks.length + completedStatuses.length;
+                const totalPassed = passedChecks.length + passedStatuses.length;
+
+                console.log(
+                  `Attempt ${attempt}/${maxAttempts}: ${totalCompleted}/${totalChecks} checks completed, ${totalPassed} passed`
+                );
+
+                if (totalCompleted === totalChecks) {
+                  return { passed: totalPassed, total: totalChecks };
+                }
+
+                await new Promise(r => setTimeout(r, intervalMs));
+              }
+
+              throw new Error("Timed out waiting for checks to complete.");
+            }
+
+            const result = await waitUntilReady();
+            const { passed, total } = result;
+
+            core.setOutput("ready", passed === total ? "true" : "false");
+            core.setOutput("check_summary", `✅ ${passed}/${total} checks passed`);
+
+
+      - name: Notify Slack (if all checks passed)
+        if: steps.checks.outputs.ready == 'true' || github.event.pull_request.user.login == 'dependabot[bot]'
+        uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+        with:
+          token: ${{ secrets.SLACK_BOT_TOKEN }}
+          method: chat.postMessage
+          errors: "true"
+          payload: |
+            channel: ${{ secrets.SLACK_CHANNEL_ID }}
+            text: "Pull Request is ready to merge"
+            blocks:
+              - type: section
+                text:
+                  type: mrkdwn
+                  text: |
+                    :rocket: *Pull Request Ready to Merge*
+
+                    *<https://github.com/${{ github.repository }}/tree/${{ github.event.pull_request.head.ref }}|${{ github.event.pull_request.head.ref }}>*
+                    Author: ${{ github.event.pull_request.user.login == 'dependabot[bot]' && ':robot_face: Dependabot' || format('<https://github.com/{0}|@{0}>', github.event.pull_request.user.login || github.actor || 'N/A') }}
+              - type: context
+                elements:
+                  - type: mrkdwn
+                    text: "Branch: `${{ github.event.pull_request.head.ref || github.ref_name }} → ${{ github.event.pull_request.base.ref || 'main' }}`"
+                  - type: mrkdwn
+                    text: "Repo: `${{ github.repository }}`"
+                  - type: mrkdwn
+                    text: "${{ steps.checks.outputs.check_summary || '⚠️ Skipped waiting for checks (Dependabot)' }}"
+              - type: actions
+                elements:
+                  - type: button
+                    text:
+                      type: plain_text
+                      text: "View PR"
+                      emoji: true
+                    style: primary
+                    url: "${{ github.event.pull_request.html_url || format('https://github.com/{0}/pulls', github.repository) }}"

@@ -1,0 +1,47 @@
+# EditorConfig helps developers define and maintain consistent
+# coding styles between different editors and IDEs
+# editorconfig.org
+
+root = true
+
+# Universal settings
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Jenkins files
+# Although no doc specifically mentions indentation, groovy tends to follow best practices that use 4 spaces
+[*.{Jenkinsfile,groovy}]
+indent_style = space
+indent_size = 4
+
+# PowerShell files
+# https://poshcode.gitbook.io/powershell-practice-and-style/style-guide/code-layout-and-formatting#indentation
+[*.{ps1,psm1,psd1}]
+indent_style = space
+indent_size = 4
+
+# Python files
+# https://peps.python.org/pep-0008/#indentation
+[*.py]
+indent_style = space
+indent_size = 4
+max_line_length = 88
+
+# Terraform files
+# https://developer.hashicorp.com/terraform/language/style#code-formatting
+[*.tf]
+indent_style = space
+indent_size = 2
+
+# Misc files
+[*.{ps1xml,props,xml,yaml,json}]
+indent_style = space
+indent_size = 2
+
+# Markdown files (for documentation)
+[*.md]
+trim_trailing_whitespace = false  # Allow trailing whitespace in Markdown, which can denote line breaks
+indent_size = 2

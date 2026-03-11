@@ -1,0 +1,21 @@
+# Demonstrates:
+# - Branching dependency graph
+# - Multiple tasks depending on a shared prerequisite
+
+schema_version: 1
+
+organizations:
+  - name: branching-task-org
+
+    tasks:
+      - name: inventory
+        # Root task
+
+      - name: tagging
+        depends_on: ["inventory"]
+
+      - name: compliance
+        depends_on: ["inventory"]
+
+      - name: cleanup
+        depends_on: ["tagging", "compliance"]

@@ -1,0 +1,289 @@
+# anvil
+
+<a name="readme-top"></a>
+
+<!-- PROJECT SHIELDS -->
+[![pytest][pytest-badge]][pytest-url]
+[![ruff][ruff-badge]][ruff-url]
+
+
+<!-- PROJECT LOGO -->
+<br />
+<div align="center">
+    <img src="images/logo.png" alt="Logo" width="256" height="256">
+  </a>
+
+  <h3 align="center">README</h3>
+
+  <p align="center">
+    <a href="https://github.com/JSChronicles/anvil"><strong>Explore the docs »</strong></a>
+    <br />
+    <a href="https://github.com/JSChronicles/anvil/issues/new?labels=Bug%2CNeeds+Triage&projects=&template=bug.yaml&title=%5BBUG%5D+%3Ctitle%3E">Report Bug</a>
+    ·
+    <a href="https://github.com/JSChronicles/anvil/issues/new?labels=enhancement%2Cfeature+request&projects=&template=feature.yaml&title=%5BFEATURE%5D%3A+">Request Feature</a>
+  </p>
+</div>
+
+## Introduction
+Anvil is a declarative, multi-organization AWS execution engine for running consistent, repeatable tasks across large numbers of AWS accounts, with explicit guarantees around ordering, isolation, and observability.
+
+It provides a structured way to define what should run (tasks and dependencies) and where it should run (organizations and accounts), while the engine manages authentication, role assumption, concurrency, failure handling, and result aggregation.
+
+Anvil is intentionally task-agnostic. Tasks are implemented as simple Python modules with a well-defined contract, enabling teams to build inventory, validation, enforcement, or reporting workflows without coupling business logic to the execution engine. Account execution is parallelized per organization using bounded worker pools, with optional fail-fast semantics.
+
+### Standalone Multi-Account Script Template
+
+If you do not need/want the full Anvil framework and only want a simple starting point for small AWS Organization tasks, see: [`templates/aws_multi_account_template.py`](./templates/multi_aws_account_task_template.py)
+
+This template provides:
+- AWS Organizations account discovery
+- active-account filtering
+- `--include` / `--exclude` account selection
+- parallel per-account execution
+- assume-role handling for member accounts
+- dry-run support
+- JSON result output
+
+Replace the `account_task()` function with your own per-account logic.
+Replace the `--example-piece` argparse and `example_piece`
+
+
+## Usage
+1. When using the uv tool, there are several ways to run and install dependencies. Here are a few examples:
+   1. Manual setup (similar to pip-tools):
+      1. Create a Python virtual environment: uv venv or python -m venv .venv
+      1. Activate the virtual environment: .\.venv\Scripts\activate.ps1
+      1. Install dependencies: uv pip install --requirements pyproject.toml
+1. uv sync:
+   1. Sync the project's dependencies with the environment: uv sync
+   1. Activate the virtual environment: .venv\Scripts\activate
+1. uv run:
+   1. Run a command in the project environment.: uv run example.py <args>
+   1. Note that if you use uv run in a project, i.e. a directory with a pyproject.toml, it will install the current project before running the script.
+
+
+We have multiple global commands
+```console
+anvil auth …
+anvil graph …
+anvil tasks …
+anvil run …
+```
+
+### Authentication
+
+Authentication checks validate AWS credentials and access without executing any tasks.
+
+```console
+anvil auth check --help
+```
+
+Authenticate credentials from an organization file.
+```console
+anvil auth check --org-file ./yaml/orgs.yaml
+```
+
+Output authentication results as JSON
+```console
+anvil auth check --org-file orgs.yaml --json
+```
+
+Suppress all output and rely on the exit code only (useful for CI)
+```console
+anvil auth check --org-file orgs.yaml --quiet
+```
+
+### Graph
+Display the resolved task dependency graph for an organization configuration.
+
+```console
+anvil graph --help
+```
+
+Generate a dependency graph from an organization file.
+```console
+anvil graph --org-file .\examples\07-optional-task-semantics.yaml
+
+Execution Graph (optional-semantics-org)
+----------------------------------------
+inventory
+└──     reporting
+    └──         cleanup
+```
+
+Output graph results as JSON
+```console
+anvil graph --org-file .\examples\07-optional-task-semantics.yaml --json
+
+{
+  "organization": "optional-semantics-org",
+  "tasks": [
+    {
+      "name": "inventory",
+      "depends_on": []
+    },
+    {
+      "name": "reporting",
+      "depends_on": [
+        "inventory"
+      ]
+    },
+    {
+      "name": "cleanup",
+      "depends_on": [
+        "reporting"
+      ]
+    }
+  ]
+}
+```
+
+
+
+### Task Management
+List all available stock and user-defined tasks
+```console
+anvil tasks list
+
+Available tasks:
+  - inventory [plugin: my-project]
+  - noop [stock]
+  - remove_iam_user [stock]
+  - cleanup [plugin: my-project]
+  ...
+```
+
+Validate all available stock and user-defined tasks:
+```console
+anvil tasks validate
+[ERROR] task validation failed:
+  - task 'cleanup' is missing required run() parameters: ['account_alias']
+  - task 'inventory' is missing required run() parameters: ['metadata']
+```
+
+### Execution
+```console
+anvil run --help
+```
+
+Execute all configured organizations and accounts
+```console
+anvil run --org-file ./yaml/orgs.yaml
+```
+
+You can run --include, --exclude, or --dry-run to overide the yaml file if you want to just test something or run on certain accounts
+```console
+# Include only specific accounts:
+anvil run --org-file orgs.yaml --include 111111111111 222222222222
+
+# Exclude specific accounts:
+anvil run --org-file orgs.yaml --exclude 333333333333 444444444444
+```
+
+
+
+## Custom Tasks (Project-Local)
+
+Anvil supports **project-local tasks** in addition to its stock tasks. This allows you to add custom behavior without forking Anvil.
+
+### How task discovery works
+
+Tasks are resolved in the following order:
+
+Anvil discovers tasks from two sources:
+
+- Stock tasks - tasks shipped with Anvil (anvil.tasks)
+
+- Plugin tasks - tasks registered via the anvil.tasks entry-point group
+
+Directories named `tasks/` are conventional only and are not automatically scanned.
+
+
+### Create a project-local tasks directory
+Create a directory anywhere in your project:
+
+```text
+my-project/
+├─ tasks/
+│  ├─ inventory.py
+│  ├─ cleanup.py
+│  └─ tagging.py
+```
+Each task module must define a callable run() function.
+
+### Register tasks in your project’s pyproject.toml using entry points
+```ini
+[project.entry-points."anvil.tasks"]
+project = "tasks"
+```
+
+Note: Your project might need to be installed `pip install --editable .`
+You should see some path output via `uv run python -c "import anvil; print(anvil.__file__)"`
+
+### Implement the Task Contract
+
+Each task module must define a callable `run` function.
+This is the minimum interface required for Anvil to discover and execute a task.
+
+```python
+def run(
+    *,
+    account_id: str,
+    account_alias: str,
+    session,
+    dry_run: bool,
+    metadata: dict,
+):
+    """
+    Execute the task for a single AWS account.
+    """
+```
+
+#### Arguments
+
+- `account_id` - AWS account ID currently being processed.
+- `account_alias` - Friendly name of the account.
+- `session` - A boto3 Session already scoped to the target account.
+- `dry_run` - Indicates whether the task should make changes.
+- `metadata` - Organization metadata defined in the configuration file.
+
+The return value is optional. Any returned data may be included in execution results.
+
+---
+
+### Optional Helpers (Advanced Usage)
+
+While only the `run()` function is required, tasks can optionally use Anvil-provided utilities to produce structured results or record actions.
+
+For example, tasks may import helpers such as:
+
+```python
+from anvil.task_definition import ActionRecorder
+```
+
+This helper allow tasks to:
+
+- record planned or executed actions
+- produce structured output for reporting
+- integrate with Anvil’s execution summaries
+
+You can view examples of this here [ActionRecorder](./examples/ActionRecorder/README.md)
+
+Using these utilities is **not required**, but recommended for tasks that modify infrastructure or need richer audit output.
+
+### Reference tasks in YAML
+Once configured, custom tasks behave exactly like stock tasks:
+
+```yaml
+tasks:
+  - name: inventory
+  - name: cleanup
+    depends_on: [inventory]
+```
+
+
+<!-- MARKDOWN LINKS & IMAGES -->
+[pytest-badge]:https://github.com/JSChronicles/anvil/actions/workflows/pytest.yaml/badge.svg?branch=main
+[pytest-url]:https://github.com/JSChronicles/anvil/actions/workflows/pytest.yaml
+[ruff-badge]:https://github.com/JSChronicles/anvil/actions/workflows/ruff.yaml/badge.svg?branch=main
+[ruff-url]:https://github.com/JSChronicles/anvil/actions/workflows/ruff.yaml

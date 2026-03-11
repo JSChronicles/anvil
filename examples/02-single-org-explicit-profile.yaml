@@ -1,0 +1,12 @@
+# Demonstrates:
+# - Explicit AWS profile usage
+#
+# All other execution behavior remains default.
+
+schema_version: 1
+
+organizations:
+  - name: profile-org
+
+    # Uses credentials from ~/.aws/config or ~/.aws/credentials
+    profile: my-aws-profile

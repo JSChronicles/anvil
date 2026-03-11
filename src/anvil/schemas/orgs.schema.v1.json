@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Multi-Org Execution Configuration",
+  "description": "Declarative configuration for executing tasks across AWS Organizations.",
+  "type": "object",
+  "required": ["schema_version", "organizations"],
+  "additionalProperties": false,
+
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Configuration schema version"
+    },
+    "organizations": {
+      "type": "array",
+      "minItems": 1,
+      "description": "List of AWS Organizations to process.",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "additionalProperties": false,
+
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Logical name of the organization."
+          },
+
+          "profile": {
+            "anyOf": [
+              { "type": "string", "minLength": 1 },
+              { "type": "null" }
+            ],
+            "description": "AWS CLI profile for the organization management account."
+          },
+
+          "region": {
+            "type": "string",
+            "minLength": 1,
+            "default": "us-east-1",
+            "description": "AWS region for API calls."
+          },
+
+          "role_name": {
+            "type": "string",
+            "minLength": 1,
+            "default": "OrganizationAccountAccessRole",
+            "description": "IAM role name to assume in member accounts."
+          },
+
+          "tasks": {
+            "type": "array",
+            "minItems": 1,
+            "description": "Tasks to execute for this organization.",
+            "items": {
+              "type": "object",
+              "required": ["name"],
+              "additionalProperties": false,
+
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Task name (must match task module filename)."
+                },
+
+                "depends_on": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "uniqueItems": true,
+                  "description": "List of task names that must complete before this task runs."
+                },
+
+                "optional": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "If true, task failure does not fail the account or block dependent tasks."
+                }
+              }
+            }
+          },
+
+          "max_workers": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 10,
+            "description": "Maximum number of concurrent account workers."
+          },
+
+          "fail_fast": {
+            "type": "boolean",
+            "default": false,
+            "description": "Stop processing remaining organizations if this one fails."
+          },
+
+          "dry_run": {
+            "type": "boolean",
+            "default": false,
+            "description": "Run in dry-run mode without making changes."
+          },
+
+          "include_accounts": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "pattern": "^[0-9]{12}$"
+            },
+            "description": "Explicit list of AWS account IDs to include."
+          },
+
+          "exclude_accounts": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "pattern": "^[0-9]{12}$"
+            },
+            "description": "List of AWS account IDs to exclude."
+          },
+
+          "metadata": {
+            "type": "object",
+            "default": {},
+            "additionalProperties": true,
+            "description": "Free-form metadata for organizational context."
+          }
+        },
+
+        "not": {
+          "required": ["include_accounts", "exclude_accounts"]
+        }
+      }
+    }
+  }
+}

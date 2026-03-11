@@ -1,0 +1,11 @@
+{
+  "recommendations": [
+    "ms-python.python",
+    "ms-python.vscode-pylance",
+    "charliermarsh.ruff",
+    "github.vscode-github-actions",
+    "boto3typed.boto3-ide",
+    "astral-sh.ty",
+    "editorconfig.editorconfig"
+  ]
+}

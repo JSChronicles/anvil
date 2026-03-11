@@ -1,0 +1,31 @@
+name: Validate YAML Schema
+
+on:
+  push:
+    branches:
+    - main
+
+  pull_request:
+    branches:
+    - main
+
+  workflow_dispatch:
+
+jobs:
+  validate-yaml:
+    runs-on: ubuntu-latest
+    container:
+      image: python:3.13-slim
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098 # v7.3.1
+        with:
+          version: "latest"
+
+      - name: Install the project
+        run: uv sync --all-groups
+
+      - name: Validate Yaml
+        run: uv run check-jsonschema --schemafile ./src/anvil/schemas/orgs.schema.v1.json ./yaml/*.yaml ./examples/*.yaml

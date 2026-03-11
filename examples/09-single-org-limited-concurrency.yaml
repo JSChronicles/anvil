@@ -1,0 +1,12 @@
+# Demonstrates:
+# - Limiting parallel account execution
+#
+# Useful for API rate limits or blast-radius control.
+
+schema_version: 1
+
+organizations:
+  - name: limited-concurrency-org
+
+    # Number of accounts processed concurrently
+    max_workers: 3

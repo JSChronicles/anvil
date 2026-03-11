@@ -1,0 +1,19 @@
+# Demonstrates:
+# - Fail-fast behavior across account execution
+#
+# Execution stops on first non-optional task failure.
+
+schema_version: 1
+
+organizations:
+  - name: strict-org
+    profile: strict-profile
+
+    fail_fast: true
+    # Remaining account work is aborted on failure
+
+    tasks:
+      - name: inventory
+
+      - name: enforcement
+        depends_on: ["inventory"]

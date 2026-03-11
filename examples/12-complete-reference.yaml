@@ -1,0 +1,51 @@
+schema_version: 1
+
+organizations:
+  - name: place
+    profile: place-root
+    region: us-east-1
+    role_name: OrganizationAccountAccessRole
+
+    max_workers: 5
+    fail_fast: false
+    dry_run: true
+
+    include_accounts:
+      - "111111111111"
+      - "222222222222"
+
+    tasks:
+      - name: discover_iam_users
+
+      - name: backup_iam_users
+        depends_on:
+          - discover_iam_users
+
+      - name: remove_iam_user
+        depends_on:
+          - discover_iam_users
+          - backup_iam_users
+
+    metadata:
+      user_name: test
+
+  - name: audit
+    profile: audit-root
+
+    max_workers: 10
+    fail_fast: true
+
+    exclude_accounts:
+      - "333333333333"
+
+    tasks:
+      - name: inventory_resources
+
+      - name: validate_security_baseline
+        depends_on:
+          - inventory_resources
+
+      - name: report_findings
+        depends_on:
+          - inventory_resources
+          - validate_security_baseline

@@ -1,0 +1,92 @@
+[build-system]
+requires = ["uv_build>=0.10.0,<0.11.0"]
+build-backend = "uv_build"
+
+[project]
+name = "anvil"
+version = "0.4.0"
+description = "Anvil is a multi-org AWS execution runner"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+  "boto3",
+  "requests",
+  "PyYAML>=6.0",
+  "jsonschema>=4.26"
+]
+
+[project.scripts]
+anvil = "anvil.cli:main"
+
+[dependency-groups]
+dev = [
+  "pytest-cov==7.0.0",
+  "pytest==9.0.2",
+  "pre-commit==4.5.1",
+  "check-jsonschema"
+]
+lint = [
+  "ruff"
+]
+
+[tool.pytest.ini_options]
+pythonpath = "."
+addopts = "-s -v --cov=anvil --cov-report=term-missing --cov-fail-under=50"
+norecursedirs = [".git", "__pycache__", ".venv"]
+testpaths = ["tests"]
+
+[tool.coverage.run]
+omit = [
+    "src/anvil/account.py",
+    "src/anvil/organization.py",
+    "src/anvil/session.py",
+    "src/anvil/tasks/*",
+]
+
+[tool.ruff]
+# https://docs.astral.sh/ruff/settings/
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".git-rewrite",
+    ".hg",
+    ".ipynb_checkpoints",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pyenv",
+    ".pytest_cache",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    ".vscode",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "site-packages",
+    "venv",
+]
+line-length = 88
+indent-width = 4
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["N", "E4", "E7", "E9", "F"]
+ignore = []
+task-tags = ["TODO", "FIXME", "HACK"]
+fixable = ["ALL"]
+unfixable = []
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = true
+line-ending = "auto"

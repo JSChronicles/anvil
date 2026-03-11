@@ -1,0 +1,21 @@
+# Demonstrates:
+# - Linear task execution
+# - Explicit ordering via depends_on
+# - Required task failure propagation
+
+schema_version: 1
+
+organizations:
+  - name: linear-task-org
+
+    tasks:
+      - name: inventory
+        # Executes first
+
+      - name: tagging
+        depends_on: ["inventory"]
+        # Executes only if inventory succeeds
+
+      - name: reporting
+        depends_on: ["tagging"]
+        # Will not run if tagging fails

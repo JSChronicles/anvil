@@ -1,0 +1,17 @@
+blank_issues_enabled: false
+contact_links:
+  - name: General Support
+    url: https://github.com/JSChronicles/anvil/blob/main/docs/SUPPORT.md
+    about: Use this link for general inquiries, guidance, or questions about this repository.
+
+  - name: Bug Reports
+    url: https://github.com/JSChronicles/anvil/issues/new?template=bug.yaml
+    about: Report a bug or an issue related to the repository by clicking here.
+
+  - name: Feature Requests
+    url: https://github.com/JSChronicles/anvil/issues/new?template=feature.yaml
+    about: Suggest a new feature or enhancement for the project.
+
+  - name: Documentation Feedback
+    url: https://github.com/JSChronicles/anvil/issues/new?template=documentation.yaml
+    about: Share feedback or suggestions for improving the documentation.

@@ -1,0 +1,105 @@
+name: Pull Request Template
+description: Standard template for pull requests
+title: "[PR]: " # Prefix for the issue title
+labels: [documentation, performance, refactor]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        # Description
+        Please include a summary of the change and which issue is fixed. Please also include relevant motivation and context.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Provide a brief description of the changes.
+      placeholder: Summary of the changes made.
+
+  - type: markdown
+    attributes:
+      value: |
+        # Related Issue
+        Please link to the related issue (if any).
+
+  - type: input
+    id: related_issue
+    attributes:
+      label: Related Issue
+      description: Link to the related issue.
+      placeholder: #123
+
+  - type: markdown
+    attributes:
+      value: |
+        # Type of Change
+        Please delete options that are not relevant.
+
+  - type: dropdown
+    id: change_type
+    attributes:
+      label: Type of Change
+      description: Select the type of change.
+      options:
+        - label: Bug fix
+          value: bug_fix
+        - label: New feature
+          value: new_feature
+        - label: Documentation update
+          value: documentation
+        - label: Performance improvement
+          value: performance
+        - label: Refactoring
+          value: refactoring
+        - label: Other
+          value: other
+
+  - type: markdown
+    attributes:
+      value: |
+        # Checklist
+        Please review the items below and mark as appropriate.
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I have read the contribution guidelines.
+          value: read_guidelines
+        - label: My code follows the style guidelines.
+          value: follows_guidelines
+        - label: I have performed a self-review of my code.
+          value: self_review
+        - label: I have commented my code, particularly in hard-to-understand areas.
+          value: commented_code
+        - label: I have added tests that prove my fix is effective or that my feature works.
+          value: added_tests
+        - label: New and existing unit tests pass locally with my changes.
+          value: tests_pass
+
+  - type: markdown
+    attributes:
+      value: |
+        # Screenshots
+        If applicable, please add screenshots to help explain your changes.
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: Provide screenshots if applicable.
+      placeholder: Add screenshots here.
+
+  - type: markdown
+    attributes:
+      value: |
+        # Additional Information
+        Any other information that is important to this PR (e.g., current dependencies, deployment notes, etc.).
+
+  - type: textarea
+    id: additional_information
+    attributes:
+      label: Additional Information
+      description: Any other relevant information.
+      placeholder: Add any other information here.

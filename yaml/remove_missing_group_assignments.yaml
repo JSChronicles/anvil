@@ -1,0 +1,15 @@
+# Example: Remove Identity Center group assignments
+# that reference deleted Identity Store groups.
+
+schema_version: 1
+
+organizations:
+  - name: my-org
+    profile: payer-profile
+    region: us-east-1
+
+    tasks:
+      - name: remove_missing_group_assignments
+
+    metadata:
+      identity_center_region: us-west-2

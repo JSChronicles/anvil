@@ -1,0 +1,36 @@
+{
+  // Global settings
+  "workbench.colorTheme": "Visual Studio Dark",
+  "editor.bracketPairColorization.enabled": true,
+  "editor.minimap.enabled": false,
+
+  // Python language analysis settings
+  "python.analysis.typeCheckingMode": "standard",
+  "python.analysis.autoFormatStrings": true,
+  "python.analysis.inlayHints.functionReturnTypes": true,
+
+  // Per-language Python formatting & linting
+  "[python]": {
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.fixAll.ruff": "explicit",
+      "source.organizeImports.ruff": "explicit"
+    },
+    "editor.defaultFormatter": "charliermarsh.ruff"
+  },
+
+  // YAML schema association for multi-org YAML files
+  "yaml.schemas": {
+    "src/anvil/schemas/orgs.schema.v1.json": [
+      "yaml/*.yaml",
+      "yaml/*.yml",
+      "examples/*.yaml",
+      "examples/*.yml"
+    ]
+  },
+
+  "yaml.validate": true,
+  "yaml.hover": true,
+  "yaml.completion": true
+
+}

@@ -1,0 +1,28 @@
+schema_version: 1
+
+organizations:
+  - name: org1
+    profile: root1
+    region: us-east-1
+    tasks:
+      - name: discover
+      - name: remove_iam_user
+        depends_on: ["discover"]
+        optional: true
+    dry_run: true
+    max_workers: 5
+
+    metadata:
+      user_name: migration
+
+  - name: org2
+    profile: root2
+    region: us-east-1
+    tasks:
+      - name: remove_iam_user
+        #depends_on: ["discover"]
+    dry_run: true
+    max_workers: 5
+
+    metadata:
+      user_name: "migration"

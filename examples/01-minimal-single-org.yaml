@@ -1,0 +1,13 @@
+# Minimal Anvil configuration.
+#
+# Demonstrates:
+# - Required schema structure only
+# - Single organization
+# - Default region, role, and noop task
+#
+# Intended as a smoke test.
+
+schema_version: 1
+
+organizations:
+  - name: minimal-org
