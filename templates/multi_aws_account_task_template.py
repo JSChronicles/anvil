@@ -45,6 +45,7 @@ def assume_role(
         aws_access_key_id=credentials["AccessKeyId"],
         aws_secret_access_key=credentials["SecretAccessKey"],
         aws_session_token=credentials["SessionToken"],
+        region_name=session.region_name,
     )
 
 
@@ -111,9 +112,15 @@ def account_task(
         account_session: Session for the target account.
         account: Account dictionary from get_all_accounts().
         dry_run: Whether to simulate actions only.
+        example_piece: Example task-specific argument passed into account_task.
 
     Returns:
         Result dictionary for the processed account.
+
+    Notes:
+        - Dry-run messages should start with "(dry-run)".
+        - Neutral informational messages such as "not found" or "already compliant"
+          do not need the dry-run prefix.
     """
     account_id = str(account["AWSAccountID"])
     account_name = str(account["AWSAccountName"])
@@ -126,14 +133,14 @@ def account_task(
     #
 
     if dry_run:
-        __LOGGER__.info(f"(dry_run) <action_here> for {account_id} ({account_name})")
+        __LOGGER__.info(f"(dry_run) Performed <action_here> for {account_id} ({account_name})")
     else:
         # Replace this section with the actual logic you want to run.
         #
         # Example:
         # iam_client = account_session.client("iam", config=BOTO_CONFIG)
         # s3_client = account_session.client("s3", config=BOTO_CONFIG)
-        __LOGGER__.info(f"<action_here> for {account_id} ({account_name})")
+        __LOGGER__.info(f"Performed <action_here> for {account_id} ({account_name})")
 
     # Use `Message` only when it adds value, for example: f"Deleted {deleted_count} unused access keys"
     return {
@@ -229,6 +236,7 @@ def orchestrate(
     exclude: list[str] | None,
     output: str | None,
     profile: str | None,
+    region: str,
     dry_run: bool,
     role_name: str,
     max_workers: int,
@@ -241,10 +249,12 @@ def orchestrate(
     parallel, and returns the collected results.
 
     Args:
+        example_piece: Example task-specific argument passed into account_task.
         include: Account IDs to include.
         exclude: Account IDs to exclude.
         output: Optional output JSON path.
         profile: Optional AWS profile name.
+        region: AWS region to use for boto3 clients/session.
         dry_run: Whether to simulate changes only.
         role_name: Role name for non-management accounts.
         max_workers: Thread pool size.
@@ -253,7 +263,7 @@ def orchestrate(
         List of per-account result dictionaries.
     """
     __LOGGER__.debug("Creating boto3 session")
-    session = boto3.Session(profile_name=profile, region_name="us-east-1")
+    session = boto3.Session(profile_name=profile, region_name=region)
     accounts = get_all_accounts(session)
 
     org_account_ids = {str(account["AWSAccountID"]) for account in accounts}
@@ -334,6 +344,11 @@ if __name__ == "__main__":
         help="Role name to assume in non-management accounts",
     )
     parser.add_argument(
+        "--region",
+        default="us-east-1",
+        help="AWS region to use for boto3 clients/session (default: us-east-1)",
+    )
+    parser.add_argument(
         "--max-workers",
         type=int,
         default=10,
@@ -360,6 +375,7 @@ if __name__ == "__main__":
         exclude=args.exclude,
         output=args.output,
         profile=args.profile,
+        region=args.region,
         dry_run=args.dry_run,
         role_name=args.role_name,
         max_workers=args.max_workers,
