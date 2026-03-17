@@ -133,7 +133,9 @@ def account_task(
     #
 
     if dry_run:
-        __LOGGER__.info(f"(dry_run) Performed <action_here> for {account_id} ({account_name})")
+        __LOGGER__.info(
+            f"(dry_run) Performed <action_here> for {account_id} ({account_name})"
+        )
     else:
         # Replace this section with the actual logic you want to run.
         #
