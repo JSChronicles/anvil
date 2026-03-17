@@ -5,6 +5,7 @@
 <!-- PROJECT SHIELDS -->
 [![pytest][pytest-badge]][pytest-url]
 [![ruff][ruff-badge]][ruff-url]
+[![prek][prek-badge]][prek-url]
 
 
 <!-- PROJECT LOGO -->
@@ -368,3 +369,6 @@ tasks:
 [pytest-url]:https://github.com/JSChronicles/anvil/actions/workflows/pytest.yaml
 [ruff-badge]:https://github.com/JSChronicles/anvil/actions/workflows/ruff.yaml/badge.svg?branch=main
 [ruff-url]:https://github.com/JSChronicles/anvil/actions/workflows/ruff.yaml
+
+[prek-badge]:https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/j178/prek/master/docs/assets/badge-v0.json
+[prek-url]:https://github.com/j178/prek
