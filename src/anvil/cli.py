@@ -12,7 +12,7 @@ from pathlib import Path
 import yaml
 from anvil.descriptors import OrgDescriptor
 from anvil.results import EngineState
-from anvil.runner import run_multiple_orgs
+from anvil.runner import run_auth_checks, run_multiple_orgs
 from anvil.task_loader import (
     ResolvedTask,
     _load_task_callable,
@@ -120,14 +120,11 @@ def _cmd_run(args) -> int:
 
 def _cmd_auth_check(args) -> int:
     """
-    Auth-only execution: delegates entirely to the runner and
-    suppresses organization execution via dry-run semantics.
+    Auth-only execution for configured organizations.
     """
     orgs = _load_orgs_from_file(args.org_file)
 
-    engine_result = run_multiple_orgs(
-        orgs=orgs, cli_dry_run=True, cli_include=None, cli_exclude=None
-    )
+    engine_result = run_auth_checks(orgs=orgs)
 
     auth_payload = {
         "generated_at": engine_result.generated_at,
@@ -140,10 +137,7 @@ def _cmd_auth_check(args) -> int:
         else:
             print(auth_payload)
 
-    if engine_result.state is EngineState.COMPLETED_SUCCESS:
-        return 0
-
-    return 1
+    return 0 if engine_result.state is EngineState.COMPLETED_SUCCESS else 1
 
 
 def _cmd_list_tasks() -> int:

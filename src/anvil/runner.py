@@ -28,6 +28,38 @@ def _elevate_state(current: EngineState, new: EngineState) -> EngineState:
     return current
 
 
+def run_auth_checks(*, orgs: list) -> EngineResult:
+    """
+    Run authentication checks only. Does not resolve tasks or execute organizations.
+    """
+    engine_state = EngineState.COMPLETED_SUCCESS
+    auth_results: list[AuthResult] = []
+
+    for organization in orgs:
+        auth_source = infer_auth_source(organization.profile)
+
+        auth_result = auth_check(
+            org_name=organization.name,
+            profile=organization.profile,
+            auth_source=auth_source,
+        )
+
+        auth_results.append(auth_result)
+
+        if auth_result.is_error:
+            if organization.fail_fast:
+                engine_state = _elevate_state(engine_state, EngineState.AUTH_FAILED)
+                break
+
+            engine_state = _elevate_state(
+                engine_state, EngineState.COMPLETED_WITH_FAILURES
+            )
+
+    return EngineResult.create(
+        state=engine_state, auth_results=auth_results, organization_results=[]
+    )
+
+
 def run_multiple_orgs(
     *,
     orgs: list,
@@ -96,12 +128,10 @@ def run_multiple_orgs(
         org_result = org_runner.execute()
         org_results.append(org_result)
 
-        # If execution was cancelled via fail-fast inside Organization
         if context.cancel_event.is_set():
             engine_state = _elevate_state(engine_state, EngineState.CANCELLED)
             break
 
-        # If org finished but has failures (and not already AUTH_FAILED)
         if engine_state is EngineState.COMPLETED_SUCCESS and org_result.has_failures:
             engine_state = _elevate_state(
                 engine_state, EngineState.COMPLETED_WITH_FAILURES
