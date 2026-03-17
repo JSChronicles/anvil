@@ -86,11 +86,49 @@ anvil auth check --org-file ./yaml/orgs.yaml
 Output authentication results as JSON
 ```console
 anvil auth check --org-file orgs.yaml --json
+
+INFO     [auth.py:auth_check:106] Running auth check for org=root profile=root auth_source=AuthSource.SSO
+WARNING  [credentials.py:_protected_refresh:603] Refreshing temporary credentials failed during mandatory refresh period.
+botocore.exceptions.UnauthorizedSSOTokenError: The SSO session associated with this profile has expired or is otherwise invalid. To refresh this SSO session run aws sso login with the corresponding profile.
+{
+  "generated_at": "2026-03-17T18:32:24.317494+00:00",
+  "auth": [
+    {
+      "org_name": "root",
+      "status": "error",
+      "source": "sso",
+      "started_at": "2026-03-17T18:32:24.170600+00:00",
+      "ended_at": "2026-03-17T18:32:24.317372+00:00",
+      "duration_seconds": 0.1467731999582611,
+      "message": "AWS SSO session is invalid or expired.",
+      "remediation": "aws sso login --profile root"
+    }
+  ]
+}
+
+
+INFO     [auth.py:auth_check:106] Running auth check for org=root profile=root auth_source=AuthSource.SSO
+{
+  "generated_at": "2026-03-17T18:45:00.141364+00:00",
+  "auth": [
+    {
+      "org_name": "root",
+      "status": "success",
+      "source": "sso",
+      "started_at": "2026-03-17T18:44:58.370377+00:00",
+      "ended_at": "2026-03-17T18:45:00.141340+00:00",
+      "duration_seconds": 1.7709634999628179,
+      "message": "Authenticated successfully.",
+      "remediation": null
+    }
+  ]
+}
 ```
 
 Suppress all output and rely on the exit code only (useful for CI)
 ```console
 anvil auth check --org-file orgs.yaml --quiet
+INFO     [auth.py:auth_check:106] Running auth check for org=root profile=root auth_source=AuthSource.SSO
 ```
 
 ### Graph
@@ -166,9 +204,52 @@ anvil tasks validate
 anvil run --help
 ```
 
-Execute all configured organizations and accounts
+Execute all configured organizations and accounts, write per-organization full results to ./results/{orgname}.json, and produce a summary file at the end.
 ```console
-anvil run --org-file ./yaml/orgs.yaml
+anvil run --org-file ./yaml/noop.yaml
+INFO     [auth.py:auth_check:106] Running auth check for org=root profile=root auth_source=AuthSource.SSO
+INFO     [organization.py:execute:39] Starting organization processing (org=root, region=us-east-1)
+INFO     [account.py:execute:48] Processing account root (123456789000)
+INFO     [account.py:execute:48] Processing account account1 (111111111111)
+INFO     [account.py:execute:48] Processing account account2 (222222222222)
+INFO     [noop.py:run:33] No-op task executed for account root (123456789000), dry_run=False
+INFO     [account.py:execute:48] Processing account Log Archive (333333333333)
+INFO     [account.py:execute:48] Processing account Audit (444444444444)
+INFO     [noop.py:run:33] No-op task executed for account account1 (111111111111), dry_run=False
+INFO     [noop.py:run:33] No-op task executed for account Audit (444444444444), dry_run=False
+INFO     [noop.py:run:33] No-op task executed for account Log Archive (333333333333), dry_run=False
+INFO     [noop.py:run:33] No-op task executed for account account2 (222222222222), dry_run=False
+......
+INFO     [cli.py:_cmd_run:113] Wrote summary to xxxx\xxxx\multi-org-summary.json and 1 org result files
+
+#Summary below
+{
+  "state": "completed_success",
+  "generated_at": "2026-03-17T18:48:47.392583+00:00",
+  "auth": [
+    {
+      "org_name": "root",
+      "status": "success",
+      "source": "sso",
+      "started_at": "2026-03-17T18:48:36.615369+00:00",
+      "ended_at": "2026-03-17T18:48:38.338430+00:00",
+      "duration_seconds": 1.7230594999855384,
+      "message": "Authenticated successfully.",
+      "remediation": null
+    }
+  ],
+  "organizations": [
+    {
+      "name": "root",
+      "total_accounts": 50,
+      "failed_accounts": 0,
+      "failed_tasks": 0,
+      "has_failures": false
+    }
+  ],
+  "total_failed_accounts": 0,
+  "total_failed_tasks": 0
+}
 ```
 
 You can run --include, --exclude, or --dry-run to overide the yaml file if you want to just test something or run on certain accounts
