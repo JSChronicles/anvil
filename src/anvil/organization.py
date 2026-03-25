@@ -62,7 +62,7 @@ class Organization:
                     account_result: AccountResult = future.result()
                     account_results.append(account_result)
 
-                    if self.context.fail_fast and account_result.status.is_error:
+                    if self.context.fail_fast and account_result.status.is_unsuccessful:
                         __LOGGER__.critical(f"Fail-fast triggered in org '{self.name}'")
 
                         # Signal cooperative cancellation to all running tasks

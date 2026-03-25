@@ -61,6 +61,7 @@ class Account:
         task_results: dict[str, TaskResult] = {}
 
         optional_map = {task.name: task.optional for task in self._context.tasks}
+        interrupted = False
 
         try:
             # Establish session
@@ -80,6 +81,7 @@ class Account:
                     __LOGGER__.warning(
                         f"Account {self.account_id} stopping due to cancellation signal"
                     )
+                    interrupted = True
                     break
 
                 # Dependency gate
@@ -166,16 +168,24 @@ class Account:
                 result.status.is_error and not optional_map.get(result.task_name, False)
                 for result in task_results.values()
             )
+            account_interrupted = interrupted and len(task_results) < len(
+                self._context.tasks
+            )
 
             ended_perf = time.perf_counter()
             ended_at = datetime.datetime.now(datetime.UTC).isoformat()
 
+            if account_failed:
+                account_status = ExecutionStatus.ERROR
+            elif account_interrupted:
+                account_status = ExecutionStatus.INTERRUPTED
+            else:
+                account_status = ExecutionStatus.SUCCESS
+
             return AccountResult(
                 account_id=self.account_id,
                 account_alias=self.account_alias,
-                status=ExecutionStatus.ERROR
-                if account_failed
-                else ExecutionStatus.SUCCESS,
+                status=account_status,
                 started_at=started_at,
                 ended_at=ended_at,
                 duration_seconds=ended_perf - started_perf,

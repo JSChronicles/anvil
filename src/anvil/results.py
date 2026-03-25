@@ -8,6 +8,7 @@ from enum import Enum
 class ExecutionStatus(str, Enum):
     SUCCESS = "success"
     ERROR = "error"
+    INTERRUPTED = "interrupted"
 
     @property
     def is_success(self) -> bool:
@@ -16,6 +17,14 @@ class ExecutionStatus(str, Enum):
     @property
     def is_error(self) -> bool:
         return self is ExecutionStatus.ERROR
+
+    @property
+    def is_interrupted(self) -> bool:
+        return self is ExecutionStatus.INTERRUPTED
+
+    @property
+    def is_unsuccessful(self) -> bool:
+        return self is not ExecutionStatus.SUCCESS
 
 
 class EngineState(str, Enum):
@@ -117,8 +126,16 @@ class OrgResult:
         return [result for result in self.account_results if result.status.is_error]
 
     @property
+    def interrupted_accounts(self) -> list[AccountResult]:
+        return [result for result in self.account_results if result.status.is_interrupted]
+
+    @property
+    def unsuccessful_accounts(self) -> list[AccountResult]:
+        return [result for result in self.account_results if result.status.is_unsuccessful]
+
+    @property
     def has_failures(self) -> bool:
-        return any(result.status.is_error for result in self.account_results)
+        return any(result.status.is_unsuccessful for result in self.account_results)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -171,6 +188,13 @@ class EngineResult:
         )
 
     @property
+    def total_interrupted_accounts(self) -> int:
+        return sum(
+            len(organization_result.interrupted_accounts)
+            for organization_result in self.organization_results
+        )
+
+    @property
     def total_organizations(self) -> int:
         return len(self.organization_results)
 
@@ -210,6 +234,7 @@ class EngineResult:
             "auth": [auth_result.to_dict() for auth_result in self.auth_results],
             "organizations": [],
             "total_failed_accounts": 0,
+            "total_interrupted_accounts": 0,
             "total_failed_tasks": 0,
         }
 
@@ -221,6 +246,11 @@ class EngineResult:
                 for account_result in account_results
                 if account_result.status.is_error
             ]
+            interrupted_accounts = [
+                account_result
+                for account_result in account_results
+                if account_result.status.is_interrupted
+            ]
 
             failed_tasks = sum(
                 1
@@ -230,6 +260,7 @@ class EngineResult:
             )
 
             summary["total_failed_accounts"] += len(failed_accounts)
+            summary["total_interrupted_accounts"] += len(interrupted_accounts)
             summary["total_failed_tasks"] += failed_tasks
 
             summary["organizations"].append(
@@ -237,6 +268,7 @@ class EngineResult:
                     "name": organization_result.org_name,
                     "total_accounts": organization_result.total_accounts,
                     "failed_accounts": len(failed_accounts),
+                    "interrupted_accounts": len(interrupted_accounts),
                     "failed_tasks": failed_tasks,
                     "has_failures": organization_result.has_failures,
                 }
