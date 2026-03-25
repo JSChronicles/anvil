@@ -6,6 +6,7 @@ import pkgutil
 from collections import defaultdict, deque
 from collections.abc import Callable
 from dataclasses import dataclass
+from functools import lru_cache
 from importlib.metadata import entry_points
 
 __LOGGER__ = logging.getLogger(__name__)
@@ -27,6 +28,11 @@ class ResolvedTask:
 class _TaskSpec:
     depends_on: list[str]
     optional: bool
+
+
+TaskSpecKey = tuple[tuple[str, tuple[str, ...], bool], ...]
+CachedOrderedTask = tuple[tuple[str, Callable, tuple[str, ...], bool], ...]
+CachedAdjacency = tuple[tuple[str, tuple[str, ...]], ...]
 
 
 class TaskConfigError(RuntimeError):
@@ -121,6 +127,7 @@ def _load_plugin_task(task_name: str) -> Callable:
     )
 
 
+@lru_cache(maxsize=128)
 def _load_task_callable(task_name: str) -> Callable:
     try:
         return _load_core_task(task_name)
@@ -131,6 +138,66 @@ def _load_task_callable(task_name: str) -> Callable:
 # ============================================================================
 # Public API
 # ============================================================================
+
+
+def _freeze_task_specs(task_specs: list[dict[str, object]]) -> TaskSpecKey:
+    frozen_specs: list[tuple[str, tuple[str, ...], bool]] = []
+
+    for spec in task_specs:
+        frozen_specs.append(
+            (
+                spec["name"],
+                tuple(spec.get("depends_on", [])),
+                bool(spec.get("optional", False)),
+            )
+        )
+
+    return tuple(frozen_specs)
+
+
+def _build_resolved_execution(
+    ordered: CachedOrderedTask, adjacency: CachedAdjacency
+) -> ResolvedExecution:
+    return ResolvedExecution(
+        ordered=[
+            ResolvedTask(
+                name=name, run=run, depends_on=list(depends_on), optional=optional
+            )
+            for name, run, depends_on, optional in ordered
+        ],
+        adjacency={name: list(children) for name, children in adjacency},
+    )
+
+
+@lru_cache(maxsize=128)
+def _resolve_tasks_cached(
+    task_specs_key: TaskSpecKey,
+) -> tuple[CachedOrderedTask, CachedAdjacency]:
+    task_specs = [
+        {"name": name, "depends_on": list(depends_on), "optional": optional}
+        for name, depends_on, optional in task_specs_key
+    ]
+
+    spec_by_name = _parse_task_specs(task_specs)
+
+    _validate_dependencies(spec_by_name)
+
+    ordered_names, adjacency = _topological_sort(spec_by_name)
+
+    ordered: CachedOrderedTask = tuple(
+        (
+            name,
+            _load_task_callable(name),
+            tuple(spec_by_name[name].depends_on),
+            spec_by_name[name].optional,
+        )
+        for name in ordered_names
+    )
+    frozen_adjacency: CachedAdjacency = tuple(
+        (name, tuple(children)) for name, children in adjacency.items()
+    )
+
+    return ordered, frozen_adjacency
 
 
 def _parse_task_specs(task_specs: list[dict[str, object]]) -> dict[str, _TaskSpec]:
@@ -195,23 +262,9 @@ def _topological_sort(
 
 
 def resolve_tasks(*, task_specs: list[dict[str, object]]) -> ResolvedExecution:
-    spec_by_name = _parse_task_specs(task_specs)
-
-    _validate_dependencies(spec_by_name)
-
-    ordered_names, adjacency = _topological_sort(spec_by_name)
-
-    resolved = [
-        ResolvedTask(
-            name=name,
-            run=_load_task_callable(name),
-            depends_on=spec_by_name[name].depends_on,
-            optional=spec_by_name[name].optional,
-        )
-        for name in ordered_names
-    ]
-
-    return ResolvedExecution(ordered=resolved, adjacency=adjacency)
+    task_specs_key = _freeze_task_specs(task_specs)
+    ordered, adjacency = _resolve_tasks_cached(task_specs_key)
+    return _build_resolved_execution(ordered, adjacency)
 
 
 def discover_tasks() -> list[TaskDescriptor]:
