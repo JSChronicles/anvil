@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import threading
 import time
 from types import SimpleNamespace
 
@@ -72,7 +71,6 @@ def test_account_cancelled_before_finishing_is_interrupted(monkeypatch):
     assert result.tasks[0].status is ExecutionStatus.SUCCESS
 
 
-
 def test_account_success_still_reports_success(monkeypatch):
     def task_one(**kwargs):
         kwargs["actions"].record("task one")
@@ -106,27 +104,25 @@ def test_account_success_still_reports_success(monkeypatch):
     assert [task.task_name for task in result.tasks] == ["task_one", "task_two"]
 
 
-
 def test_organization_fail_fast_sets_cancel_event(monkeypatch):
     context = _context(tasks=[], fail_fast=True)
 
     class ErrorAccount:
         def execute(self) -> AccountResult:
-            return _account_result(account_id="111111111111", status=ExecutionStatus.ERROR)
+            return _account_result(
+                account_id="111111111111", status=ExecutionStatus.ERROR
+            )
 
     class WaitingAccount:
         def execute(self) -> AccountResult:
             while not context.cancel_event.is_set():
                 time.sleep(0.01)
             return _account_result(
-                account_id="222222222222",
-                status=ExecutionStatus.INTERRUPTED,
+                account_id="222222222222", status=ExecutionStatus.INTERRUPTED
             )
 
     monkeypatch.setattr(
-        Organization,
-        "_get_management_account_id",
-        lambda self, session: "111111111111",
+        Organization, "_get_management_account_id", lambda self, session: "111111111111"
     )
     monkeypatch.setattr(
         Organization,
@@ -136,10 +132,7 @@ def test_organization_fail_fast_sets_cancel_event(monkeypatch):
             WaitingAccount(),
         ],
     )
-    monkeypatch.setattr(
-        "anvil.organization.create_base_session",
-        lambda **_: object(),
-    )
+    monkeypatch.setattr("anvil.organization.create_base_session", lambda **_: object())
 
     organization = Organization(
         name="org-a",
@@ -158,7 +151,6 @@ def test_organization_fail_fast_sets_cancel_event(monkeypatch):
         account_result.status is ExecutionStatus.ERROR
         for account_result in result.account_results
     )
-
 
 
 def test_engine_summary_counts_interrupted_accounts():

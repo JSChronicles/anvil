@@ -4,7 +4,9 @@ import importlib
 from types import SimpleNamespace
 
 
-def test_graph_and_run_paths_behave_the_same_with_cached_resolution(monkeypatch, capsys):
+def test_graph_and_run_paths_behave_the_same_with_cached_resolution(
+    monkeypatch, capsys
+):
     task_loader = importlib.import_module("anvil.task_loader")
     graph = importlib.import_module("anvil.graph")
     runner = importlib.import_module("anvil.runner")
@@ -27,10 +29,7 @@ def test_graph_and_run_paths_behave_the_same_with_cached_resolution(monkeypatch,
 
     org = descriptors.OrgDescriptor(
         name="demo-org",
-        tasks=[
-            {"name": "alpha"},
-            {"name": "beta", "depends_on": ["alpha"]},
-        ],
+        tasks=[{"name": "alpha"}, {"name": "beta", "depends_on": ["alpha"]}],
     )
 
     graph.render_graph(orgs=[org], output_json=True)
@@ -52,7 +51,9 @@ def test_graph_and_run_paths_behave_the_same_with_cached_resolution(monkeypatch,
             message="ok",
         ),
     )
-    monkeypatch.setattr(runner, "infer_auth_source", lambda profile: SimpleNamespace(value="test"))
+    monkeypatch.setattr(
+        runner, "infer_auth_source", lambda profile: SimpleNamespace(value="test")
+    )
 
     observed_tasks: list[list[str]] = []
 
@@ -64,18 +65,13 @@ def test_graph_and_run_paths_behave_the_same_with_cached_resolution(monkeypatch,
 
         def execute(self):
             return results.OrgResult.create(
-                org_name=self.name,
-                dry_run=self.context.dry_run,
-                account_results=[],
+                org_name=self.name, dry_run=self.context.dry_run, account_results=[]
             )
 
     monkeypatch.setattr(runner, "Organization", FakeOrganization)
 
     engine_result = runner.run_multiple_orgs(
-        orgs=[org, org],
-        cli_dry_run=None,
-        cli_include=None,
-        cli_exclude=None,
+        orgs=[org, org], cli_dry_run=None, cli_include=None, cli_exclude=None
     )
 
     assert observed_tasks == [["alpha", "beta"], ["alpha", "beta"]]

@@ -70,7 +70,6 @@ def test_run_auth_checks_uses_parallel_pool_and_preserves_input_order(monkeypatc
     assert engine_result.state is results.EngineState.COMPLETED_SUCCESS
 
 
-
 def test_run_auth_checks_handles_mixed_success_and_failure_in_input_order(monkeypatch):
     runner = importlib.import_module("anvil.runner")
     descriptors = importlib.import_module("anvil.descriptors")
@@ -124,7 +123,6 @@ def test_run_auth_checks_handles_mixed_success_and_failure_in_input_order(monkey
     assert engine_result.state is results.EngineState.COMPLETED_WITH_FAILURES
 
 
-
 def test_run_multiple_orgs_behavior_is_unchanged(monkeypatch):
     runner = importlib.import_module("anvil.runner")
     descriptors = importlib.import_module("anvil.descriptors")
@@ -166,9 +164,7 @@ def test_run_multiple_orgs_behavior_is_unchanged(monkeypatch):
         def execute(self):
             execute_calls.append(self.name)
             return results.OrgResult.create(
-                org_name=self.name,
-                dry_run=self.context.dry_run,
-                account_results=[],
+                org_name=self.name, dry_run=self.context.dry_run, account_results=[]
             )
 
     monkeypatch.setattr(runner, "Organization", FakeOrganization)
@@ -179,10 +175,7 @@ def test_run_multiple_orgs_behavior_is_unchanged(monkeypatch):
     ]
 
     engine_result = runner.run_multiple_orgs(
-        orgs=orgs,
-        cli_dry_run=None,
-        cli_include=None,
-        cli_exclude=None,
+        orgs=orgs, cli_dry_run=None, cli_include=None, cli_exclude=None
     )
 
     assert auth_calls == ["org-a", "org-b"]

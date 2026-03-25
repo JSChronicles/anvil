@@ -20,10 +20,7 @@ def test_repeated_identical_task_specs_reuse_cached_resolution(monkeypatch):
 
     monkeypatch.setattr(task_loader, "_load_task_callable", fake_load)
 
-    task_specs = [
-        {"name": "alpha"},
-        {"name": "beta", "depends_on": ["alpha"]},
-    ]
+    task_specs = [{"name": "alpha"}, {"name": "beta", "depends_on": ["alpha"]}]
 
     first = task_loader.resolve_tasks(task_specs=task_specs)
     second = task_loader.resolve_tasks(task_specs=task_specs)
@@ -76,10 +73,7 @@ def test_returned_values_do_not_expose_shared_mutable_cached_state(monkeypatch):
 
     monkeypatch.setattr(task_loader, "_load_task_callable", fake_load)
 
-    task_specs = [
-        {"name": "alpha"},
-        {"name": "beta", "depends_on": ["alpha"]},
-    ]
+    task_specs = [{"name": "alpha"}, {"name": "beta", "depends_on": ["alpha"]}]
 
     first = task_loader.resolve_tasks(task_specs=task_specs)
     first.ordered[1].depends_on.append("extra")

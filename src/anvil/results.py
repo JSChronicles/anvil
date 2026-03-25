@@ -127,11 +127,15 @@ class OrgResult:
 
     @property
     def interrupted_accounts(self) -> list[AccountResult]:
-        return [result for result in self.account_results if result.status.is_interrupted]
+        return [
+            result for result in self.account_results if result.status.is_interrupted
+        ]
 
     @property
     def unsuccessful_accounts(self) -> list[AccountResult]:
-        return [result for result in self.account_results if result.status.is_unsuccessful]
+        return [
+            result for result in self.account_results if result.status.is_unsuccessful
+        ]
 
     @property
     def has_failures(self) -> bool:
