@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 
 from anvil.auth import auth_check, infer_auth_source
 from anvil.execution_context import ExecutionContext
@@ -18,6 +19,8 @@ STATE_PRECEDENCE = {
     EngineState.COMPLETED_SUCCESS: 1,
 }
 
+DEFAULT_AUTH_CHECK_MAX_WORKERS = 4
+
 
 def _elevate_state(current: EngineState, new: EngineState) -> EngineState:
     """
@@ -28,6 +31,26 @@ def _elevate_state(current: EngineState, new: EngineState) -> EngineState:
     return current
 
 
+def _run_auth_check_for_org(organization) -> AuthResult:
+    """
+    Run an auth check for a single organization descriptor.
+    """
+    auth_source = infer_auth_source(organization.profile)
+
+    return auth_check(
+        org_name=organization.name,
+        profile=organization.profile,
+        auth_source=auth_source,
+    )
+
+
+def _get_auth_check_pool_size(org_count: int) -> int:
+    """
+    Return the bounded worker count used for auth-only checks.
+    """
+    return max(1, min(DEFAULT_AUTH_CHECK_MAX_WORKERS, org_count))
+
+
 def run_auth_checks(*, orgs: list) -> EngineResult:
     """
     Run authentication checks only. Does not resolve tasks or execute organizations.
@@ -35,25 +58,26 @@ def run_auth_checks(*, orgs: list) -> EngineResult:
     engine_state = EngineState.COMPLETED_SUCCESS
     auth_results: list[AuthResult] = []
 
-    for organization in orgs:
-        auth_source = infer_auth_source(organization.profile)
+    with ThreadPoolExecutor(
+        max_workers=_get_auth_check_pool_size(len(orgs))
+    ) as executor:
+        futures = [
+            executor.submit(_run_auth_check_for_org, organization)
+            for organization in orgs
+        ]
 
-        auth_result = auth_check(
-            org_name=organization.name,
-            profile=organization.profile,
-            auth_source=auth_source,
-        )
+        for organization, future in zip(orgs, futures, strict=True):
+            auth_result = future.result()
+            auth_results.append(auth_result)
 
-        auth_results.append(auth_result)
+            if auth_result.is_error:
+                if organization.fail_fast:
+                    engine_state = _elevate_state(engine_state, EngineState.AUTH_FAILED)
+                    break
 
-        if auth_result.is_error:
-            if organization.fail_fast:
-                engine_state = _elevate_state(engine_state, EngineState.AUTH_FAILED)
-                break
-
-            engine_state = _elevate_state(
-                engine_state, EngineState.COMPLETED_WITH_FAILURES
-            )
+                engine_state = _elevate_state(
+                    engine_state, EngineState.COMPLETED_WITH_FAILURES
+                )
 
     return EngineResult.create(
         state=engine_state, auth_results=auth_results, organization_results=[]
