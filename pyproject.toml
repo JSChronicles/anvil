@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "anvil"
-version = "0.5.0"
+version = "0.6.0"
 description = "Anvil is a multi-org AWS execution runner"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -20,9 +20,9 @@ anvil = "anvil.cli:main"
 
 [dependency-groups]
 dev = [
-  "pytest-cov==7.0.0",
+  "pytest-cov==7.1.0",
   "pytest==9.0.2",
-  "prek==0.3.6",
+  "prek==0.3.8",
   "check-jsonschema",
   "ruff"
 ]
