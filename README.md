@@ -28,9 +28,11 @@
 ## Introduction
 Anvil is a declarative, multi-organization AWS execution engine for running consistent, repeatable tasks across large numbers of AWS accounts, with explicit guarantees around ordering, isolation, and observability.
 
-It provides a structured way to define what should run (tasks and dependencies) and where it should run (organizations and accounts), while the engine manages authentication, role assumption, concurrency, failure handling, and result aggregation.
+It provides a structured way to define what should run (tasks and dependencies) and where it should run (organizations and accounts), while the engine manages authentication, role assumption, bounded concurrency, fail-fast and cancellation behavior, and structured result aggregation across task, account, organization, and engine levels.
 
-Anvil is intentionally task-agnostic. Tasks are implemented as simple Python modules with a well-defined contract, enabling teams to build inventory, validation, enforcement, or reporting workflows without coupling business logic to the execution engine. Account execution is parallelized per organization using bounded worker pools, with optional fail-fast semantics.
+Anvil is intentionally task-agnostic. Tasks are implemented as simple Python modules with a defined runtime contract, allowing teams to build inventory, validation, enforcement, and reporting workflows without coupling business logic to the execution engine. Within an organization, account execution is parallelized through bounded worker pools, while dependency ordering and execution context are handled centrally by the engine.
+
+If you'd like to check out the flow or have a little more in-depth information about Anvil you can check out this [doc](docs/README.md)
 
 ### Standalone Multi-Account Script Template
 
@@ -45,8 +47,8 @@ This template provides:
 - dry-run support
 - JSON result output
 
-Replace the `account_task()` function with your own per-account logic.
-Replace the `--example-piece` argparse and `example_piece`
+Replace the innards of the `account_task()` function with your own per-account logic.
+Replace the `--example-piece` argparse and `example_piece` in other areas or edit as desired
 
 
 ## Usage
