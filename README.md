@@ -73,6 +73,25 @@ anvil tasks …
 anvil run …
 ```
 
+### Logging verbosity
+
+The `run`, `auth check`, and `graph` commands support `--log-level` to control console output verbosity.
+
+Supported values:
+- `DEBUG`
+- `INFO`
+- `WARNING`
+- `ERROR`
+- `CRITICAL`
+
+Examples:
+
+```console
+anvil run --org-file ./yaml/orgs.yaml --log-level ERROR
+anvil auth check --org-file ./yaml/orgs.yaml --log-level WARNING
+anvil graph --org-file ./yaml/orgs.yaml --log-level INFO
+```
+
 ### Authentication
 
 Authentication checks validate AWS credentials and access without executing any tasks.

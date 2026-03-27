@@ -184,16 +184,21 @@ def _cmd_graph(args) -> int:
     return 0
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Multi-org AWS account processing runner"
-    )
-
+def _add_log_level_arg(parser: argparse.ArgumentParser) -> None:
+    """
+    Add a standard log-level option to a parser.
+    """
     parser.add_argument(
         "--log-level",
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
         help="Logging verbosity",
+    )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Multi-org AWS account processing runner"
     )
 
     subparsers = parser.add_subparsers(dest="command", required=False)
@@ -211,6 +216,7 @@ def main() -> None:
     )
 
     _add_common_org_args(auth_check_parser)
+    _add_log_level_arg(auth_check_parser)
 
     auth_check_parser.add_argument(
         "--json", action="store_true", help="Output results as JSON"
@@ -229,6 +235,7 @@ def main() -> None:
     run_parser = subparsers.add_parser("run", help="Execute tasks across organizations")
 
     _add_common_org_args(run_parser)
+    _add_log_level_arg(run_parser)
 
     run_parser.add_argument(
         "--dry-run",
@@ -266,6 +273,7 @@ def main() -> None:
     )
 
     _add_common_org_args(graph_parser)
+    _add_log_level_arg(graph_parser)
 
     graph_parser.add_argument(
         "--json", action="store_true", help="Output graph as JSON"
