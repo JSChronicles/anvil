@@ -231,7 +231,10 @@ def main() -> None:
     _add_common_org_args(run_parser)
 
     run_parser.add_argument(
-        "--dry-run", action="store_true", help="Run without making changes"
+        "--dry-run",
+        action="store_true",
+        default=None,
+        help="Run without making changes",
     )
 
     run_parser.set_defaults(func=_cmd_run)
