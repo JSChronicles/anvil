@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
 
 import boto3
 
@@ -56,26 +56,32 @@ class Organization:
             futures = {
                 executor.submit(account.execute): account for account in accounts
             }
+            fail_fast_triggered = False
 
             try:
                 for future in as_completed(futures):
-                    account_result: AccountResult = future.result()
+                    try:
+                        account_result: AccountResult = future.result()
+                    except CancelledError:
+                        continue
+
                     account_results.append(account_result)
 
-                    if self.context.fail_fast and account_result.status.is_unsuccessful:
+                    if (
+                        self.context.fail_fast
+                        and account_result.status.is_unsuccessful
+                        and not fail_fast_triggered
+                    ):
                         __LOGGER__.critical(f"Fail-fast triggered in org '{self.name}'")
 
                         # Signal cooperative cancellation to all running tasks
                         self.context.cancel_event.set()
+                        fail_fast_triggered = True
 
                         # Cancel all pending futures
                         for pending in futures:
                             if not pending.done():
                                 pending.cancel()
-
-                        # Immediately shutdown executor
-                        executor.shutdown(cancel_futures=True)
-                        break
 
             except Exception:
                 executor.shutdown(cancel_futures=True)
