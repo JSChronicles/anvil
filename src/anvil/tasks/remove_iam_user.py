@@ -206,7 +206,7 @@ def run(
     iam_client = session.client("iam")
 
     cleanup_user_resources(
-        iam_client=iam_client, user_name=user_name, dry_run=True, actions=actions
+        iam_client=iam_client, user_name=user_name, dry_run=dry_run, actions=actions
     )
 
     actions.record("Removed IAM user resources")
