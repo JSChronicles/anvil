@@ -287,13 +287,13 @@ def main() -> None:
 
     args = parser.parse_args()
 
+    if not args.command:
+        parser.error("the following arguments are required: command")
+
     logging.basicConfig(
         level=getattr(logging, args.log_level),
         format=("%(levelname)-8s [%(filename)s:%(funcName)s:%(lineno)d] %(message)s"),
     )
-
-    if not args.command:
-        parser.error("the following arguments are required: command")
 
     try:
         exit_code = args.func(args)
