@@ -251,6 +251,7 @@ def main() -> None:
     # ------------------------------------------------------------------
 
     tasks_parser = subparsers.add_parser("tasks", help="Task-related commands")
+    _add_log_level_arg(tasks_parser)
 
     tasks_subparsers = tasks_parser.add_subparsers(dest="tasks_command", required=True)
 
@@ -263,6 +264,7 @@ def main() -> None:
     )
 
     tasks_validate_parser.set_defaults(func=lambda _: _cmd_tasks_validate())
+    _add_log_level_arg(tasks_validate_parser)
 
     # ------------------------------------------------------------------
     # grah
