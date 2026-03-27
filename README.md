@@ -303,6 +303,8 @@ Directories named `tasks/` are conventional only and are not automatically scann
 
 
 ### Create a project-local tasks directory
+These set of steps is because I'm waiting on pypi for a certain issue.
+
 Create a directory anywhere in your project:
 
 ```text
@@ -320,8 +322,15 @@ Each task module must define a callable run() function.
 project = "tasks"
 ```
 
-Note: Your project might need to be installed `pip install --editable .`
-You should see some path output via `uv run python -c "import anvil; print(anvil.__file__)"`
+Note you may need to do these steps to activate your test project and anvil into the same venv
+1. Setup your virtual environment
+   1. `uv venv`
+1. From your test project root, install Anvil into that environment too.
+   1. `uv pip install -e path\to\anvil\`
+1. Then also install your plugin project into the same env:
+   1. `uv pip install -e .`
+1. You should see some path output via `uv run python -c "import anvil; print(anvil.__file__)"`
+
 
 ### Implement the Task Contract
 
