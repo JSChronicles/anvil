@@ -13,6 +13,8 @@ on:
 
 jobs:
   validate-yaml:
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     container:
       image: python:3.13-slim
