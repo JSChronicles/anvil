@@ -132,10 +132,7 @@ def _cmd_auth_check(args) -> int:
     }
 
     if not args.quiet:
-        if args.json:
-            print(json.dumps(auth_payload, indent=2))
-        else:
-            print(auth_payload)
+        print(json.dumps(auth_payload, indent=2))
 
     return 0 if engine_result.state is EngineState.COMPLETED_SUCCESS else 1
 
@@ -226,10 +223,6 @@ def main() -> None:
 
     _add_common_org_args(auth_check_parser)
     _add_log_level_arg(auth_check_parser)
-
-    auth_check_parser.add_argument(
-        "--json", action="store_true", help="Output results as JSON"
-    )
 
     auth_check_parser.add_argument(
         "--quiet", action="store_true", help="Suppress output (exit code only)"

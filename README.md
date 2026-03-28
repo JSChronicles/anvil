@@ -103,11 +103,6 @@ anvil auth check --help
 Authenticate credentials from an organization file.
 ```console
 anvil auth check --org-file ./yaml/orgs.yaml
-```
-
-Output authentication results as JSON
-```console
-anvil auth check --org-file orgs.yaml --json
 
 INFO     [auth.py:auth_check:106] Running auth check for org=root profile=root auth_source=AuthSource.SSO
 WARNING  [credentials.py:_protected_refresh:603] Refreshing temporary credentials failed during mandatory refresh period.
@@ -129,7 +124,7 @@ botocore.exceptions.UnauthorizedSSOTokenError: The SSO session associated with t
 }
 
 
-INFO     [auth.py:auth_check:106] Running auth check for org=root profile=root auth_source=AuthSource.SSO
+INFO [auth.py:auth_check:106] Running auth check for org=root profile=root auth_source=AuthSource.SSO
 {
   "generated_at": "2026-03-17T18:45:00.141364+00:00",
   "auth": [
