@@ -310,8 +310,5 @@ def discover_tasks() -> list[TaskDescriptor]:
     return list(tasks.values())
 
 
-def list_tasks() -> list[str]:
-    tasks = discover_tasks()
-    return [
-        f"{task.name} [{task.source}]" for task in sorted(tasks, key=lambda t: t.name)
-    ]
+def list_tasks() -> list[TaskDescriptor]:
+    return sorted(discover_tasks(), key=lambda task: (task.source, task.name))

@@ -144,8 +144,17 @@ def _cmd_list_tasks() -> int:
     tasks = list_tasks()
 
     print("Available tasks:")
+
+    current_source: str | None = None
     for task in tasks:
-        print(f"  - {task}")
+        if task.source != current_source:
+            if current_source is not None:
+                print()
+
+            print(f"{task.source}:")
+            current_source = task.source
+
+        print(f"  - {task.name}")
 
     return 0
 
@@ -267,7 +276,7 @@ def main() -> None:
     _add_log_level_arg(tasks_validate_parser)
 
     # ------------------------------------------------------------------
-    # grah
+    # graph
     # ------------------------------------------------------------------
 
     graph_parser = subparsers.add_parser(

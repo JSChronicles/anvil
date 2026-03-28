@@ -206,10 +206,18 @@ List all available stock and user-defined tasks
 anvil tasks list
 
 Available tasks:
-  - inventory [plugin: my-project]
-  - noop [stock]
-  - remove_iam_user [stock]
-  - cleanup [plugin: my-project]
+plugin: my-test-project:
+  - hello
+  - test
+
+stock:
+  - compare_asg_to_cluster_instances
+  - get_aws_inline_policies
+  - get_organization_structure
+  - noop
+  - noop_fail
+  - remove_iam_user
+  - remove_missing_group_assignments
   ...
 ```
 

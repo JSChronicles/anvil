@@ -87,6 +87,10 @@ class Organization:
                 executor.shutdown(cancel_futures=True)
                 raise
 
+        account_results.sort(
+            key=lambda result: (result.account_alias.lower(), result.account_id)
+        )
+
         return OrgResult.create(
             org_name=self.name,
             dry_run=self.context.dry_run,
@@ -96,7 +100,6 @@ class Organization:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
-
     def _get_management_account_id(self, session: boto3.Session) -> str:
         org_client = session.client("organizations", config=BOTO_CONFIG)
         org = org_client.describe_organization()["Organization"]
@@ -150,9 +153,21 @@ class Organization:
 
         if self.include_ids:
             include_set = set(self.include_ids)
-            selected = include_set & discovered_ids
-            return {aid: all_accounts[aid] for aid in selected}
+            unknown_include_ids = sorted(include_set - discovered_ids)
+            if unknown_include_ids:
+                __LOGGER__.warning(
+                    f"Org '{self.name}' include list contains unknown account IDs: {', '.join(unknown_include_ids)}"
+                )
+
+            selected_ids = sorted(include_set & discovered_ids)
+            return {account_id: all_accounts[account_id] for account_id in selected_ids}
 
         exclude_set = set(self.exclude_ids or [])
-        remaining = discovered_ids - exclude_set
-        return {aid: all_accounts[aid] for aid in remaining}
+        unknown_exclude_ids = sorted(exclude_set - discovered_ids)
+        if unknown_exclude_ids:
+            __LOGGER__.warning(
+                f"Org '{self.name}' exclude list contains unknown account IDs: {', '.join(unknown_exclude_ids)}"
+            )
+
+        remaining_ids = sorted(discovered_ids - exclude_set)
+        return {account_id: all_accounts[account_id] for account_id in remaining_ids}
