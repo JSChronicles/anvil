@@ -3,7 +3,13 @@ import types
 
 import pytest
 
-from anvil.task_loader import TaskConfigError, discover_tasks, list_tasks, resolve_tasks
+from anvil.task_loader import (
+    TaskConfigError,
+    TaskDescriptor,
+    discover_tasks,
+    list_tasks,
+    resolve_tasks,
+)
 
 
 def test_resolve_tasks_no_dependencies(monkeypatch):
@@ -50,12 +56,20 @@ def test_resolve_tasks_cycle(monkeypatch):
 def test_list_tasks_includes_stock_tasks():
     tasks = list_tasks()
 
-    # Basic sanity checks using real stock tasks
     assert isinstance(tasks, list)
+    assert all(isinstance(task, TaskDescriptor) for task in tasks)
 
-    # These should exist based on your screenshot earlier
-    assert "noop [stock]" in tasks
-    assert "remove_iam_user [stock]" in tasks
+    assert any(task.name == "noop" and task.source == "stock" for task in tasks)
+    assert any(
+        task.name == "remove_iam_user" and task.source == "stock" for task in tasks
+    )
+
+
+def test_list_tasks_sorted_by_source_then_name():
+    tasks = list_tasks()
+
+    pairs = [(task.source, task.name) for task in tasks]
+    assert pairs == sorted(pairs)
 
 
 def test_discover_tasks_includes_stock_tasks():
