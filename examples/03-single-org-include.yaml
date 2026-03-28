@@ -1,14 +1,16 @@
 # Demonstrates:
 # - Restricting execution to specific AWS account IDs
 #
-# Only listed accounts will be processed.
+# Builds on 02 by adding include filtering.
 
 schema_version: 1
 
 organizations:
   - name: include-only-org
 
-    include_accounts:
+    profile: my-aws-profile
+
+    include:
       - "111111111111"
       - "222222222222"
     # Only these accounts are executed; all others are ignored.

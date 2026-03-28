@@ -1,0 +1,17 @@
+# Demonstrates:
+# - Excluding specific AWS accounts from execution
+#
+# Builds on 03 by replacing include with exclude.
+
+schema_version: 1
+
+organizations:
+  - name: exclude-some-org
+
+    profile: my-aws-profile
+
+    exclude:
+      - "333333333333"
+      - "444444444444"
+    # All discovered accounts are executed except those listed.
+    # Mutually exclusive with include.

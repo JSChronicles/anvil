@@ -2,11 +2,19 @@
 # - Explicit task configuration
 # - Task ordering via depends_on
 # - Optional task behavior
+#
+# Builds on 05 by making one task optional.
 
 schema_version: 1
 
 organizations:
   - name: task-org
+
+    profile: my-aws-profile
+
+    exclude:
+      - "333333333333"
+      - "444444444444"
 
     tasks:
       - name: inventory
@@ -17,6 +25,6 @@ organizations:
         # Runs only if inventory succeeds
 
       - name: reporting
-        depends_on: ["inventory"]
+        depends_on: ["tagging"]
         optional: true
         # Failure does not fail the account

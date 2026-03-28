@@ -2,11 +2,19 @@
 # - Linear task execution
 # - Explicit ordering via depends_on
 # - Required task failure propagation
+#
+# Builds on 04 by adding a task chain.
 
 schema_version: 1
 
 organizations:
   - name: linear-task-org
+
+    profile: my-aws-profile
+
+    exclude:
+      - "333333333333"
+      - "444444444444"
 
     tasks:
       - name: inventory

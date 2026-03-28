@@ -1,19 +1,55 @@
 # Demonstrates:
 # - Fail-fast behavior across account execution
 #
-# Execution stops on first non-optional task failure.
+# Builds on 10 by enabling fail_fast for each organization.
 
 schema_version: 1
 
 organizations:
   - name: strict-org
-    profile: strict-profile
+    profile: primary-profile
+    region: us-east-1
 
+    exclude:
+      - "333333333333"
+      - "444444444444"
+
+    max_workers: 3
     fail_fast: true
     # Remaining account work is aborted on failure
 
     tasks:
       - name: inventory
 
-      - name: enforcement
+      - name: tagging
         depends_on: ["inventory"]
+
+      - name: compliance
+        depends_on: ["inventory"]
+        optional: true
+
+      - name: cleanup
+        depends_on: ["tagging", "compliance"]
+
+  - name: strict-org2
+    profile: secondary-profile
+    region: us-west-2
+
+    exclude:
+      - "555555555555"
+
+    max_workers: 3
+    fail_fast: true
+
+    tasks:
+      - name: inventory
+
+      - name: tagging
+        depends_on: ["inventory"]
+
+      - name: compliance
+        depends_on: ["inventory"]
+        optional: true
+
+      - name: cleanup
+        depends_on: ["tagging", "compliance"]

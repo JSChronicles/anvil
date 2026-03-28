@@ -124,11 +124,11 @@ def run_multiple_orgs(
         )
 
         effective_include_ids = (
-            cli_include if cli_include is not None else organization.include_accounts
+            cli_include if cli_include is not None else organization.include
         )
 
         effective_exclude_ids = (
-            cli_exclude if cli_exclude is not None else organization.exclude_accounts
+            cli_exclude if cli_exclude is not None else organization.exclude
         )
 
         context = ExecutionContext(

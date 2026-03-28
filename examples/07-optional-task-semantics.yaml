@@ -2,11 +2,19 @@
 # - Optional task failure does NOT fail the account
 # - Failed optional tasks still block dependents
 # - Execution continues past optional failure
+#
+# Builds on 06 by adding a dependent task behind the optional task.
 
 schema_version: 1
 
 organizations:
   - name: optional-semantics-org
+
+    profile: my-aws-profile
+
+    exclude:
+      - "333333333333"
+      - "444444444444"
 
     tasks:
       - name: inventory

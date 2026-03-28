@@ -10,7 +10,7 @@ organizations:
     fail_fast: false
     dry_run: true
 
-    include_accounts:
+    include:
       - "111111111111"
       - "222222222222"
 
@@ -31,11 +31,14 @@ organizations:
 
   - name: audit
     profile: audit-root
+    region: us-west-2
+    role_name: OrganizationAccountAccessRole
 
     max_workers: 10
     fail_fast: true
+    dry_run: false
 
-    exclude_accounts:
+    exclude:
       - "333333333333"
 
     tasks:
@@ -49,3 +52,7 @@ organizations:
         depends_on:
           - inventory_resources
           - validate_security_baseline
+        optional: true
+
+    metadata:
+      owner: security

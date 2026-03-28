@@ -1,11 +1,19 @@
 # Demonstrates:
 # - Branching dependency graph
 # - Multiple tasks depending on a shared prerequisite
+#
+# Builds on 07 by expanding from a single branch to a fan-out/fan-in graph.
 
 schema_version: 1
 
 organizations:
   - name: branching-task-org
+
+    profile: my-aws-profile
+
+    exclude:
+      - "333333333333"
+      - "444444444444"
 
     tasks:
       - name: inventory
@@ -16,6 +24,7 @@ organizations:
 
       - name: compliance
         depends_on: ["inventory"]
+        optional: true
 
       - name: cleanup
         depends_on: ["tagging", "compliance"]

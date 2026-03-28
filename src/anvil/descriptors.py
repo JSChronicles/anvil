@@ -17,11 +17,14 @@ class OrgDescriptor:
     fail_fast: bool = False
     dry_run: bool = False
 
-    include_accounts: list[str] | None = None
-    exclude_accounts: list[str] | None = None
+    include: list[str] | None = None
+    exclude: list[str] | None = None
 
     metadata: dict[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.max_workers < 1:
             raise ValueError("max_workers must be >= 1")
+
+        if self.include and self.exclude:
+            raise ValueError("include and exclude cannot both be set")

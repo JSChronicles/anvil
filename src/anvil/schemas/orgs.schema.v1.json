@@ -105,7 +105,7 @@
             "description": "Run in dry-run mode without making changes."
           },
 
-          "include_accounts": {
+          "include": {
             "type": "array",
             "minItems": 1,
             "items": {
@@ -115,7 +115,7 @@
             "description": "Explicit list of AWS account IDs to include."
           },
 
-          "exclude_accounts": {
+          "exclude": {
             "type": "array",
             "minItems": 1,
             "items": {
@@ -134,7 +134,7 @@
         },
 
         "not": {
-          "required": ["include_accounts", "exclude_accounts"]
+          "required": ["include", "exclude"]
         }
       }
     }

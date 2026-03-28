@@ -23,8 +23,8 @@ def test_runner_auth_failure_short_circuits(monkeypatch):
         role_name="role",
         metadata={},
         max_workers=1,
-        include_accounts=None,
-        exclude_accounts=None,
+        include=None,
+        exclude=None,
         dry_run=True,
         fail_fast=True,
     )
