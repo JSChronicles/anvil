@@ -38,16 +38,27 @@ class Organization:
     def execute(self) -> OrgResult:
         __LOGGER__.info(
             f"Starting organization processing "
-            f"(org={self.name}, region={self.context.region})"
+            f"(org={self.name}, regions={self.context.regions})"
         )
 
         base_session = create_base_session(
-            profile_name=self.profile_name, region_name=self.context.region
+            profile_name=self.profile_name, region_name=self.context.regions[0]
         )
+
+        effective_regions = self._get_effective_regions(base_session)
+        if not effective_regions:
+            return OrgResult.create(
+                org_name=self.name,
+                dry_run=self.context.dry_run,
+                account_results=[],
+                error="No effective configured regions remain after validation.",
+            )
 
         management_account_id = self._get_management_account_id(base_session)
         accounts: list[Account] = self._build_accounts(
-            base_session, management_account_id
+            base_session=base_session,
+            management_account_id=management_account_id,
+            effective_regions=effective_regions,
         )
 
         account_results: list[AccountResult] = []
@@ -106,7 +117,11 @@ class Organization:
         return org["MasterAccountId"]
 
     def _build_accounts(
-        self, base_session: boto3.Session, management_account_id: str
+        self,
+        *,
+        base_session: boto3.Session,
+        management_account_id: str,
+        effective_regions: list[str],
     ) -> list[Account]:
         all_accounts = self._discover_accounts(base_session)
         target_accounts = self._filter_accounts(all_accounts)
@@ -122,6 +137,7 @@ class Organization:
                     is_management=account_id == management_account_id,
                     base_session=base_session,
                     context=self.context,
+                    regions=effective_regions,
                 )
             )
 
@@ -145,6 +161,22 @@ class Organization:
                 }
 
         return accounts
+
+    def _discover_enabled_regions(self, session: boto3.Session) -> list[str]:
+        account_client = session.client("account", config=BOTO_CONFIG)
+        paginator = account_client.get_paginator("list_regions")
+
+        enabled_regions: set[str] = set()
+
+        for page in paginator.paginate():
+            for region in page.get("Regions", []):
+                region_name = region.get("RegionName")
+                region_status = region.get("RegionOptStatus")
+
+                if region_name and region_status in {"ENABLED", "ENABLED_BY_DEFAULT"}:
+                    enabled_regions.add(region_name)
+
+        return sorted(enabled_regions)
 
     def _filter_accounts(
         self, all_accounts: dict[str, dict[str, str]]
@@ -171,3 +203,15 @@ class Organization:
 
         remaining_ids = sorted(discovered_ids - exclude_set)
         return {account_id: all_accounts[account_id] for account_id in remaining_ids}
+
+    def _get_effective_regions(self, session: boto3.Session) -> list[str]:
+        discovered_regions = set(self._discover_enabled_regions(session))
+        configured_regions = list(self.context.regions)
+
+        unavailable_regions = sorted(set(configured_regions) - discovered_regions)
+        if unavailable_regions:
+            __LOGGER__.warning(
+                f"Org '{self.name}' configured unavailable regions: {', '.join(unavailable_regions)}"
+            )
+
+        return [region for region in configured_regions if region in discovered_regions]

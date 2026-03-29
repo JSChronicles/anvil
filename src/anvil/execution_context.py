@@ -12,7 +12,7 @@ class ExecutionContext:
     Immutable execution configuration shared across org and account execution.
     """
 
-    region: str
+    regions: list[str]
     role_name: str
     dry_run: bool
     tasks: list[ResolvedTask]
