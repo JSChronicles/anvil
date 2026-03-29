@@ -1,15 +1,18 @@
 # Demonstrates:
 # - Executing multiple organizations in a single run
 # - Independent auth, regions, and execution contexts
+# - Multi-region execution per organization
 #
-# Builds on 09 by adding a second organization.
+# Builds on 09 by adding a second organization and explicit region lists.
 
 schema_version: 1
 
 organizations:
   - name: primary-org
     profile: primary-profile
-    region: us-east-1
+    regions:
+      - us-east-1
+      - us-west-2
 
     exclude:
       - "333333333333"
@@ -32,7 +35,8 @@ organizations:
 
   - name: secondary-org
     profile: secondary-profile
-    region: us-west-2
+    regions:
+      - us-west-2
 
     exclude:
       - "555555555555"

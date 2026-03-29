@@ -20,7 +20,43 @@
   </p>
 </div>
 
+## Execution model
 
+Anvil executes declarative task workflows across one or more AWS organizations, across many accounts within each organization, and across one or more configured AWS regions.
+
+At a high level:
+
+1. Each organization is defined independently in configuration.
+2. Each organization can declare its own profile, role, regions, worker limits, task graph, and fail-fast behavior.
+3. For each organization, Anvil authenticates, discovers eligible accounts, applies include or exclude filters, validates configured regions against enabled regions, and then executes tasks for each selected account.
+4. Within an account, tasks execute in dependency order for each configured region.
+5. Results are captured at task, account, organization, and engine scope.
+
+This makes Anvil suitable for workflows that need consistent execution across multiple AWS organizations while still respecting region-specific service presence, account boundaries, and per-organization execution settings.
+
+### Multi-organization execution
+
+Anvil supports defining multiple organizations in a single run. Each organization is treated as an independent execution context with its own:
+
+- AWS profile
+- target regions
+- role name
+- include or exclude account filters
+- worker concurrency
+- dry-run behavior
+- fail-fast setting
+- task definitions
+- metadata
+
+This allows a single execution to coordinate work across separate AWS environments without forcing them into a shared credential model or shared runtime configuration.
+
+### Multi-region execution
+
+Within each organization, Anvil can execute tasks across multiple configured AWS regions.
+
+Configured regions are treated as part of the execution scope rather than as a single global default. During organization startup, Anvil validates the configured region list against the regions enabled for that organization and only executes in the effective configured regions that remain after validation.
+
+Task execution then occurs per account and per region, and task results include the region they ran in. This makes region-specific inventory, validation, enforcement, and reporting workflows easier to reason about and easier to audit later from structured output.
 
 
 ## Authentication validation

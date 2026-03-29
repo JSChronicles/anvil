@@ -1,5 +1,6 @@
 # Demonstrates:
 # - Fail-fast behavior across account execution
+# - Multi-region execution per organization
 #
 # Builds on 10 by enabling fail_fast for each organization.
 
@@ -8,7 +9,9 @@ schema_version: 1
 organizations:
   - name: strict-org
     profile: primary-profile
-    region: us-east-1
+    regions:
+      - us-east-1
+      - us-west-2
 
     exclude:
       - "333333333333"
@@ -33,7 +36,8 @@ organizations:
 
   - name: strict-org2
     profile: secondary-profile
-    region: us-west-2
+    regions:
+      - us-west-2
 
     exclude:
       - "555555555555"
