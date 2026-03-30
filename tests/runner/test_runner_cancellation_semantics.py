@@ -15,6 +15,20 @@ from anvil.results import (
 from anvil.task_loader import ResolvedTask
 
 
+class StubSessionFactory:
+    def create_base_session(self, **kwargs):
+        return object()
+
+    def get_worker_session(self, **kwargs):
+        return object()
+
+    def assume_role_credentials(self, **kwargs):
+        return object()
+
+    def create_session_from_credentials(self, **kwargs):
+        return object()
+
+
 def _base_session():
     class _BaseSession:
         profile_name = None
@@ -45,7 +59,7 @@ def _account_result(*, account_id: str, status: ExecutionStatus) -> AccountResul
     )
 
 
-def test_account_cancelled_before_finishing_is_interrupted(monkeypatch):
+def test_account_cancelled_before_finishing_is_interrupted():
     def task_one(**kwargs):
         kwargs["actions"].record("ran task one")
         context.cancel_event.set()
@@ -60,9 +74,6 @@ def test_account_cancelled_before_finishing_is_interrupted(monkeypatch):
     ]
     context = _context(tasks=tasks)
 
-    monkeypatch.setattr("anvil.account.get_worker_session", lambda **_: object())
-    monkeypatch.setattr("anvil.account.assume_role", lambda **_: object())
-
     account = Account(
         account_id="123456789012",
         account_alias="test-account",
@@ -70,6 +81,7 @@ def test_account_cancelled_before_finishing_is_interrupted(monkeypatch):
         base_session=_base_session(),
         context=context,
         regions=["us-east-1"],
+        session_factory=StubSessionFactory(),
     )
 
     result = account.execute()
@@ -81,7 +93,7 @@ def test_account_cancelled_before_finishing_is_interrupted(monkeypatch):
     assert result.tasks[0].status is ExecutionStatus.SUCCESS
 
 
-def test_account_success_still_reports_success(monkeypatch):
+def test_account_success_still_reports_success():
     def task_one(**kwargs):
         kwargs["actions"].record("task one")
         return {"task": "one"}
@@ -96,9 +108,6 @@ def test_account_success_still_reports_success(monkeypatch):
     ]
     context = _context(tasks=tasks)
 
-    monkeypatch.setattr("anvil.account.get_worker_session", lambda **_: object())
-    monkeypatch.setattr("anvil.account.assume_role", lambda **_: object())
-
     account = Account(
         account_id="123456789012",
         account_alias="test-account",
@@ -106,6 +115,7 @@ def test_account_success_still_reports_success(monkeypatch):
         base_session=_base_session(),
         context=context,
         regions=["us-east-1"],
+        session_factory=StubSessionFactory(),
     )
 
     result = account.execute()
@@ -147,7 +157,6 @@ def test_organization_fail_fast_sets_cancel_event(monkeypatch):
             WaitingAccount(),
         ],
     )
-    monkeypatch.setattr("anvil.organization.create_base_session", lambda **_: object())
 
     organization = Organization(
         name="org-a",
@@ -156,6 +165,7 @@ def test_organization_fail_fast_sets_cancel_event(monkeypatch):
         include_ids=None,
         exclude_ids=None,
         context=context,
+        session_factory=StubSessionFactory(),
     )
 
     result = organization.execute()

@@ -8,7 +8,7 @@ import boto3
 from anvil.account import Account
 from anvil.execution_context import ExecutionContext
 from anvil.results import AccountResult, OrgResult
-from anvil.session import BOTO_CONFIG, create_base_session
+from anvil.session import BOTO_CONFIG, SessionFactory
 
 __LOGGER__ = logging.getLogger(__name__)
 
@@ -27,6 +27,7 @@ class Organization:
         include_ids: list[str] | None,
         exclude_ids: list[str] | None,
         context: ExecutionContext,
+        session_factory: SessionFactory | None = None,
     ) -> None:
         self.name = name
         self.profile_name = profile_name
@@ -34,14 +35,18 @@ class Organization:
         self.include_ids = include_ids
         self.exclude_ids = exclude_ids
         self.context = context
+        self._session_factory = session_factory or SessionFactory()
 
     def execute(self) -> OrgResult:
+        """
+        Execute this organization across all selected accounts.
+        """
         __LOGGER__.info(
             f"Starting organization processing "
             f"(org={self.name}, regions={self.context.regions})"
         )
 
-        base_session = create_base_session(
+        base_session = self._session_factory.create_base_session(
             profile_name=self.profile_name, region_name=self.context.regions[0]
         )
 
@@ -112,6 +117,9 @@ class Organization:
     # Internal helpers
     # ------------------------------------------------------------------
     def _get_management_account_id(self, session: boto3.Session) -> str:
+        """
+        Return the management account ID for this AWS Organization.
+        """
         org_client = session.client("organizations", config=BOTO_CONFIG)
         org = org_client.describe_organization()["Organization"]
         return org["MasterAccountId"]
@@ -123,6 +131,9 @@ class Organization:
         management_account_id: str,
         effective_regions: list[str],
     ) -> list[Account]:
+        """
+        Build executable account objects for all selected target accounts.
+        """
         all_accounts = self._discover_accounts(base_session)
         target_accounts = self._filter_accounts(all_accounts)
 
@@ -138,12 +149,16 @@ class Organization:
                     base_session=base_session,
                     context=self.context,
                     regions=effective_regions,
+                    session_factory=self._session_factory,
                 )
             )
 
         return accounts
 
     def _discover_accounts(self, session: boto3.Session) -> dict[str, dict[str, str]]:
+        """
+        Discover all active accounts in the organization.
+        """
         org_client = session.client("organizations", config=BOTO_CONFIG)
         paginator = org_client.get_paginator("list_accounts")
 
@@ -163,6 +178,9 @@ class Organization:
         return accounts
 
     def _discover_enabled_regions(self, session: boto3.Session) -> list[str]:
+        """
+        Discover enabled AWS regions available to this organization context.
+        """
         account_client = session.client("account", config=BOTO_CONFIG)
         paginator = account_client.get_paginator("list_regions")
 
@@ -181,6 +199,9 @@ class Organization:
     def _filter_accounts(
         self, all_accounts: dict[str, dict[str, str]]
     ) -> dict[str, dict[str, str]]:
+        """
+        Apply include/exclude account filters to discovered organization accounts.
+        """
         discovered_ids = set(all_accounts.keys())
 
         if self.include_ids:
@@ -205,6 +226,10 @@ class Organization:
         return {account_id: all_accounts[account_id] for account_id in remaining_ids}
 
     def _get_effective_regions(self, session: boto3.Session) -> list[str]:
+        """
+        Intersect configured regions with discovered enabled regions and warn on
+        configured regions that are unavailable.
+        """
         discovered_regions = set(self._discover_enabled_regions(session))
         configured_regions = list(self.context.regions)
 

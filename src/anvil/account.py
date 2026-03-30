@@ -8,7 +8,7 @@ import boto3
 
 from anvil.execution_context import ExecutionContext
 from anvil.results import AccountResult, ExecutionStatus, TaskResult
-from anvil.session import assume_role, get_worker_session
+from anvil.session import AssumedRoleCredentials, SessionFactory
 from anvil.task_definition import ActionRecorder
 
 __LOGGER__ = logging.getLogger(__name__)
@@ -38,6 +38,7 @@ class Account:
         base_session: boto3.Session,
         context: ExecutionContext,
         regions: list[str],
+        session_factory: SessionFactory,
     ) -> None:
         self.account_id = account_id
         self.account_alias = account_alias
@@ -45,8 +46,12 @@ class Account:
         self._base_session = base_session
         self._context = context
         self._regions = regions
+        self._session_factory = session_factory
 
     def execute(self) -> AccountResult:
+        """
+        Execute the configured task graph for this account across all effective regions.
+        """
         __LOGGER__.info(f"Processing account {self.account_alias} ({self.account_id})")
 
         # Account-level timing
@@ -60,21 +65,16 @@ class Account:
         optional_map = {task.name: task.optional for task in self._context.tasks}
 
         try:
+            assumed_credentials: AssumedRoleCredentials | None = None
+
+            if not self.is_management:
+                assumed_credentials = self._get_assumed_role_credentials()
+
             # Execute configured regions in declared order
             for region in self._regions:
-                # Establish region-scoped session
-                worker_session = get_worker_session(
-                    profile_name=self._base_session.profile_name, region_name=region
+                session = self._get_region_session(
+                    region=region, assumed_credentials=assumed_credentials
                 )
-
-                if self.is_management:
-                    session = worker_session
-                else:
-                    session = assume_role(
-                        session=worker_session,
-                        account_id=self.account_id,
-                        role_name=self._context.role_name,
-                    )
 
                 region_task_results: dict[str, TaskResult] = {}
 
@@ -232,3 +232,45 @@ class Account:
                 tasks=task_results,
                 error=str(error),
             )
+
+    def _get_assumed_role_credentials(self) -> AssumedRoleCredentials:
+        """
+        Assume the configured member-account role once for this account execution.
+
+        The returned temporary credentials are then reused to build
+        region-scoped sessions for each configured region.
+        """
+        source_region = self._regions[0]
+        worker_session = self._session_factory.get_worker_session(
+            profile_name=self._base_session.profile_name, region_name=source_region
+        )
+
+        return self._session_factory.assume_role_credentials(
+            session=worker_session,
+            account_id=self.account_id,
+            role_name=self._context.role_name,
+        )
+
+    def _get_region_session(
+        self, *, region: str, assumed_credentials: AssumedRoleCredentials | None
+    ) -> boto3.Session:
+        """
+        Build the execution session for one account-region pair.
+
+        Management accounts use the org/profile-backed worker session directly.
+        Member accounts build a regional session from the already-assumed
+        temporary credentials.
+        """
+        if self.is_management:
+            return self._session_factory.get_worker_session(
+                profile_name=self._base_session.profile_name, region_name=region
+            )
+
+        if assumed_credentials is None:
+            raise ValueError(
+                "Expected assumed credentials for member account execution"
+            )
+
+        return self._session_factory.create_session_from_credentials(
+            credentials=assumed_credentials, region_name=region
+        )
