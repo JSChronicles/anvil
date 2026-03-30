@@ -72,9 +72,19 @@ This keeps execution scalable across many accounts while avoiding unbounded conc
 
 ### Fail-fast behavior and cancellation
 
-An organization can enable fail-fast behavior. When enabled, the first unsuccessful account result causes Anvil to signal cancellation to the rest of the organization run and cancel pending work where possible.
+An organization can enable fail-fast behavior. When enabled, the first unsuccessful account result causes Anvil to signal cancellation to the rest of that organization run and cancel pending work where possible.
 
-Cancellation is cooperative. Running account executions stop when they observe the cancellation signal, and interrupted account results are reported explicitly rather than being reported as full success.
+Cancellation is cooperative rather than forceful. Accounts already in progress continue only until they observe the shared cancellation signal, at which point they stop early instead of continuing unnecessary work.
+
+This means fail-fast does not just stop scheduling new work. It also allows in-flight account execution to stop due to the cancellation signal, which helps reduce wasted execution while still preserving structured results.
+
+For example, in a run with 50 accounts, 3 regions, and 5 tasks per account:
+
+- Full run without fail-fast:
+  - 50 account executions × 3 regions × 5 tasks = 750 task runs
+- Fail-fast enabled:
+  - Anvil signals cancellation across the organization, and each running account checks that signal before starting the next task
+  - If an account sees the cancellation signal, it stops early instead of continuing through the remaining tasks and regions
 
 ### Result model
 
@@ -98,8 +108,6 @@ Anvil separates organization-level session creation, worker-session reuse, and m
 ### Why the session factory exists
 
 The `SessionFactory` exists to centralize session and credential mechanics that would otherwise be duplicated or coupled awkwardly across organization and account execution code.
-
-It gives Anvil a clean separation of concerns:
 
 - `Organization` is responsible for organization orchestration and building accounts.
 - `Account` is responsible for account execution and task flow.

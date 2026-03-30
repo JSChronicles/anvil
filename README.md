@@ -43,6 +43,7 @@ This template provides:
 - active-account filtering
 - `--include` / `--exclude` account selection
 - parallel per-account execution
+  - multi-region per account
 - assume-role handling for member accounts
 - dry-run support
 - JSON result output

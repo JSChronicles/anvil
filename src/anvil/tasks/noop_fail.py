@@ -31,8 +31,8 @@ def run(
     """
     raise RuntimeError("Intentional noop failure for testing")
     __LOGGER__.info(
-        f"No-op task executed for account "
-        f"{account_alias} ({account_id}), dry_run={dry_run}"
+        f"Noop_fail task executed for account {account_alias} ({account_id}), "
+        f"region={session.region_name}, dry_run={dry_run}"
     )
 
     return {"message": "noop", "account_id": account_id, "dry_run": dry_run}
