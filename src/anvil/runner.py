@@ -132,7 +132,7 @@ def run_multiple_orgs(
         )
 
         context = ExecutionContext(
-            region=organization.region,
+            regions=organization.regions,
             role_name=organization.role_name,
             dry_run=effective_dry_run,
             tasks=tasks,

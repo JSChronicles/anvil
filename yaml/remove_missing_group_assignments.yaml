@@ -6,7 +6,8 @@ schema_version: 1
 organizations:
   - name: my-org
     profile: payer-profile
-    region: us-east-1
+    regions:
+      - us-east-1
 
     tasks:
       - name: remove_missing_group_assignments

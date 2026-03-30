@@ -1,7 +1,8 @@
 # Demonstrates:
 # - Explicit AWS profile usage
+# - Explicit single-region configuration
 #
-# Builds on 01 by adding a profile.
+# Builds on 01 by adding a profile and explicit regions.
 
 schema_version: 1
 
@@ -10,3 +11,6 @@ organizations:
 
     # Uses credentials from ~/.aws/config or ~/.aws/credentials
     profile: my-aws-profile
+
+    regions:
+      - us-east-1

@@ -3,7 +3,8 @@ schema_version: 1
 organizations:
   - name: org1
     profile: root1
-    region: us-east-1
+    regions:
+      - us-east-1
     tasks:
       - name: discover
       - name: remove_iam_user
@@ -17,7 +18,8 @@ organizations:
 
   - name: org2
     profile: root2
-    region: us-east-1
+    regions:
+      - us-east-1
     tasks:
       - name: remove_iam_user
         #depends_on: ["discover"]

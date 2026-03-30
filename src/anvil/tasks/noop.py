@@ -31,8 +31,7 @@ def run(
     """
 
     __LOGGER__.info(
-        f"No-op task executed for account "
-        f"{account_alias} ({account_id}), dry_run={dry_run}"
+        f"No-op task executed for account {account_alias} ({account_id}), "
+        f"region={session.region_name}, dry_run={dry_run}"
     )
-
     return {"message": "noop", "account_id": account_id, "dry_run": dry_run}

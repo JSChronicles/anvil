@@ -3,7 +3,7 @@
 # Demonstrates:
 # - Required schema structure only
 # - Single organization
-# - Default region, role, and noop task
+# - Default region list, role, and noop task
 #
 # Intended as a smoke test.
 

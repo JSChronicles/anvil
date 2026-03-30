@@ -3,7 +3,8 @@ schema_version: 1
 organizations:
   - name: prod
     profile: prod-root
-    region: us-east-1
+    regions:
+      - us-east-1
 
     tasks:
       - name: compare_asg_to_cluster_instances

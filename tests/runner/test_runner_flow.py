@@ -19,7 +19,7 @@ def test_runner_auth_failure_short_circuits(monkeypatch):
         name="org",
         profile=None,
         tasks=[],
-        region="us-east-1",
+        regions=["us-east-1"],
         role_name="role",
         metadata={},
         max_workers=1,

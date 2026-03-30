@@ -42,11 +42,18 @@
             ],
             "description": "AWS CLI profile for the organization management account."
           },
-          "region": {
-            "type": "string",
-            "minLength": 1,
-            "default": "us-east-1",
-            "description": "AWS region for API calls."
+          "regions": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "default": [
+              "us-east-1"
+            ],
+            "description": "AWS regions for task execution.",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
           },
           "role_name": {
             "type": "string",

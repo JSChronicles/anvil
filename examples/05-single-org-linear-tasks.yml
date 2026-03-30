@@ -2,6 +2,7 @@
 # - Linear task execution
 # - Explicit ordering via depends_on
 # - Required task failure propagation
+# - Explicit single-region configuration
 #
 # Builds on 04 by adding a task chain.
 
@@ -11,6 +12,9 @@ organizations:
   - name: linear-task-org
 
     profile: my-aws-profile
+
+    regions:
+      - us-east-1
 
     exclude:
       - "333333333333"

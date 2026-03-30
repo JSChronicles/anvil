@@ -1,6 +1,7 @@
 # Demonstrates:
 # - Branching dependency graph
 # - Multiple tasks depending on a shared prerequisite
+# - Explicit single-region configuration
 #
 # Builds on 07 by expanding from a single branch to a fan-out/fan-in graph.
 
@@ -10,6 +11,9 @@ organizations:
   - name: branching-task-org
 
     profile: my-aws-profile
+
+    regions:
+      - us-east-1
 
     exclude:
       - "333333333333"

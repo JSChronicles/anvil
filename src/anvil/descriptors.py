@@ -9,7 +9,7 @@ class OrgDescriptor:
 
     name: str
     profile: str | None = None
-    region: str = "us-east-1"
+    regions: list[str] = field(default_factory=lambda: ["us-east-1"])
     role_name: str = "OrganizationAccountAccessRole"
     tasks: list[dict[str, object]] = field(default_factory=lambda: [{"name": "noop"}])
 
@@ -28,3 +28,15 @@ class OrgDescriptor:
 
         if self.include and self.exclude:
             raise ValueError("include and exclude cannot both be set")
+
+        if not self.regions:
+            raise ValueError("regions must contain at least one region")
+
+        normalized_regions = [region.strip() for region in self.regions]
+        if any(not region for region in normalized_regions):
+            raise ValueError("regions must not contain empty values")
+
+        if len(set(normalized_regions)) != len(normalized_regions):
+            raise ValueError("regions must not contain duplicates")
+
+        object.__setattr__(self, "regions", normalized_regions)

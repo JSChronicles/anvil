@@ -44,6 +44,7 @@ class TimedResult:
 @dataclass(frozen=True, slots=True)
 class TaskResult(TimedResult):
     task_name: str
+    region: str
     status: ExecutionStatus
     result: object | None = None
     error: str | None = None
@@ -51,6 +52,7 @@ class TaskResult(TimedResult):
     def to_dict(self) -> dict[str, object]:
         return {
             "task": self.task_name,
+            "region": self.region,
             "status": self.status.value,
             "started_at": self.started_at,
             "ended_at": self.ended_at,
@@ -116,6 +118,7 @@ class OrgResult:
     generated_at: str
     dry_run: bool
     account_results: list[AccountResult]
+    error: str | None = None
 
     @property
     def total_accounts(self) -> int:
@@ -139,7 +142,9 @@ class OrgResult:
 
     @property
     def has_failures(self) -> bool:
-        return any(result.status.is_unsuccessful for result in self.account_results)
+        return self.error is not None or any(
+            result.status.is_unsuccessful for result in self.account_results
+        )
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -148,17 +153,24 @@ class OrgResult:
             "dry_run": self.dry_run,
             "total_accounts": self.total_accounts,
             "account_results": [result.to_dict() for result in self.account_results],
+            "error": self.error,
         }
 
     @classmethod
     def create(
-        cls, *, org_name: str, dry_run: bool, account_results: list[AccountResult]
+        cls,
+        *,
+        org_name: str,
+        dry_run: bool,
+        account_results: list[AccountResult],
+        error: str | None = None,
     ) -> OrgResult:
         return cls(
             org_name=org_name,
             generated_at=datetime.datetime.now(datetime.UTC).isoformat(),
             dry_run=dry_run,
             account_results=account_results,
+            error=error,
         )
 
 
@@ -275,6 +287,7 @@ class EngineResult:
                     "interrupted_accounts": len(interrupted_accounts),
                     "failed_tasks": failed_tasks,
                     "has_failures": organization_result.has_failures,
+                    "error": organization_result.error,
                 }
             )
 

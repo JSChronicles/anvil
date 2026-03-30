@@ -35,11 +35,40 @@ def _load_org_schema(*, schema_version: int) -> dict:
         return json.load(handle)
 
 
+def _format_schema_error_location(*, config: dict, error) -> str:
+    """
+    Build a friendlier schema error location string.
+
+    If the error points at organizations.<index>, include the org name when
+    available so users do not have to map indexes back to YAML entries.
+    """
+    path_parts = list(error.path)
+    location = ".".join(str(path) for path in path_parts) or "root"
+
+    if (
+        len(path_parts) >= 2
+        and path_parts[0] == "organizations"
+        and isinstance(path_parts[1], int)
+    ):
+        org_index = path_parts[1]
+        organizations = config.get("organizations", [])
+
+        if (
+            isinstance(organizations, list)
+            and 0 <= org_index < len(organizations)
+            and isinstance(organizations[org_index], dict)
+        ):
+            org_name = organizations[org_index].get("name")
+            if isinstance(org_name, str) and org_name.strip():
+                return f"organization '{org_name}' ({location})"
+
+    return location
+
+
 def validate_org_config_schema(*, config: dict) -> None:
     """
     Validate org configuration against the packaged JSON Schema.
     """
-
     schema_version = config.get("schema_version")
 
     if not isinstance(schema_version, int):
@@ -54,8 +83,8 @@ def validate_org_config_schema(*, config: dict) -> None:
         messages: list[str] = []
 
         for error in errors:
-            location = ".".join(str(path) for path in error.path)
-            messages.append(f"{location or 'root'}: {error.message}")
+            location = _format_schema_error_location(config=config, error=error)
+            messages.append(f"{location}: {error.message}")
 
         raise ValueError("Org config schema validation failed:\n" + "\n".join(messages))
 

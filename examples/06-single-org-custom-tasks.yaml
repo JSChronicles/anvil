@@ -2,6 +2,7 @@
 # - Explicit task configuration
 # - Task ordering via depends_on
 # - Optional task behavior
+# - Explicit single-region configuration
 #
 # Builds on 05 by making one task optional.
 
@@ -11,6 +12,9 @@ organizations:
   - name: task-org
 
     profile: my-aws-profile
+
+    regions:
+      - us-east-1
 
     exclude:
       - "333333333333"

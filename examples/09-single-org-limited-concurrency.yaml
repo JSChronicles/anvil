@@ -1,5 +1,6 @@
 # Demonstrates:
 # - Limiting parallel account execution
+# - Explicit single-region configuration
 #
 # Builds on 08 by adding a worker limit for account concurrency.
 
@@ -9,6 +10,9 @@ organizations:
   - name: limited-concurrency-org
 
     profile: my-aws-profile
+
+    regions:
+      - us-east-1
 
     exclude:
       - "333333333333"

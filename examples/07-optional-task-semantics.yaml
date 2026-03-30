@@ -2,6 +2,7 @@
 # - Optional task failure does NOT fail the account
 # - Failed optional tasks still block dependents
 # - Execution continues past optional failure
+# - Explicit single-region configuration
 #
 # Builds on 06 by adding a dependent task behind the optional task.
 
@@ -11,6 +12,9 @@ organizations:
   - name: optional-semantics-org
 
     profile: my-aws-profile
+
+    regions:
+      - us-east-1
 
     exclude:
       - "333333333333"
