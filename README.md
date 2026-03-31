@@ -106,20 +106,42 @@ Authenticate credentials from an organization file.
 anvil auth check --org-file ./yaml/orgs.yaml
 
 INFO     [auth.py:auth_check:106] Running auth check for org=root profile=root auth_source=AuthSource.SSO
+INFO     [auth.py:auth_check:106] Running auth check for org=other-root profile=other-root auth_source=AuthSource.SSO
+INFO     [auth.py:auth_check:106] Running auth check for org=random-root profile=random-root auth_source=AuthSource.UNKNOWN
 WARNING  [credentials.py:_protected_refresh:603] Refreshing temporary credentials failed during mandatory refresh period.
 botocore.exceptions.UnauthorizedSSOTokenError: The SSO session associated with this profile has expired or is otherwise invalid. To refresh this SSO session run aws sso login with the corresponding profile.
 {
-  "generated_at": "2026-03-17T18:32:24.317494+00:00",
+  "generated_at": "2026-03-31T15:30:15.075014+00:00",
   "auth": [
     {
       "org_name": "root",
       "status": "error",
       "source": "sso",
-      "started_at": "2026-03-17T18:32:24.170600+00:00",
-      "ended_at": "2026-03-17T18:32:24.317372+00:00",
-      "duration_seconds": 0.1467731999582611,
+      "started_at": "2026-03-31T15:30:14.836545+00:00",
+      "ended_at": "2026-03-31T15:30:15.074440+00:00",
+      "duration_seconds": 0.23789780004881322,
       "message": "AWS SSO session is invalid or expired.",
       "remediation": "aws sso login --profile root"
+    },
+    {
+      "org_name": "other-root",
+      "status": "error",
+      "source": "sso",
+      "started_at": "2026-03-31T15:30:14.841167+00:00",
+      "ended_at": "2026-03-31T15:30:15.072661+00:00",
+      "duration_seconds": 0.23149509984068573,
+      "message": "AWS SSO session is invalid or expired.",
+      "remediation": "aws sso login --profile other-root"
+    },
+    {
+      "org_name": "random-root",
+      "status": "error",
+      "source": "unknown",
+      "started_at": "2026-03-31T15:30:14.849622+00:00",
+      "ended_at": "2026-03-31T15:30:14.904089+00:00",
+      "duration_seconds": 0.054468399845063686,
+      "message": "AWS profile not found.",
+      "remediation": "Fix your AWS profile configuration."
     }
   ]
 }
@@ -127,15 +149,25 @@ botocore.exceptions.UnauthorizedSSOTokenError: The SSO session associated with t
 
 INFO [auth.py:auth_check:106] Running auth check for org=root profile=root auth_source=AuthSource.SSO
 {
-  "generated_at": "2026-03-17T18:45:00.141364+00:00",
+  "generated_at": "2026-03-31T15:34:56.998631+00:00",
   "auth": [
     {
       "org_name": "root",
       "status": "success",
       "source": "sso",
-      "started_at": "2026-03-17T18:44:58.370377+00:00",
-      "ended_at": "2026-03-17T18:45:00.141340+00:00",
-      "duration_seconds": 1.7709634999628179,
+      "started_at": "2026-03-31T15:34:54.844004+00:00",
+      "ended_at": "2026-03-31T15:34:56.971776+00:00",
+      "duration_seconds": 2.1277707000263035,
+      "message": "Authenticated successfully.",
+      "remediation": null
+    },
+    {
+      "org_name": "other-root",
+      "status": "success",
+      "source": "sso",
+      "started_at": "2026-03-31T15:34:54.848072+00:00",
+      "ended_at": "2026-03-31T15:34:56.998306+00:00",
+      "duration_seconds": 2.1502324000466615,
       "message": "Authenticated successfully.",
       "remediation": null
     }
