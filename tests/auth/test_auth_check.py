@@ -4,7 +4,7 @@ from anvil.results import ExecutionStatus
 
 def test_auth_check_success(patch_boto3_success):
     result = auth_check(
-        org_name="test-org", profile=None, auth_source=AuthSource.ENVIRONMENT
+        target_name="test-org", profile=None, auth_source=AuthSource.ENVIRONMENT
     )
 
     assert result.status is ExecutionStatus.SUCCESS
@@ -14,7 +14,7 @@ def test_auth_check_success(patch_boto3_success):
 
 def test_auth_check_failure_no_credentials(patch_boto3_failure):
     result = auth_check(
-        org_name="test-org", profile=None, auth_source=AuthSource.ENVIRONMENT
+        target_name="test-org", profile=None, auth_source=AuthSource.ENVIRONMENT
     )
 
     assert result.status is ExecutionStatus.ERROR

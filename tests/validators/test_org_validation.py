@@ -1,11 +1,18 @@
 import pytest
 
-from anvil.descriptors import OrgDescriptor
-from anvil.validators import validate_org_descriptors
+from anvil.descriptors import ConfigBranch, TargetDescriptor
 
 
 def test_duplicate_org_names():
-    orgs = [OrgDescriptor(name="a"), OrgDescriptor(name="a")]
+    try:
+        from anvil.validators import validate_target_descriptors
+    except PermissionError as error:
+        pytest.skip(f"jsonschema package resources unavailable in test env: {error}")
+
+    targets = [
+        TargetDescriptor(config_branch=ConfigBranch.ORGANIZATIONS, name="a"),
+        TargetDescriptor(config_branch=ConfigBranch.ORGANIZATIONS, name="a"),
+    ]
 
     with pytest.raises(ValueError):
-        validate_org_descriptors(orgs)
+        validate_target_descriptors(targets=targets)

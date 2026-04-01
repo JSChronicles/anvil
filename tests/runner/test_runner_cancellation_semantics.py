@@ -3,14 +3,15 @@ from __future__ import annotations
 import time
 
 from anvil.account import Account
+from anvil.descriptors import ConfigBranch
 from anvil.execution_context import ExecutionContext
-from anvil.organization import Organization
+from anvil.executor import execute_accounts
 from anvil.results import (
     AccountResult,
     EngineResult,
     EngineState,
     ExecutionStatus,
-    OrgResult,
+    TargetResult,
 )
 from anvil.task_loader import ResolvedTask
 
@@ -20,7 +21,15 @@ class StubSessionFactory:
         return object()
 
     def get_worker_session(self, **kwargs):
-        return object()
+        class _WorkerSession:
+            def client(self, service_name):
+                class _STSClient:
+                    def get_caller_identity(self):
+                        return {"Account": "123456789012"}
+
+                return _STSClient()
+
+        return _WorkerSession()
 
     def assume_role_credentials(self, **kwargs):
         return object()
@@ -78,6 +87,7 @@ def test_account_cancelled_before_finishing_is_interrupted():
         account_id="123456789012",
         account_alias="test-account",
         is_management=True,
+        assume_role=False,
         base_session=_base_session(),
         context=context,
         regions=["us-east-1"],
@@ -112,6 +122,7 @@ def test_account_success_still_reports_success():
         account_id="123456789012",
         account_alias="test-account",
         is_management=True,
+        assume_role=False,
         base_session=_base_session(),
         context=context,
         regions=["us-east-1"],
@@ -126,7 +137,7 @@ def test_account_success_still_reports_success():
     assert [task.region for task in result.tasks] == ["us-east-1", "us-east-1"]
 
 
-def test_organization_fail_fast_sets_cancel_event(monkeypatch):
+def test_execute_accounts_fail_fast_sets_cancel_event():
     context = _context(tasks=[], fail_fast=True)
 
     class ErrorAccount:
@@ -143,32 +154,13 @@ def test_organization_fail_fast_sets_cancel_event(monkeypatch):
                 account_id="222222222222", status=ExecutionStatus.INTERRUPTED
             )
 
-    monkeypatch.setattr(
-        Organization, "_get_management_account_id", lambda self, session: "111111111111"
-    )
-    monkeypatch.setattr(
-        Organization, "_get_effective_regions", lambda self, session: ["us-east-1"]
-    )
-    monkeypatch.setattr(
-        Organization,
-        "_build_accounts",
-        lambda self, base_session, management_account_id, effective_regions: [
-            ErrorAccount(),
-            WaitingAccount(),
-        ],
-    )
-
-    organization = Organization(
+    result = execute_accounts(
         name="org-a",
-        profile_name=None,
+        config_branch=ConfigBranch.ORGANIZATIONS,
         max_workers=2,
-        include_ids=None,
-        exclude_ids=None,
         context=context,
-        session_factory=StubSessionFactory(),
+        accounts=[ErrorAccount(), WaitingAccount()],
     )
-
-    result = organization.execute()
 
     assert context.cancel_event.is_set()
     assert len(result.account_results) >= 1
@@ -187,17 +179,19 @@ def test_engine_summary_counts_interrupted_accounts():
     )
     failed = _account_result(account_id="333333333333", status=ExecutionStatus.ERROR)
 
-    organization_result = OrgResult.create(
-        org_name="org-a",
+    target_result = TargetResult.create(
+        config_branch=ConfigBranch.ORGANIZATIONS,
+        target_name="org-a",
         dry_run=True,
         account_results=[successful, interrupted, failed],
     )
 
     engine_result = EngineResult(
+        config_branch=ConfigBranch.ORGANIZATIONS,
         state=EngineState.CANCELLED,
         generated_at="2026-03-25T00:00:00+00:00",
         auth_results=[],
-        organization_results=[organization_result],
+        target_results=[target_result],
     )
 
     summary = engine_result.build_summary()
