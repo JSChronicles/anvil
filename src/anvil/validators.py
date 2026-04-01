@@ -3,9 +3,9 @@ from __future__ import annotations
 import importlib.resources
 import json
 import logging
-from pathlib import Path
 
-from jsonschema import Draft202012Validator, RefResolver
+from jsonschema import Draft202012Validator
+from referencing import Registry, Resource
 
 from anvil.descriptors import ConfigBranch, LoadedConfig, TargetDescriptor
 
@@ -17,6 +17,7 @@ SCHEMA_REGISTRY: dict[str, str] = {
 }
 
 COMMON_SCHEMA_FILE = "common.schema.v1.json"
+SCHEMA_BASE_URI = "https://anvil.local/schemas/"
 
 
 def _load_schema_file(schema_file: str) -> dict:
@@ -60,28 +61,63 @@ def _load_branch_schema(*, branch: ConfigBranch, schema_version: int) -> dict:
     return _load_schema_file(schema_file)
 
 
-def _build_schema_resolver(*, branch_schema: dict) -> RefResolver:
-    schema_dir = importlib.resources.files("anvil.schemas")
-    base_uri = Path(schema_dir).as_uri() + "/"
+def _format_schema_error_location(*, config: dict, error) -> str:
+    path_parts = list(error.path)
+    location = ".".join(str(path) for path in path_parts) or "root"
 
-    store = {
-        f"{base_uri}{COMMON_SCHEMA_FILE}": _load_schema_file(COMMON_SCHEMA_FILE),
-        f"{base_uri}{SCHEMA_REGISTRY[ConfigBranch.ORGANIZATIONS.value]}": _load_schema_file(
-            SCHEMA_REGISTRY[ConfigBranch.ORGANIZATIONS.value]
-        ),
-        f"{base_uri}{SCHEMA_REGISTRY[ConfigBranch.ACCOUNTS.value]}": _load_schema_file(
-            SCHEMA_REGISTRY[ConfigBranch.ACCOUNTS.value]
-        ),
-        "common.schema.v1.json": _load_schema_file(COMMON_SCHEMA_FILE),
-        "orgs.schema.v1.json": _load_schema_file(
-            SCHEMA_REGISTRY[ConfigBranch.ORGANIZATIONS.value]
-        ),
-        "accounts.schema.v1.json": _load_schema_file(
-            SCHEMA_REGISTRY[ConfigBranch.ACCOUNTS.value]
-        ),
+    if len(path_parts) >= 2 and isinstance(path_parts[1], int):
+        branch_name = path_parts[0]
+        entry_index = path_parts[1]
+
+        if branch_name not in {
+            ConfigBranch.ORGANIZATIONS.value,
+            ConfigBranch.ACCOUNTS.value,
+        }:
+            return location
+
+        entries = config.get(branch_name, [])
+        if not isinstance(entries, list) or not (0 <= entry_index < len(entries)):
+            return location
+
+        entry = entries[entry_index]
+        if not isinstance(entry, dict):
+            return location
+
+        entry_name = entry.get("name")
+        if not isinstance(entry_name, str) or not entry_name.strip():
+            return location
+
+        label = (
+            "account_group"
+            if branch_name == ConfigBranch.ACCOUNTS.value
+            else "organization"
+        )
+        return f"{label} '{entry_name}' ({location})"
+
+    return location
+
+
+def _build_schema_registry() -> Registry:
+    schema_files = {
+        COMMON_SCHEMA_FILE,
+        SCHEMA_REGISTRY[ConfigBranch.ORGANIZATIONS.value],
+        SCHEMA_REGISTRY[ConfigBranch.ACCOUNTS.value],
     }
+    registry = Registry()
 
-    return RefResolver(base_uri=base_uri, referrer=branch_schema, store=store)
+    for schema_file in schema_files:
+        schema = _load_schema_file(schema_file)
+        schema_uri = schema.get("$id")
+
+        if not isinstance(schema_uri, str) or not schema_uri:
+            schema_uri = f"{SCHEMA_BASE_URI}{schema_file}"
+
+        registry = registry.with_resource(
+            uri=schema_uri,
+            resource=Resource.from_contents(schema),
+        )
+
+    return registry
 
 
 def validate_config_schema(*, config: dict) -> None:
@@ -95,17 +131,17 @@ def validate_config_schema(*, config: dict) -> None:
 
     branch = _detect_config_branch(config)
     schema = _load_branch_schema(branch=branch, schema_version=schema_version)
-    resolver = _build_schema_resolver(branch_schema=schema)
+    registry = _build_schema_registry()
 
-    validator = Draft202012Validator(schema, resolver=resolver)
+    validator = Draft202012Validator(schema, registry=registry)
     errors = sorted(validator.iter_errors(config), key=lambda error: error.path)
 
     if errors:
         messages: list[str] = []
 
         for error in errors:
-            location = ".".join(str(path) for path in error.path)
-            messages.append(f"{location or 'root'}: {error.message}")
+            location = _format_schema_error_location(config=config, error=error)
+            messages.append(f"{location}: {error.message}")
 
         raise ValueError("Config schema validation failed:\n" + "\n".join(messages))
 
