@@ -67,8 +67,7 @@
           "type": "null"
         }
       ],
-      "default": "OrganizationAccountAccessRole",
-      "description": "Optional IAM role name to assume in target accounts."
+      "description": "Optional IAM role name to assume in target accounts. Organizations default to OrganizationAccountAccessRole at runtime; accounts run directly when omitted."
     },
     "tasks": {
       "type": "array",

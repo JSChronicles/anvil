@@ -80,6 +80,12 @@ class TargetDescriptor:
             if self.exclude is not None:
                 raise ValueError("accounts config entries do not allow exclude")
 
+            if self.role_name is None and len(self.include) != 1:
+                raise ValueError(
+                    "accounts config entries without role_name must include exactly "
+                    "one account ID"
+                )
+
             return
 
         raise ValueError(f"Unsupported config branch: {self.config_branch}")
