@@ -95,7 +95,7 @@ def _cmd_run(args) -> int:
         with result_file.open("w", encoding="utf-8") as handle:
             json.dump(target_result.to_dict(), handle, indent=2)
 
-    summary_path = Path.cwd() / "target-summary.json"
+    summary_path = results_dir / "target-summary.json"
 
     with summary_path.open("w", encoding="utf-8") as handle:
         json.dump(summary, handle, indent=2)
