@@ -35,6 +35,7 @@ class Account:
         account_id: str,
         account_alias: str,
         is_management: bool,
+        assume_role: bool,
         base_session: boto3.Session,
         context: ExecutionContext,
         regions: list[str],
@@ -43,6 +44,7 @@ class Account:
         self.account_id = account_id
         self.account_alias = account_alias
         self.is_management = is_management
+        self._assume_role = assume_role
         self._base_session = base_session
         self._context = context
         self._regions = regions
@@ -67,8 +69,10 @@ class Account:
         try:
             assumed_credentials: AssumedRoleCredentials | None = None
 
-            if not self.is_management:
+            if self._assume_role:
                 assumed_credentials = self._get_assumed_role_credentials()
+            else:
+                self._validate_direct_account_access()
 
             # Execute configured regions in declared order
             for region in self._regions:
@@ -245,11 +249,27 @@ class Account:
             profile_name=self._base_session.profile_name, region_name=source_region
         )
 
+        if self._context.role_name is None:
+            raise ValueError("Expected role_name for assume-role execution")
+
         return self._session_factory.assume_role_credentials(
             session=worker_session,
             account_id=self.account_id,
             role_name=self._context.role_name,
         )
+
+    def _validate_direct_account_access(self) -> None:
+        source_region = self._regions[0]
+        worker_session = self._session_factory.get_worker_session(
+            profile_name=self._base_session.profile_name, region_name=source_region
+        )
+
+        caller_account_id = worker_session.client("sts").get_caller_identity()["Account"]
+        if caller_account_id != self.account_id:
+            raise ValueError(
+                f"Direct execution credentials resolve to account '{caller_account_id}', "
+                f"not target account '{self.account_id}'"
+            )
 
     def _get_region_session(
         self, *, region: str, assumed_credentials: AssumedRoleCredentials | None
@@ -258,10 +278,10 @@ class Account:
         Build the execution session for one account-region pair.
 
         Management accounts use the org/profile-backed worker session directly.
-        Member accounts build a regional session from the already-assumed
+        Assume-role execution builds a regional session from the already-assumed
         temporary credentials.
         """
-        if self.is_management:
+        if not self._assume_role:
             return self._session_factory.get_worker_session(
                 profile_name=self._base_session.profile_name, region_name=region
             )

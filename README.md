@@ -88,9 +88,9 @@ Supported values:
 Examples:
 
 ```console
-anvil run --org-file ./yaml/orgs.yaml --log-level ERROR
-anvil auth check --org-file ./yaml/orgs.yaml --log-level WARNING
-anvil graph --org-file ./yaml/orgs.yaml --log-level INFO
+anvil run --config-file ./yaml/orgs.yaml --log-level ERROR
+anvil auth check --config-file ./yaml/orgs.yaml --log-level WARNING
+anvil graph --config-file ./yaml/orgs.yaml --log-level INFO
 ```
 
 ### Authentication
@@ -103,7 +103,7 @@ anvil auth check --help
 
 Authenticate credentials from an organization file.
 ```console
-anvil auth check --org-file ./yaml/orgs.yaml
+anvil auth check --config-file ./yaml/orgs.yaml
 
 INFO     [auth.py:auth_check:106] Running auth check for org=root profile=root auth_source=AuthSource.SSO
 INFO     [auth.py:auth_check:106] Running auth check for org=other-root profile=other-root auth_source=AuthSource.SSO
@@ -177,7 +177,7 @@ INFO [auth.py:auth_check:106] Running auth check for org=root profile=root auth_
 
 Suppress all output and rely on the exit code only (useful for CI)
 ```console
-anvil auth check --org-file orgs.yaml --quiet
+anvil auth check --config-file orgs.yaml --quiet
 INFO     [auth.py:auth_check:106] Running auth check for org=root profile=root auth_source=AuthSource.SSO
 ```
 
@@ -190,7 +190,7 @@ anvil graph --help
 
 Generate a dependency graph from an organization file.
 ```console
-anvil graph --org-file .\examples\07-optional-task-semantics.yaml
+anvil graph --config-file .\examples\07-optional-task-semantics.yaml
 
 Execution Graph (optional-semantics-org)
 ----------------------------------------
@@ -201,7 +201,7 @@ inventory
 
 Output graph results as JSON
 ```console
-anvil graph --org-file .\examples\07-optional-task-semantics.yaml --json
+anvil graph --config-file .\examples\07-optional-task-semantics.yaml --json
 
 {
   "organization": "optional-semantics-org",
@@ -264,7 +264,7 @@ anvil run --help
 
 Execute all configured organizations and accounts, write per-organization full results to ./results/{orgname}.json, and produce a summary file at the end.
 ```console
-anvil run --org-file ./yaml/noop.yaml
+anvil run --config-file ./yaml/noop.yaml
 INFO     [auth.py:auth_check:106] Running auth check for org=root profile=root auth_source=AuthSource.SSO
 INFO     [organization.py:execute:39] Starting organization processing (org=root, region=us-east-1)
 INFO     [account.py:execute:48] Processing account root (123456789000)
@@ -313,10 +313,10 @@ INFO     [cli.py:_cmd_run:113] Wrote summary to xxxx\xxxx\multi-org-summary.json
 You can run --include, --exclude, or --dry-run to overide the yaml file if you want to just test something or run on certain accounts
 ```console
 # Include only specific accounts:
-anvil run --org-file orgs.yaml --include 111111111111 222222222222
+anvil run --config-file orgs.yaml --include 111111111111 222222222222
 
 # Exclude specific accounts:
-anvil run --org-file orgs.yaml --exclude 333333333333 444444444444
+anvil run --config-file orgs.yaml --exclude 333333333333 444444444444
 ```
 
 

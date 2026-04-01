@@ -101,10 +101,10 @@ def _map_exception(
 
 
 def auth_check(
-    *, org_name: str, profile: str | None, auth_source: AuthSource
+    *, target_name: str, profile: str | None, auth_source: AuthSource
 ) -> AuthResult:
     __LOGGER__.info(
-        f"Running auth check for org={org_name} profile={profile} auth_source={auth_source}"
+        f"Running auth check for target={target_name} profile={profile} auth_source={auth_source}"
     )
 
     started_perf = time.perf_counter()
@@ -118,7 +118,7 @@ def auth_check(
         ended_at = datetime.datetime.now(datetime.UTC).isoformat()
 
         return AuthResult(
-            org_name=org_name,
+            target_name=target_name,
             status=ExecutionStatus.SUCCESS,
             source=auth_source.value,
             started_at=started_at,
@@ -136,7 +136,7 @@ def auth_check(
         )
 
         return AuthResult(
-            org_name=org_name,
+            target_name=target_name,
             status=ExecutionStatus.ERROR,
             source=auth_source.value,
             started_at=started_at,
