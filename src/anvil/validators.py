@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.resources
 import json
 import logging
+from functools import lru_cache
 
 from jsonschema import Draft202012Validator
 from referencing import Registry, Resource
@@ -97,6 +98,7 @@ def _format_schema_error_location(*, config: dict, error) -> str:
     return location
 
 
+@lru_cache(maxsize=1)
 def _build_schema_registry() -> Registry:
     schema_files = {
         COMMON_SCHEMA_FILE,
