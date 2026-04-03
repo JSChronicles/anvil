@@ -6,6 +6,7 @@
 # Builds on 09 by adding a second organization and explicit region lists.
 
 schema_version: 1
+max_parallel_targets: 2
 
 organizations:
   - name: primary-org

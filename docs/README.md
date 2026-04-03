@@ -27,10 +27,11 @@ At a high level:
 
 1. Each organization is defined independently in configuration.
 2. Each organization can declare its own profile, role, regions, worker limits, task graph, include or exclude filters, dry-run behavior, and fail-fast behavior.
-3. For each organization, Anvil authenticates, creates an organization-scoped base session, discovers eligible accounts, validates configured regions against enabled regions, and builds the effective account execution set.
-4. Selected accounts execute in parallel within that organization, bounded by the configured worker limit.
-5. Within an account, tasks execute in dependency order for each effective configured region.
-6. Results are captured at task, account, organization, and engine scope.
+3. One YAML can optionally declare `max_parallel_targets` to bound how many configured targets are allowed to execute at once.
+4. For each organization, Anvil authenticates, creates an organization-scoped base session, discovers eligible accounts, validates configured regions against enabled regions, and builds the effective account execution set.
+5. Selected accounts execute in parallel within that organization, bounded by the configured worker limit.
+6. Within an account, tasks execute in dependency order for each effective configured region.
+7. Results are captured at task, account, organization, and engine scope.
 
 This makes Anvil suitable for workflows that need consistent execution across multiple AWS organizations while still respecting account boundaries, region-specific service presence, and per-organization execution settings.
 
@@ -42,6 +43,7 @@ Anvil supports defining multiple organizations in a single run. Each organizatio
 - target regions
 - role name
 - include or exclude account filters
+- target-level YAML concurrency through `max_parallel_targets`
 - worker concurrency
 - dry-run behavior
 - fail-fast setting

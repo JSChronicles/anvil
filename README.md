@@ -32,6 +32,8 @@ It provides a structured way to define what should run (tasks and dependencies) 
 
 Anvil is intentionally task-agnostic. Tasks are implemented as simple Python modules with a defined runtime contract, allowing teams to build inventory, validation, enforcement, and reporting workflows without coupling business logic to the execution engine. Within an organization, account execution is parallelized through bounded worker pools, while dependency ordering and execution context are handled centrally by the engine.
 
+At the YAML level, `max_parallel_targets` controls how many configured organization or account-group entries may execute at the same time within one config file. Per-target `max_workers` still controls account concurrency inside each target.
+
 If you'd like to check out the flow or have a little more in-depth information about Anvil you can check out this [doc](docs/README.md)
 
 ### Standalone Multi-Account Script Template
@@ -316,6 +318,15 @@ INFO     [cli.py:_write_run_results:90] Wrote summary to xxxx\xxxx\results\noop-
 To run multiple YAML files in one command, pass them after a single `--config-file` flag. They run sequentially in the order provided. Each YAML remains an isolated run with its own summary file, and the overall command exits non-zero if any YAML run fails.
 ```console
 anvil run --config-file ./yaml/orgs.yaml ./yaml/orgs2.yaml ./yaml/orgs3.yaml
+```
+
+Within a single YAML, you can bound how many configured targets run in parallel. This is separate from each target's `max_workers` setting:
+```yaml
+schema_version: 1
+max_parallel_targets: 4
+organizations:
+  - name: root
+    max_workers: 10
 ```
 
 You can run `--include`, `--exclude`, or `--dry-run` to override the YAML file if you want to just test something or run on certain accounts.
