@@ -262,7 +262,7 @@ anvil tasks validate
 anvil run --help
 ```
 
-Execute all configured organizations and accounts, write per-organization full results to ./results/{orgname}.json, and produce a summary file at the end.
+Execute all configured organizations and accounts from one or more YAML files, write per-target full results to `./results/{target-name}.json`, and produce one summary file per YAML using the config filename stem.
 ```console
 anvil run --config-file ./yaml/noop.yaml
 INFO     [auth.py:auth_check:106] Running auth check for org=root profile=root auth_source=AuthSource.SSO
@@ -278,7 +278,7 @@ INFO     [noop.py:run:33] No-op task executed for account Audit (444444444444), 
 INFO     [noop.py:run:33] No-op task executed for account Log Archive (333333333333), dry_run=False
 INFO     [noop.py:run:33] No-op task executed for account account2 (222222222222), dry_run=False
 ......
-INFO     [cli.py:_cmd_run:113] Wrote summary to xxxx\xxxx\multi-org-summary.json and 1 org result files
+INFO     [cli.py:_write_run_results:90] Wrote summary to xxxx\xxxx\results\noop-target-summary.json and 1 target result files
 
 #Summary below
 {
@@ -298,25 +298,36 @@ INFO     [cli.py:_cmd_run:113] Wrote summary to xxxx\xxxx\multi-org-summary.json
   ],
   "organizations": [
     {
-      "name": "root",
+      "organization": "root",
       "total_accounts": 50,
       "failed_accounts": 0,
+      "interrupted_accounts": 0,
       "failed_tasks": 0,
-      "has_failures": false
+      "has_failures": false,
+      "error": null
     }
   ],
   "total_failed_accounts": 0,
+  "total_interrupted_accounts": 0,
   "total_failed_tasks": 0
 }
 ```
 
-You can run --include, --exclude, or --dry-run to overide the yaml file if you want to just test something or run on certain accounts
+To run multiple YAML files in one command, pass them after a single `--config-file` flag. They run sequentially in the order provided. Each YAML remains an isolated run with its own summary file, and the overall command exits non-zero if any YAML run fails.
+```console
+anvil run --config-file ./yaml/orgs.yaml ./yaml/orgs2.yaml ./yaml/orgs3.yaml
+```
+
+You can run `--include`, `--exclude`, or `--dry-run` to override the YAML file if you want to just test something or run on certain accounts.
 ```console
 # Include only specific accounts:
 anvil run --config-file orgs.yaml --include 111111111111 222222222222
 
 # Exclude specific accounts:
 anvil run --config-file orgs.yaml --exclude 333333333333 444444444444
+
+# Exclude specific accounts and perform a dry-run:
+anvil run --config-file orgs.yaml --exclude 333333333333 444444444444 --dry-run
 ```
 
 

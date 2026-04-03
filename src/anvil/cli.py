@@ -55,8 +55,12 @@ def _add_common_config_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--config-file",
         required=True,
+        nargs="+",
         type=Path,
-        help="Path to YAML config file defining organizations or explicit account groups",
+        help=(
+            "Path(s) to YAML config file(s) defining organizations or explicit "
+            "account groups"
+        ),
     )
 
     group = parser.add_mutually_exclusive_group()
@@ -72,17 +76,7 @@ def _add_common_config_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def _cmd_run(args) -> int:
-    loaded_config = _load_targets_from_config_file(args.config_file)
-    _validate_cli_overrides(loaded_config=loaded_config, args=args)
-
-    engine_result = run_multiple_targets(
-        targets=loaded_config.targets,
-        cli_dry_run=args.dry_run,
-        cli_include=args.include,
-        cli_exclude=args.exclude,
-    )
-
+def _write_run_results(*, config_file: Path, engine_result) -> None:
     results_dir = Path.cwd() / "results"
     results_dir.mkdir(exist_ok=True)
 
@@ -95,7 +89,7 @@ def _cmd_run(args) -> int:
         with result_file.open("w", encoding="utf-8") as handle:
             json.dump(target_result.to_dict(), handle, indent=2)
 
-    summary_path = results_dir / "target-summary.json"
+    summary_path = results_dir / f"{config_file.stem}-target-summary.json"
 
     with summary_path.open("w", encoding="utf-8") as handle:
         json.dump(summary, handle, indent=2)
@@ -105,7 +99,31 @@ def _cmd_run(args) -> int:
         f"{len(engine_result.target_results)} target result files"
     )
 
+
+def _run_single_config_file(*, config_file: Path, args) -> int:
+    loaded_config = _load_targets_from_config_file(config_file)
+    _validate_cli_overrides(loaded_config=loaded_config, args=args)
+
+    engine_result = run_multiple_targets(
+        targets=loaded_config.targets,
+        cli_dry_run=args.dry_run,
+        cli_include=args.include,
+        cli_exclude=args.exclude,
+    )
+    _write_run_results(config_file=config_file, engine_result=engine_result)
+
     return 0 if engine_result.state is EngineState.COMPLETED_SUCCESS else 1
+
+
+def _cmd_run(args) -> int:
+    exit_code = 0
+
+    for config_file in args.config_file:
+        run_exit_code = _run_single_config_file(config_file=config_file, args=args)
+        if run_exit_code != 0:
+            exit_code = 1
+
+    return exit_code
 
 
 def _cmd_auth_check(args) -> int:
