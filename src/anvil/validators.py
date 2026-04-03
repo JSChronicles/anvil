@@ -155,6 +155,7 @@ def load_config_descriptors(*, config: dict) -> LoadedConfig:
     """
     branch = _detect_config_branch(config)
     entries = config[branch.value]
+    max_parallel_targets = config.get("max_parallel_targets", 1)
 
     targets: list[TargetDescriptor] = []
 
@@ -166,7 +167,9 @@ def load_config_descriptors(*, config: dict) -> LoadedConfig:
 
     validate_target_descriptors(targets=targets)
 
-    return LoadedConfig(branch=branch, targets=targets)
+    return LoadedConfig(
+        branch=branch, max_parallel_targets=max_parallel_targets, targets=targets
+    )
 
 
 def validate_target_descriptors(*, targets: list[TargetDescriptor]) -> None:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
+from concurrent.futures._base import Future
 
 from anvil.account import Account
 from anvil.descriptors import ConfigBranch
@@ -25,7 +26,9 @@ def execute_accounts(
     account_results: list[AccountResult] = []
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(account.execute): account for account in accounts}
+        futures: dict[Future[AccountResult], Account] = {
+            executor.submit(account.execute): account for account in accounts
+        }
         fail_fast_triggered = False
 
         try:

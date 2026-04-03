@@ -11,10 +11,11 @@ from pathlib import Path
 
 import yaml
 from anvil.descriptors import LoadedConfig
-from anvil.results import EngineState
+from anvil.results import EngineResult, EngineState
 from anvil.runner import run_auth_checks, run_multiple_targets
 from anvil.task_loader import (
     ResolvedTask,
+    TaskDescriptor,
     _load_task_callable,
     discover_tasks,
     list_tasks,
@@ -101,11 +102,12 @@ def _write_run_results(*, config_file: Path, engine_result) -> None:
 
 
 def _run_single_config_file(*, config_file: Path, args) -> int:
-    loaded_config = _load_targets_from_config_file(config_file)
+    loaded_config: LoadedConfig = _load_targets_from_config_file(config_file)
     _validate_cli_overrides(loaded_config=loaded_config, args=args)
 
-    engine_result = run_multiple_targets(
+    engine_result: EngineResult = run_multiple_targets(
         targets=loaded_config.targets,
+        max_parallel_targets=loaded_config.max_parallel_targets,
         cli_dry_run=args.dry_run,
         cli_include=args.include,
         cli_exclude=args.exclude,
@@ -130,12 +132,12 @@ def _cmd_auth_check(args) -> int:
     """
     Auth-only execution for configured targets.
     """
-    loaded_config = _load_targets_from_config_file(args.config_file)
+    loaded_config: LoadedConfig = _load_targets_from_config_file(args.config_file)
     _validate_cli_overrides(loaded_config=loaded_config, args=args)
 
-    engine_result = run_auth_checks(targets=loaded_config.targets)
+    engine_result: EngineResult = run_auth_checks(targets=loaded_config.targets)
 
-    auth_payload = {
+    auth_payload: dict[str, str | list[dict[str, object]]] = {
         "generated_at": engine_result.generated_at,
         "auth": [
             auth_result.to_dict(config_branch=loaded_config.branch)
@@ -150,7 +152,7 @@ def _cmd_auth_check(args) -> int:
 
 
 def _cmd_list_tasks() -> int:
-    tasks = list_tasks()
+    tasks: list[TaskDescriptor] = list_tasks()
 
     print("Available tasks:")
 
@@ -170,7 +172,7 @@ def _cmd_list_tasks() -> int:
 
 def _cmd_tasks_validate() -> int:
     try:
-        descriptors = discover_tasks()
+        descriptors: list[TaskDescriptor] = discover_tasks()
 
         resolved = []
         for descriptor in descriptors:

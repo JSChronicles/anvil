@@ -55,6 +55,11 @@ def test_graph_and_run_paths_behave_the_same_with_cached_resolution(
     monkeypatch.setattr(
         runner, "infer_auth_source", lambda profile: SimpleNamespace(value="test")
     )
+    monkeypatch.setattr(
+        runner,
+        "_preflight_organization",
+        lambda **kwargs: ("o-example", "123456789012"),
+    )
 
     observed_tasks: list[list[str]] = []
 
@@ -79,7 +84,11 @@ def test_graph_and_run_paths_behave_the_same_with_cached_resolution(
     monkeypatch.setattr(runner, "execute_accounts", fake_execute_accounts)
 
     engine_result = runner.run_multiple_targets(
-        targets=[target, target], cli_dry_run=None, cli_include=None, cli_exclude=None
+        targets=[target, target],
+        max_parallel_targets=1,
+        cli_dry_run=None,
+        cli_include=None,
+        cli_exclude=None,
     )
 
     assert observed_tasks == [["alpha", "beta"], ["alpha", "beta"]]

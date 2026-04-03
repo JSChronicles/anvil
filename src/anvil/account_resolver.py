@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 
+from boto3.session import Session
+
 from anvil.account import Account
 from anvil.descriptors import TargetDescriptor
 from anvil.execution_context import ExecutionContext
@@ -22,9 +24,9 @@ class AccountResolver:
         context: ExecutionContext,
         session_factory: SessionFactory | None = None,
     ) -> None:
-        self.descriptor = descriptor
-        self.context = context
-        self._session_factory = session_factory or SessionFactory()
+        self.descriptor: TargetDescriptor = descriptor
+        self.context: ExecutionContext = context
+        self._session_factory: SessionFactory = session_factory or SessionFactory()
 
     def resolve_accounts(self) -> list[Account]:
         __LOGGER__.info(
@@ -33,7 +35,7 @@ class AccountResolver:
             f"regions={self.context.regions})"
         )
 
-        base_session = self._session_factory.create_base_session(
+        base_session: Session = self._session_factory.create_base_session(
             profile_name=self.descriptor.profile, region_name=self.context.regions[0]
         )
 

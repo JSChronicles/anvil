@@ -110,3 +110,4 @@ class TargetDescriptor:
 class LoadedConfig:
     branch: ConfigBranch
     targets: list[TargetDescriptor]
+    max_parallel_targets: int = 1

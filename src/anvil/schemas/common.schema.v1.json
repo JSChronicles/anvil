@@ -89,6 +89,12 @@
       "default": 10,
       "description": "Maximum number of concurrent account workers."
     },
+    "max_parallel_targets": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 1,
+      "description": "Maximum number of configured target entries to execute concurrently within one YAML run."
+    },
     "fail_fast": {
       "type": "boolean",
       "default": false,

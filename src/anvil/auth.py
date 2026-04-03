@@ -45,7 +45,7 @@ def infer_auth_source(profile: str | None) -> AuthSource:
     if not parser.has_section(section):
         return AuthSource.UNKNOWN
 
-    keys = set(parser.options(section))
+    keys: set[str] = set(parser.options(section))
 
     if "sso_start_url" in keys:
         return AuthSource.SSO
@@ -107,15 +107,15 @@ def auth_check(
         f"Running auth check for target={target_name} profile={profile} auth_source={auth_source}"
     )
 
-    started_perf = time.perf_counter()
-    started_at = datetime.datetime.now(datetime.UTC).isoformat()
+    started_perf: int | float = time.perf_counter()
+    started_at: str = datetime.datetime.now(datetime.UTC).isoformat()
 
     try:
         session = boto3.Session(profile_name=profile)
         session.client("sts").get_caller_identity()
 
-        ended_perf = time.perf_counter()
-        ended_at = datetime.datetime.now(datetime.UTC).isoformat()
+        ended_perf: int | float = time.perf_counter()
+        ended_at: str = datetime.datetime.now(datetime.UTC).isoformat()
 
         return AuthResult(
             target_name=target_name,
@@ -128,8 +128,8 @@ def auth_check(
         )
 
     except Exception as exc:
-        ended_perf = time.perf_counter()
-        ended_at = datetime.datetime.now(datetime.UTC).isoformat()
+        ended_perf: int | float = time.perf_counter()
+        ended_at: str = datetime.datetime.now(datetime.UTC).isoformat()
 
         message, remediation = _map_exception(
             exc, auth_source=auth_source, profile=profile

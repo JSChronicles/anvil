@@ -1,12 +1,12 @@
 import json
 
 from anvil.descriptors import ConfigBranch
-from anvil.task_loader import resolve_tasks
+from anvil.task_loader import ResolvedExecution, resolve_tasks
 
 
 def render_graph(*, targets, output_json: bool) -> None:
     for target in targets:
-        execution = resolve_tasks(task_specs=target.tasks)
+        execution: ResolvedExecution = resolve_tasks(task_specs=target.tasks)
 
         if output_json:
             _render_json(
@@ -46,7 +46,7 @@ def _print_node_recursive(
 ) -> None:
     print(f"{prefix}{task_name}")
 
-    child_tasks = adjacency_map.get(task_name, [])
+    child_tasks: list[str] = adjacency_map.get(task_name, [])
 
     for index, child_task in enumerate(child_tasks):
         is_last_child = index == len(child_tasks) - 1

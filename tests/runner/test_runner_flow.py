@@ -1,39 +1,39 @@
-from types import SimpleNamespace
-
-from anvil.descriptors import ConfigBranch
-from anvil.results import ExecutionStatus
+from anvil.descriptors import ConfigBranch, TargetDescriptor
+from anvil.results import AuthResult, ExecutionStatus
 from anvil.runner import run_multiple_targets
 
 
 def test_runner_auth_failure_short_circuits(monkeypatch):
     monkeypatch.setattr(
         "anvil.runner.auth_check",
-        lambda **_: SimpleNamespace(
+        lambda **kwargs: AuthResult(
+            target_name=kwargs["target_name"],
             status=ExecutionStatus.ERROR,
-            is_error=True,
+            source="test",
+            started_at="start",
+            ended_at="end",
+            duration_seconds=0.0,
             message="fail",
-            to_dict=lambda **kwargs: {"status": "error"},
         ),
     )
 
-    target = SimpleNamespace(
+    target = TargetDescriptor(
         config_branch=ConfigBranch.ORGANIZATIONS,
-        is_organization_config=True,
         name="org",
-        profile=None,
         tasks=[],
         regions=["us-east-1"],
         role_name="role",
-        metadata={},
         max_workers=1,
-        include=None,
-        exclude=None,
         dry_run=True,
         fail_fast=True,
     )
 
     engine_result = run_multiple_targets(
-        targets=[target], cli_dry_run=True, cli_include=None, cli_exclude=None
+        targets=[target],
+        max_parallel_targets=1,
+        cli_dry_run=True,
+        cli_include=None,
+        cli_exclude=None,
     )
 
     assert engine_result.auth_results[0].status is ExecutionStatus.ERROR

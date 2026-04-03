@@ -22,10 +22,12 @@ class OrganizationResolver:
         *,
         descriptor: TargetDescriptor,
         context: ExecutionContext,
+        management_account_id: str | None = None,
         session_factory: SessionFactory | None = None,
     ) -> None:
         self.descriptor = descriptor
         self.context = context
+        self._management_account_id: str | None = management_account_id
         self._session_factory = session_factory or SessionFactory()
 
     def resolve_accounts(self) -> list[Account]:
@@ -42,7 +44,10 @@ class OrganizationResolver:
         if not effective_regions:
             raise ValueError("No effective configured regions remain after validation.")
 
-        management_account_id = self._get_management_account_id(base_session)
+        if self._management_account_id is not None:
+            management_account_id = self._management_account_id
+        else:
+            management_account_id = self._get_management_account_id(base_session)
 
         return self._build_accounts(
             base_session=base_session,

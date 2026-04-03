@@ -3,8 +3,10 @@ from __future__ import annotations
 import datetime
 import logging
 import time
+from typing import Literal
 
 import boto3
+from boto3.session import Session
 
 from anvil.execution_context import ExecutionContext
 from anvil.results import AccountResult, ExecutionStatus, TaskResult
@@ -41,14 +43,14 @@ class Account:
         regions: list[str],
         session_factory: SessionFactory,
     ) -> None:
-        self.account_id = account_id
-        self.account_alias = account_alias
-        self.is_management = is_management
-        self._assume_role = assume_role
-        self._base_session = base_session
-        self._context = context
-        self._regions = regions
-        self._session_factory = session_factory
+        self.account_id: str = account_id
+        self.account_alias: str = account_alias
+        self.is_management: bool = is_management
+        self._assume_role: bool = assume_role
+        self._base_session: Session = base_session
+        self._context: ExecutionContext = context
+        self._regions: list[str] = regions
+        self._session_factory: SessionFactory = session_factory
 
     def execute(self) -> AccountResult:
         """
@@ -70,13 +72,15 @@ class Account:
             assumed_credentials: AssumedRoleCredentials | None = None
 
             if self._assume_role:
-                assumed_credentials = self._get_assumed_role_credentials()
+                assumed_credentials: AssumedRoleCredentials = (
+                    self._get_assumed_role_credentials()
+                )
             else:
                 self._validate_direct_account_access()
 
             # Execute configured regions in declared order
             for region in self._regions:
-                session = self._get_region_session(
+                session: Session = self._get_region_session(
                     region=region, assumed_credentials=assumed_credentials
                 )
 
@@ -93,14 +97,14 @@ class Account:
                         break
 
                     # Dependency gate
-                    dependency_failed = any(
+                    dependency_failed: bool = any(
                         region_task_results[dep].status.is_error
                         for dep in task.depends_on
                         if dep in region_task_results
                     )
 
                     if dependency_failed:
-                        now_at = datetime.datetime.now(datetime.UTC).isoformat()
+                        now_at: str = datetime.datetime.now(datetime.UTC).isoformat()
 
                         blocked_result = TaskResult(
                             task_name=task.name,
@@ -129,8 +133,10 @@ class Account:
                         continue
 
                     # Execute task
-                    task_started_perf = time.perf_counter()
-                    task_started_at = datetime.datetime.now(datetime.UTC).isoformat()
+                    task_started_perf: int | float = time.perf_counter()
+                    task_started_at: str = datetime.datetime.now(
+                        datetime.UTC
+                    ).isoformat()
 
                     try:
                         result = task.run(
@@ -142,8 +148,10 @@ class Account:
                             actions=actions,
                         )
 
-                        task_ended_perf = time.perf_counter()
-                        task_ended_at = datetime.datetime.now(datetime.UTC).isoformat()
+                        task_ended_perf: int | float = time.perf_counter()
+                        task_ended_at: str = datetime.datetime.now(
+                            datetime.UTC
+                        ).isoformat()
 
                         success_result = TaskResult(
                             task_name=task.name,
@@ -159,8 +167,10 @@ class Account:
                         task_results.append(success_result)
 
                     except Exception as error:
-                        task_ended_perf = time.perf_counter()
-                        task_ended_at = datetime.datetime.now(datetime.UTC).isoformat()
+                        task_ended_perf: int | float = time.perf_counter()
+                        task_ended_at: str = datetime.datetime.now(
+                            datetime.UTC
+                        ).isoformat()
 
                         error_result = TaskResult(
                             task_name=task.name,
@@ -193,24 +203,28 @@ class Account:
                     break
 
             # Derive account status
-            account_failed = any(
+            account_failed: bool = any(
                 result.status.is_error and not optional_map.get(result.task_name, False)
                 for result in task_results
             )
-            expected_total_tasks = len(self._context.tasks) * len(self._regions)
-            account_interrupted = (
+            expected_total_tasks: int = len(self._context.tasks) * len(self._regions)
+            account_interrupted: bool = (
                 interrupted and len(task_results) < expected_total_tasks
             )
 
-            ended_perf = time.perf_counter()
-            ended_at = datetime.datetime.now(datetime.UTC).isoformat()
+            ended_perf: int | float = time.perf_counter()
+            ended_at: str = datetime.datetime.now(datetime.UTC).isoformat()
 
             if account_failed:
-                account_status = ExecutionStatus.ERROR
+                account_status: Literal[ExecutionStatus.ERROR] = ExecutionStatus.ERROR
             elif account_interrupted:
-                account_status = ExecutionStatus.INTERRUPTED
+                account_status: Literal[ExecutionStatus.INTERRUPTED] = (
+                    ExecutionStatus.INTERRUPTED
+                )
             else:
-                account_status = ExecutionStatus.SUCCESS
+                account_status: Literal[ExecutionStatus.SUCCESS] = (
+                    ExecutionStatus.SUCCESS
+                )
 
             return AccountResult(
                 account_id=self.account_id,
@@ -223,8 +237,8 @@ class Account:
             )
 
         except Exception as error:
-            ended_perf = time.perf_counter()
-            ended_at = datetime.datetime.now(datetime.UTC).isoformat()
+            ended_perf: int | float = time.perf_counter()
+            ended_at: str = datetime.datetime.now(datetime.UTC).isoformat()
 
             return AccountResult(
                 account_id=self.account_id,
@@ -244,8 +258,8 @@ class Account:
         The returned temporary credentials are then reused to build
         region-scoped sessions for each configured region.
         """
-        source_region = self._regions[0]
-        worker_session = self._session_factory.get_worker_session(
+        source_region: str = self._regions[0]
+        worker_session: Session = self._session_factory.get_worker_session(
             profile_name=self._base_session.profile_name, region_name=source_region
         )
 
@@ -259,8 +273,8 @@ class Account:
         )
 
     def _validate_direct_account_access(self) -> None:
-        source_region = self._regions[0]
-        worker_session = self._session_factory.get_worker_session(
+        source_region: str = self._regions[0]
+        worker_session: Session = self._session_factory.get_worker_session(
             profile_name=self._base_session.profile_name, region_name=source_region
         )
 

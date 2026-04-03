@@ -15,6 +15,9 @@
       "const": 1,
       "description": "Configuration schema version."
     },
+    "max_parallel_targets": {
+      "$ref": "common.schema.v1.json#/$defs/max_parallel_targets"
+    },
     "organizations": {
       "type": "array",
       "minItems": 1,
