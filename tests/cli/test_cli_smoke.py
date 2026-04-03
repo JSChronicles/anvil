@@ -51,11 +51,7 @@ def test_cmd_run_returns_failure_if_any_config_file_fails(monkeypatch):
 
     cli = _import_cli_or_skip()
 
-    exit_codes = {
-        Path("orgs.yaml"): 0,
-        Path("orgs2.yaml"): 1,
-        Path("orgs3.yaml"): 0,
-    }
+    exit_codes = {Path("orgs.yaml"): 0, Path("orgs2.yaml"): 1, Path("orgs3.yaml"): 0}
     seen_paths: list[Path] = []
 
     def fake_run_single_config_file(*, config_file, args):
@@ -84,10 +80,7 @@ def test_write_run_results_prefixes_summary_with_config_stem(monkeypatch):
 
     engine_result = SimpleNamespace(
         target_results=[
-            SimpleNamespace(
-                target_name="org2",
-                to_dict=lambda: {"name": "org2"},
-            )
+            SimpleNamespace(target_name="org2", to_dict=lambda: {"name": "org2"})
         ],
         build_summary=lambda: {"state": "completed_success"},
     )
@@ -98,8 +91,7 @@ def test_write_run_results_prefixes_summary_with_config_stem(monkeypatch):
 
     try:
         cli._write_run_results(
-            config_file=Path("yaml/orgs.yaml"),
-            engine_result=engine_result,
+            config_file=Path("yaml/orgs.yaml"), engine_result=engine_result
         )
 
         assert (temp_dir / "results" / "orgs-target-summary.json").exists()

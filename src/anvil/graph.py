@@ -63,9 +63,7 @@ def _print_node_recursive(
 
 def _render_json(*, target_name: str, config_branch: ConfigBranch, execution) -> None:
     target_key = (
-        "account_group"
-        if config_branch is ConfigBranch.ACCOUNTS
-        else "organization"
+        "account_group" if config_branch is ConfigBranch.ACCOUNTS else "organization"
     )
 
     payload = {

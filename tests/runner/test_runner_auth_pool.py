@@ -8,9 +8,7 @@ from types import SimpleNamespace
 
 def _org_target(descriptors, *, name: str, profile: str):
     return descriptors.TargetDescriptor(
-        config_branch=descriptors.ConfigBranch.ORGANIZATIONS,
-        name=name,
-        profile=profile,
+        config_branch=descriptors.ConfigBranch.ORGANIZATIONS, name=name, profile=profile
     )
 
 

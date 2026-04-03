@@ -225,7 +225,8 @@ def main() -> None:
     auth_subparsers = auth_parser.add_subparsers(dest="auth_command", required=True)
 
     auth_check_parser = auth_subparsers.add_parser(
-        "check", help="Validate AWS authentication for configured organizations or account groups"
+        "check",
+        help="Validate AWS authentication for configured organizations or account groups",
     )
     _add_common_config_args(auth_check_parser)
     _add_log_level_arg(auth_check_parser)
@@ -261,7 +262,8 @@ def main() -> None:
     _add_log_level_arg(tasks_validate_parser)
 
     graph_parser = subparsers.add_parser(
-        "graph", help="Show task dependency graph for configured organizations or account groups"
+        "graph",
+        help="Show task dependency graph for configured organizations or account groups",
     )
     _add_common_config_args(graph_parser)
     _add_log_level_arg(graph_parser)

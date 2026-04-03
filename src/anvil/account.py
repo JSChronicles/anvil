@@ -264,7 +264,9 @@ class Account:
             profile_name=self._base_session.profile_name, region_name=source_region
         )
 
-        caller_account_id = worker_session.client("sts").get_caller_identity()["Account"]
+        caller_account_id = worker_session.client("sts").get_caller_identity()[
+            "Account"
+        ]
         if caller_account_id != self.account_id:
             raise ValueError(
                 f"Direct execution credentials resolve to account '{caller_account_id}', "

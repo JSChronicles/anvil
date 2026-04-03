@@ -26,7 +26,7 @@ def _load_schema_file(schema_file: str) -> dict:
         importlib.resources.files("anvil.schemas")
         .joinpath(schema_file)
         .open("r", encoding="utf-8")
-        ) as handle:
+    ) as handle:
         return json.load(handle)
 
 
@@ -115,8 +115,7 @@ def _build_schema_registry() -> Registry:
             schema_uri = f"{SCHEMA_BASE_URI}{schema_file}"
 
         registry = registry.with_resource(
-            uri=schema_uri,
-            resource=Resource.from_contents(schema),
+            uri=schema_uri, resource=Resource.from_contents(schema)
         )
 
     return registry

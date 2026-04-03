@@ -208,9 +208,7 @@ class EngineResult:
 
     @property
     def has_target_failures(self) -> bool:
-        return any(
-            target_result.has_failures for target_result in self.target_results
-        )
+        return any(target_result.has_failures for target_result in self.target_results)
 
     @property
     def total_failed_accounts(self) -> int:

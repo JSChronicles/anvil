@@ -20,8 +20,7 @@ def test_duplicate_org_names():
 
 def test_accounts_direct_mode_requires_single_account():
     with pytest.raises(
-        ValueError,
-        match="without role_name must include exactly one account ID",
+        ValueError, match="without role_name must include exactly one account ID"
     ):
         TargetDescriptor(
             config_branch=ConfigBranch.ACCOUNTS,

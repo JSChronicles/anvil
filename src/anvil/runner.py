@@ -58,7 +58,9 @@ def _resolve_effective_account_filters(
 
         configured_account_ids = set(target.include or [])
         narrowed_include = [
-            account_id for account_id in cli_include if account_id in configured_account_ids
+            account_id
+            for account_id in cli_include
+            if account_id in configured_account_ids
         ]
         return narrowed_include, None
 
