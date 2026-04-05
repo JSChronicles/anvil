@@ -53,6 +53,18 @@ This template provides:
 Replace the innards of the `account_task()` function with your own per-account logic.
 Replace the `--example-piece` argparse and `example_piece` in other areas or edit as desired
 
+## Example Benchmarks
+To measure the impact of target-level parallelism, Anvil was tested across 3 organizations with a combined 260 accounts.
+
+| Task        | Regions | max_parallel_targets |                 Runtime |
+| ----------- | ------: | -------------------: | ----------------------: |
+| `noop`      |       1 |                    1 |           52.41 seconds |
+| `noop`      |       1 |                    3 |           41.41 seconds |
+| `noop`      |       2 |                    1 |           52.73 seconds |
+| `noop`      |       2 |                    3 |           40.79 seconds |
+| `count_vpc` |       2 |                    1 | 2 minutes 40.93 seconds |
+| `count_vpc` |       2 |                    3 | 2 minutes 18.77 seconds |
+
 
 ## Usage
 1. When using the uv tool, there are several ways to run and install dependencies. Here are a few examples:
@@ -68,7 +80,7 @@ Replace the `--example-piece` argparse and `example_piece` in other areas or edi
    1. Note that if you use uv run in a project, i.e. a directory with a pyproject.toml, it will install the current project before running the script.
 
 
-We have multiple global commands
+There are multiple global commands
 ```console
 anvil auth …
 anvil graph …
