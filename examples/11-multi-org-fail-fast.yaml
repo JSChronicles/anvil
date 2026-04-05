@@ -5,6 +5,7 @@
 # Builds on 10 by enabling fail_fast for each organization.
 
 schema_version: 1
+max_parallel_targets: 2
 
 organizations:
   - name: strict-org

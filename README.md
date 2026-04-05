@@ -32,6 +32,8 @@ It provides a structured way to define what should run (tasks and dependencies) 
 
 Anvil is intentionally task-agnostic. Tasks are implemented as simple Python modules with a defined runtime contract, allowing teams to build inventory, validation, enforcement, and reporting workflows without coupling business logic to the execution engine. Within an organization, account execution is parallelized through bounded worker pools, while dependency ordering and execution context are handled centrally by the engine.
 
+At the YAML level, `max_parallel_targets` controls how many configured organization or account-group entries may execute at the same time within one config file. Per-target `max_workers` still controls account concurrency inside each target.
+
 If you'd like to check out the flow or have a little more in-depth information about Anvil you can check out this [doc](docs/README.md)
 
 ### Standalone Multi-Account Script Template
@@ -51,6 +53,18 @@ This template provides:
 Replace the innards of the `account_task()` function with your own per-account logic.
 Replace the `--example-piece` argparse and `example_piece` in other areas or edit as desired
 
+## Example Benchmarks
+To measure the impact of target-level parallelism, Anvil was tested across 3 organizations with a combined 260 accounts.
+
+| Task        | Regions | max_parallel_targets |                 Runtime |
+| ----------- | ------: | -------------------: | ----------------------: |
+| `noop`      |       1 |                    1 |           52.41 seconds |
+| `noop`      |       1 |                    3 |           41.41 seconds |
+| `noop`      |       2 |                    1 |           52.73 seconds |
+| `noop`      |       2 |                    3 |           40.79 seconds |
+| `count_vpc` |       2 |                    1 | 2 minutes 40.93 seconds |
+| `count_vpc` |       2 |                    3 | 2 minutes 18.77 seconds |
+
 
 ## Usage
 1. When using the uv tool, there are several ways to run and install dependencies. Here are a few examples:
@@ -66,7 +80,7 @@ Replace the `--example-piece` argparse and `example_piece` in other areas or edi
    1. Note that if you use uv run in a project, i.e. a directory with a pyproject.toml, it will install the current project before running the script.
 
 
-We have multiple global commands
+There are multiple global commands
 ```console
 anvil auth …
 anvil graph …
@@ -88,9 +102,9 @@ Supported values:
 Examples:
 
 ```console
-anvil run --org-file ./yaml/orgs.yaml --log-level ERROR
-anvil auth check --org-file ./yaml/orgs.yaml --log-level WARNING
-anvil graph --org-file ./yaml/orgs.yaml --log-level INFO
+anvil run --config-file ./yaml/orgs.yaml --log-level ERROR
+anvil auth check --config-file ./yaml/orgs.yaml --log-level WARNING
+anvil graph --config-file ./yaml/orgs.yaml --log-level INFO
 ```
 
 ### Authentication
@@ -103,7 +117,7 @@ anvil auth check --help
 
 Authenticate credentials from an organization file.
 ```console
-anvil auth check --org-file ./yaml/orgs.yaml
+anvil auth check --config-file ./yaml/orgs.yaml
 
 INFO     [auth.py:auth_check:106] Running auth check for org=root profile=root auth_source=AuthSource.SSO
 INFO     [auth.py:auth_check:106] Running auth check for org=other-root profile=other-root auth_source=AuthSource.SSO
@@ -177,7 +191,7 @@ INFO [auth.py:auth_check:106] Running auth check for org=root profile=root auth_
 
 Suppress all output and rely on the exit code only (useful for CI)
 ```console
-anvil auth check --org-file orgs.yaml --quiet
+anvil auth check --config-file orgs.yaml --quiet
 INFO     [auth.py:auth_check:106] Running auth check for org=root profile=root auth_source=AuthSource.SSO
 ```
 
@@ -190,7 +204,7 @@ anvil graph --help
 
 Generate a dependency graph from an organization file.
 ```console
-anvil graph --org-file .\examples\07-optional-task-semantics.yaml
+anvil graph --config-file .\examples\07-optional-task-semantics.yaml
 
 Execution Graph (optional-semantics-org)
 ----------------------------------------
@@ -201,7 +215,7 @@ inventory
 
 Output graph results as JSON
 ```console
-anvil graph --org-file .\examples\07-optional-task-semantics.yaml --json
+anvil graph --config-file .\examples\07-optional-task-semantics.yaml --json
 
 {
   "organization": "optional-semantics-org",
@@ -262,9 +276,9 @@ anvil tasks validate
 anvil run --help
 ```
 
-Execute all configured organizations and accounts, write per-organization full results to ./results/{orgname}.json, and produce a summary file at the end.
+Execute all configured organizations and accounts from one or more YAML files, write per-target full results to `./results/{target-name}.json`, and produce one summary file per YAML using the config filename stem.
 ```console
-anvil run --org-file ./yaml/noop.yaml
+anvil run --config-file ./yaml/noop.yaml
 INFO     [auth.py:auth_check:106] Running auth check for org=root profile=root auth_source=AuthSource.SSO
 INFO     [organization.py:execute:39] Starting organization processing (org=root, region=us-east-1)
 INFO     [account.py:execute:48] Processing account root (123456789000)
@@ -278,7 +292,7 @@ INFO     [noop.py:run:33] No-op task executed for account Audit (444444444444), 
 INFO     [noop.py:run:33] No-op task executed for account Log Archive (333333333333), dry_run=False
 INFO     [noop.py:run:33] No-op task executed for account account2 (222222222222), dry_run=False
 ......
-INFO     [cli.py:_cmd_run:113] Wrote summary to xxxx\xxxx\multi-org-summary.json and 1 org result files
+INFO     [cli.py:_write_run_results:90] Wrote summary to xxxx\xxxx\results\noop-target-summary.json and 1 target result files
 
 #Summary below
 {
@@ -298,25 +312,45 @@ INFO     [cli.py:_cmd_run:113] Wrote summary to xxxx\xxxx\multi-org-summary.json
   ],
   "organizations": [
     {
-      "name": "root",
+      "organization": "root",
       "total_accounts": 50,
       "failed_accounts": 0,
+      "interrupted_accounts": 0,
       "failed_tasks": 0,
-      "has_failures": false
+      "has_failures": false,
+      "error": null
     }
   ],
   "total_failed_accounts": 0,
+  "total_interrupted_accounts": 0,
   "total_failed_tasks": 0
 }
 ```
 
-You can run --include, --exclude, or --dry-run to overide the yaml file if you want to just test something or run on certain accounts
+To run multiple YAML files in one command, pass them after a single `--config-file` flag. They run sequentially in the order provided. Each YAML remains an isolated run with its own summary file, and the overall command exits non-zero if any YAML run fails.
+```console
+anvil run --config-file ./yaml/orgs.yaml ./yaml/orgs2.yaml ./yaml/orgs3.yaml
+```
+
+Within a single YAML, you can bound how many configured targets run in parallel. This is separate from each target's `max_workers` setting:
+```yaml
+schema_version: 1
+max_parallel_targets: 4
+organizations:
+  - name: root
+    max_workers: 10
+```
+
+You can run `--include`, `--exclude`, or `--dry-run` to override the YAML file if you want to just test something or run on certain accounts.
 ```console
 # Include only specific accounts:
-anvil run --org-file orgs.yaml --include 111111111111 222222222222
+anvil run --config-file orgs.yaml --include 111111111111 222222222222
 
 # Exclude specific accounts:
-anvil run --org-file orgs.yaml --exclude 333333333333 444444444444
+anvil run --config-file orgs.yaml --exclude 333333333333 444444444444
+
+# Exclude specific accounts and perform a dry-run:
+anvil run --config-file orgs.yaml --exclude 333333333333 444444444444 --dry-run
 ```
 
 

@@ -27,12 +27,13 @@ def test_graph_and_run_paths_behave_the_same_with_cached_resolution(
 
     monkeypatch.setattr(task_loader, "_load_task_callable", fake_load)
 
-    org = descriptors.OrgDescriptor(
+    target = descriptors.TargetDescriptor(
+        config_branch=descriptors.ConfigBranch.ORGANIZATIONS,
         name="demo-org",
         tasks=[{"name": "alpha"}, {"name": "beta", "depends_on": ["alpha"]}],
     )
 
-    graph.render_graph(orgs=[org], output_json=True)
+    graph.render_graph(targets=[target], output_json=True)
     graph_output = capsys.readouterr().out
     assert '"organization": "demo-org"' in graph_output
     assert '"name": "alpha"' in graph_output
@@ -42,7 +43,7 @@ def test_graph_and_run_paths_behave_the_same_with_cached_resolution(
         runner,
         "auth_check",
         lambda **kwargs: results.AuthResult(
-            org_name=kwargs["org_name"],
+            target_name=kwargs["target_name"],
             status=results.ExecutionStatus.SUCCESS,
             source="test",
             started_at="start",
@@ -54,26 +55,42 @@ def test_graph_and_run_paths_behave_the_same_with_cached_resolution(
     monkeypatch.setattr(
         runner, "infer_auth_source", lambda profile: SimpleNamespace(value="test")
     )
+    monkeypatch.setattr(
+        runner,
+        "_preflight_organization",
+        lambda **kwargs: ("o-example", "123456789012"),
+    )
 
     observed_tasks: list[list[str]] = []
 
-    class FakeOrganization:
-        def __init__(self, *, context, **kwargs):
-            observed_tasks.append([task.name for task in context.tasks])
+    class FakeResolver:
+        def __init__(self, *, descriptor, context, **kwargs):
+            self.descriptor = descriptor
             self.context = context
-            self.name = kwargs["name"]
 
-        def execute(self):
-            return results.OrgResult.create(
-                org_name=self.name, dry_run=self.context.dry_run, account_results=[]
-            )
+        def resolve_accounts(self):
+            return []
 
-    monkeypatch.setattr(runner, "Organization", FakeOrganization)
+    def fake_execute_accounts(*, name, config_branch, max_workers, context, accounts):
+        observed_tasks.append([task.name for task in context.tasks])
+        return results.TargetResult.create(
+            config_branch=config_branch,
+            target_name=name,
+            dry_run=context.dry_run,
+            account_results=[],
+        )
 
-    engine_result = runner.run_multiple_orgs(
-        orgs=[org, org], cli_dry_run=None, cli_include=None, cli_exclude=None
+    monkeypatch.setattr(runner, "OrganizationResolver", FakeResolver)
+    monkeypatch.setattr(runner, "execute_accounts", fake_execute_accounts)
+
+    engine_result = runner.run_multiple_targets(
+        targets=[target, target],
+        max_parallel_targets=1,
+        cli_dry_run=None,
+        cli_include=None,
+        cli_exclude=None,
     )
 
     assert observed_tasks == [["alpha", "beta"], ["alpha", "beta"]]
     assert engine_result.state is results.EngineState.COMPLETED_SUCCESS
-    assert len(engine_result.organization_results) == 2
+    assert len(engine_result.target_results) == 2

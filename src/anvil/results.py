@@ -4,6 +4,15 @@ import datetime
 from dataclasses import dataclass
 from enum import Enum
 
+from anvil.descriptors import ConfigBranch
+
+
+def _result_labels(config_branch: ConfigBranch) -> tuple[str, str]:
+    if config_branch is ConfigBranch.ACCOUNTS:
+        return "account_group", "account_groups"
+
+    return "organization", "organizations"
+
 
 class ExecutionStatus(str, Enum):
     SUCCESS = "success"
@@ -64,7 +73,7 @@ class TaskResult(TimedResult):
 
 @dataclass(frozen=True, slots=True)
 class AuthResult(TimedResult):
-    org_name: str
+    target_name: str
     status: ExecutionStatus
     source: str
     message: str | None = None
@@ -78,9 +87,11 @@ class AuthResult(TimedResult):
     def is_error(self) -> bool:
         return self.status.is_error
 
-    def to_dict(self) -> dict[str, object]:
+    def to_dict(self, *, config_branch: ConfigBranch) -> dict[str, object]:
+        singular_key, _ = _result_labels(config_branch)
+
         return {
-            "org_name": self.org_name,
+            singular_key: self.target_name,
             "status": self.status.value,
             "source": self.source,
             "started_at": self.started_at,
@@ -113,8 +124,9 @@ class AccountResult(TimedResult):
 
 
 @dataclass(frozen=True, slots=True)
-class OrgResult:
-    org_name: str
+class TargetResult:
+    config_branch: ConfigBranch
+    target_name: str
     generated_at: str
     dry_run: bool
     account_results: list[AccountResult]
@@ -147,8 +159,10 @@ class OrgResult:
         )
 
     def to_dict(self) -> dict[str, object]:
+        singular_key, _ = _result_labels(self.config_branch)
+
         return {
-            "organization": self.org_name,
+            singular_key: self.target_name,
             "generated_at": self.generated_at,
             "dry_run": self.dry_run,
             "total_accounts": self.total_accounts,
@@ -160,13 +174,15 @@ class OrgResult:
     def create(
         cls,
         *,
-        org_name: str,
+        config_branch: ConfigBranch,
+        target_name: str,
         dry_run: bool,
         account_results: list[AccountResult],
         error: str | None = None,
-    ) -> OrgResult:
+    ) -> TargetResult:
         return cls(
-            org_name=org_name,
+            config_branch=config_branch,
+            target_name=target_name,
             generated_at=datetime.datetime.now(datetime.UTC).isoformat(),
             dry_run=dry_run,
             account_results=account_results,
@@ -177,51 +193,48 @@ class OrgResult:
 @dataclass(frozen=True, slots=True)
 class EngineResult:
     """
-    Top-level result container for a full multi-organization execution.
+    Top-level result container for a full config-driven execution.
     """
 
+    config_branch: ConfigBranch
     state: EngineState
     generated_at: str
     auth_results: list[AuthResult]
-    organization_results: list[OrgResult]
+    target_results: list[TargetResult]
 
     @property
     def has_auth_failures(self) -> bool:
         return any(auth_result.is_error for auth_result in self.auth_results)
 
     @property
-    def has_organization_failures(self) -> bool:
-        return any(
-            organization_result.has_failures
-            for organization_result in self.organization_results
-        )
+    def has_target_failures(self) -> bool:
+        return any(target_result.has_failures for target_result in self.target_results)
 
     @property
     def total_failed_accounts(self) -> int:
         return sum(
-            len(organization_result.failed_accounts)
-            for organization_result in self.organization_results
+            len(target_result.failed_accounts) for target_result in self.target_results
         )
 
     @property
     def total_interrupted_accounts(self) -> int:
         return sum(
-            len(organization_result.interrupted_accounts)
-            for organization_result in self.organization_results
+            len(target_result.interrupted_accounts)
+            for target_result in self.target_results
         )
 
-    @property
-    def total_organizations(self) -> int:
-        return len(self.organization_results)
-
     def to_dict(self) -> dict[str, object]:
+        _, plural_key = _result_labels(self.config_branch)
+
         return {
             "state": self.state.value,
             "generated_at": self.generated_at,
-            "auth": [auth_result.to_dict() for auth_result in self.auth_results],
-            "organizations": [
-                organization_result.to_dict()
-                for organization_result in self.organization_results
+            "auth": [
+                auth_result.to_dict(config_branch=self.config_branch)
+                for auth_result in self.auth_results
+            ],
+            plural_key: [
+                target_result.to_dict() for target_result in self.target_results
             ],
         }
 
@@ -229,33 +242,40 @@ class EngineResult:
     def create(
         cls,
         *,
+        config_branch: ConfigBranch,
         state: EngineState,
         auth_results: list[AuthResult],
-        organization_results: list[OrgResult],
+        target_results: list[TargetResult],
     ) -> EngineResult:
         return cls(
+            config_branch=config_branch,
             state=state,
             generated_at=datetime.datetime.now(datetime.UTC).isoformat(),
             auth_results=auth_results,
-            organization_results=organization_results,
+            target_results=target_results,
         )
 
     def build_summary(self) -> dict[str, object]:
         """
         Build a high-level summary of the execution suitable for CLI output.
         """
+        singular_key, plural_key = _result_labels(self.config_branch)
+
         summary = {
             "state": self.state.value,
             "generated_at": self.generated_at,
-            "auth": [auth_result.to_dict() for auth_result in self.auth_results],
-            "organizations": [],
+            "auth": [
+                auth_result.to_dict(config_branch=self.config_branch)
+                for auth_result in self.auth_results
+            ],
+            plural_key: [],
             "total_failed_accounts": 0,
             "total_interrupted_accounts": 0,
             "total_failed_tasks": 0,
         }
 
-        for organization_result in self.organization_results:
-            account_results = organization_result.account_results
+        for target_result in self.target_results:
+            account_results = target_result.account_results
 
             failed_accounts = [
                 account_result
@@ -279,15 +299,15 @@ class EngineResult:
             summary["total_interrupted_accounts"] += len(interrupted_accounts)
             summary["total_failed_tasks"] += failed_tasks
 
-            summary["organizations"].append(
+            summary[plural_key].append(
                 {
-                    "name": organization_result.org_name,
-                    "total_accounts": organization_result.total_accounts,
+                    singular_key: target_result.target_name,
+                    "total_accounts": target_result.total_accounts,
                     "failed_accounts": len(failed_accounts),
                     "interrupted_accounts": len(interrupted_accounts),
                     "failed_tasks": failed_tasks,
-                    "has_failures": organization_result.has_failures,
-                    "error": organization_result.error,
+                    "has_failures": target_result.has_failures,
+                    "error": target_result.error,
                 }
             )
 

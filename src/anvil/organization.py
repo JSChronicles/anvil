@@ -1,121 +1,63 @@
 from __future__ import annotations
 
 import logging
-from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
 
 import boto3
 
 from anvil.account import Account
+from anvil.descriptors import TargetDescriptor
 from anvil.execution_context import ExecutionContext
-from anvil.results import AccountResult, OrgResult
 from anvil.session import BOTO_CONFIG, SessionFactory
 
 __LOGGER__ = logging.getLogger(__name__)
 
 
-class Organization:
+class OrganizationResolver:
     """
-    Executable AWS Organization.
+    Resolve executable accounts from an AWS Organizations-backed config entry.
     """
 
     def __init__(
         self,
         *,
-        name: str,
-        profile_name: str | None,
-        max_workers: int,
-        include_ids: list[str] | None,
-        exclude_ids: list[str] | None,
+        descriptor: TargetDescriptor,
         context: ExecutionContext,
+        management_account_id: str | None = None,
         session_factory: SessionFactory | None = None,
     ) -> None:
-        self.name = name
-        self.profile_name = profile_name
-        self.max_workers = max_workers
-        self.include_ids = include_ids
-        self.exclude_ids = exclude_ids
+        self.descriptor = descriptor
         self.context = context
+        self._management_account_id: str | None = management_account_id
         self._session_factory = session_factory or SessionFactory()
 
-    def execute(self) -> OrgResult:
-        """
-        Execute this organization across all selected accounts.
-        """
+    def resolve_accounts(self) -> list[Account]:
         __LOGGER__.info(
-            f"Starting organization processing "
-            f"(org={self.name}, regions={self.context.regions})"
+            f"Resolving organization accounts "
+            f"(org={self.descriptor.name}, regions={self.context.regions})"
         )
 
         base_session = self._session_factory.create_base_session(
-            profile_name=self.profile_name, region_name=self.context.regions[0]
+            profile_name=self.descriptor.profile, region_name=self.context.regions[0]
         )
 
         effective_regions = self._get_effective_regions(base_session)
         if not effective_regions:
-            return OrgResult.create(
-                org_name=self.name,
-                dry_run=self.context.dry_run,
-                account_results=[],
-                error="No effective configured regions remain after validation.",
-            )
+            raise ValueError("No effective configured regions remain after validation.")
 
-        management_account_id = self._get_management_account_id(base_session)
-        accounts: list[Account] = self._build_accounts(
+        # The runner may preflight organization identity up front and pass the
+        # management account ID here so we do not need a second
+        # describe_organization() call during execution.
+        if self._management_account_id is not None:
+            management_account_id = self._management_account_id
+        else:
+            management_account_id = self._get_management_account_id(base_session)
+
+        return self._build_accounts(
             base_session=base_session,
             management_account_id=management_account_id,
             effective_regions=effective_regions,
         )
 
-        account_results: list[AccountResult] = []
-
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            futures = {
-                executor.submit(account.execute): account for account in accounts
-            }
-            fail_fast_triggered = False
-
-            try:
-                for future in as_completed(futures):
-                    try:
-                        account_result: AccountResult = future.result()
-                    except CancelledError:
-                        continue
-
-                    account_results.append(account_result)
-
-                    if (
-                        self.context.fail_fast
-                        and account_result.status.is_unsuccessful
-                        and not fail_fast_triggered
-                    ):
-                        __LOGGER__.critical(f"Fail-fast triggered in org '{self.name}'")
-
-                        # Signal cooperative cancellation to all running tasks
-                        self.context.cancel_event.set()
-                        fail_fast_triggered = True
-
-                        # Cancel all pending futures
-                        for pending in futures:
-                            if not pending.done():
-                                pending.cancel()
-
-            except Exception:
-                executor.shutdown(cancel_futures=True)
-                raise
-
-        account_results.sort(
-            key=lambda result: (result.account_alias.lower(), result.account_id)
-        )
-
-        return OrgResult.create(
-            org_name=self.name,
-            dry_run=self.context.dry_run,
-            account_results=account_results,
-        )
-
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
     def _get_management_account_id(self, session: boto3.Session) -> str:
         """
         Return the management account ID for this AWS Organization.
@@ -146,6 +88,7 @@ class Organization:
                     account_id=account_id,
                     account_alias=info["account_alias"],
                     is_management=account_id == management_account_id,
+                    assume_role=account_id != management_account_id,
                     base_session=base_session,
                     context=self.context,
                     regions=effective_regions,
@@ -204,22 +147,24 @@ class Organization:
         """
         discovered_ids = set(all_accounts.keys())
 
-        if self.include_ids:
-            include_set = set(self.include_ids)
+        if self.descriptor.include:
+            include_set = set(self.descriptor.include)
             unknown_include_ids = sorted(include_set - discovered_ids)
             if unknown_include_ids:
                 __LOGGER__.warning(
-                    f"Org '{self.name}' include list contains unknown account IDs: {', '.join(unknown_include_ids)}"
+                    f"Org '{self.descriptor.name}' include list contains unknown "
+                    f"account IDs: {', '.join(unknown_include_ids)}"
                 )
 
             selected_ids = sorted(include_set & discovered_ids)
             return {account_id: all_accounts[account_id] for account_id in selected_ids}
 
-        exclude_set = set(self.exclude_ids or [])
+        exclude_set = set(self.descriptor.exclude or [])
         unknown_exclude_ids = sorted(exclude_set - discovered_ids)
         if unknown_exclude_ids:
             __LOGGER__.warning(
-                f"Org '{self.name}' exclude list contains unknown account IDs: {', '.join(unknown_exclude_ids)}"
+                f"Org '{self.descriptor.name}' exclude list contains unknown "
+                f"account IDs: {', '.join(unknown_exclude_ids)}"
             )
 
         remaining_ids = sorted(discovered_ids - exclude_set)
@@ -236,7 +181,8 @@ class Organization:
         unavailable_regions = sorted(set(configured_regions) - discovered_regions)
         if unavailable_regions:
             __LOGGER__.warning(
-                f"Org '{self.name}' configured unavailable regions: {', '.join(unavailable_regions)}"
+                f"Org '{self.descriptor.name}' configured unavailable regions: "
+                f"{', '.join(unavailable_regions)}"
             )
 
         return [region for region in configured_regions if region in discovered_regions]

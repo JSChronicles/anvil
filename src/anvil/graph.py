@@ -1,34 +1,34 @@
 import json
 
-from anvil.task_loader import resolve_tasks
+from anvil.descriptors import ConfigBranch
+from anvil.task_loader import ResolvedExecution, resolve_tasks
 
 
-def render_graph(*, orgs, output_json: bool) -> None:
-    # Example: assume tasks live on org descriptor
-    # adapt if your descriptor differs
-
-    for org in orgs:
-        execution = resolve_tasks(task_specs=org.tasks)
+def render_graph(*, targets, output_json: bool) -> None:
+    for target in targets:
+        execution: ResolvedExecution = resolve_tasks(task_specs=target.tasks)
 
         if output_json:
-            _render_json(org.name, execution)
+            _render_json(
+                target_name=target.name,
+                config_branch=target.config_branch,
+                execution=execution,
+            )
         else:
-            _render_tree(org.name, execution)
+            _render_tree(target.name, execution)
 
 
-def _render_tree(org_name: str, execution) -> None:
-    print(f"Execution Graph ({org_name})")
-    print("-" * (18 + len(org_name)))
+def _render_tree(target_name: str, execution) -> None:
+    print(f"Execution Graph ({target_name})")
+    print("-" * (18 + len(target_name)))
 
     adjacency_map = execution.adjacency
 
-    # Collect all nodes that appear as children
     child_nodes: set[str] = set()
-    for parent_task, child_list in adjacency_map.items():
+    for _, child_list in adjacency_map.items():
         for child_task in child_list:
             child_nodes.add(child_task)
 
-    # Root nodes = tasks that never appear as children
     root_tasks: list[str] = [
         resolved_task.name
         for resolved_task in execution.ordered
@@ -46,7 +46,7 @@ def _print_node_recursive(
 ) -> None:
     print(f"{prefix}{task_name}")
 
-    child_tasks = adjacency_map.get(task_name, [])
+    child_tasks: list[str] = adjacency_map.get(task_name, [])
 
     for index, child_task in enumerate(child_tasks):
         is_last_child = index == len(child_tasks) - 1
@@ -61,9 +61,13 @@ def _print_node_recursive(
         )
 
 
-def _render_json(org_name: str, execution) -> None:
+def _render_json(*, target_name: str, config_branch: ConfigBranch, execution) -> None:
+    target_key = (
+        "account_group" if config_branch is ConfigBranch.ACCOUNTS else "organization"
+    )
+
     payload = {
-        "organization": org_name,
+        target_key: target_name,
         "tasks": [
             {"name": resolved_task.name, "depends_on": resolved_task.depends_on}
             for resolved_task in execution.ordered

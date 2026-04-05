@@ -1,4 +1,5 @@
 schema_version: 1
+max_parallel_targets: 2
 
 organizations:
   - name: place

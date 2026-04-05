@@ -1,32 +1,27 @@
+from __future__ import annotations
+
 import importlib.resources
 import json
 import logging
+from functools import lru_cache
 
 from jsonschema import Draft202012Validator
+from referencing import Registry, Resource
 
-from anvil.descriptors import OrgDescriptor
+from anvil.descriptors import ConfigBranch, LoadedConfig, TargetDescriptor
 
 __LOGGER__ = logging.getLogger(__name__)
 
-SCHEMA_REGISTRY: dict[int, str] = {
-    1: "orgs.schema.v1.json"
-    # 2: "orgs.schema.v2.json",
+SCHEMA_REGISTRY: dict[str, str] = {
+    ConfigBranch.ORGANIZATIONS.value: "orgs.schema.v1.json",
+    ConfigBranch.ACCOUNTS.value: "accounts.schema.v1.json",
 }
 
+COMMON_SCHEMA_FILE = "common.schema.v1.json"
+SCHEMA_BASE_URI = "https://anvil.local/schemas/"
 
-def _load_org_schema(*, schema_version: int) -> dict:
-    """
-    Load the organization JSON schema for a specific schema version.
-    """
 
-    try:
-        schema_file = SCHEMA_REGISTRY[schema_version]
-    except KeyError as error:
-        raise ValueError(
-            f"Unsupported schema_version: {schema_version}. "
-            f"Supported versions: {sorted(SCHEMA_REGISTRY)}"
-        ) from error
-
+def _load_schema_file(schema_file: str) -> dict:
     with (
         importlib.resources.files("anvil.schemas")
         .joinpath(schema_file)
@@ -35,48 +30,111 @@ def _load_org_schema(*, schema_version: int) -> dict:
         return json.load(handle)
 
 
-def _format_schema_error_location(*, config: dict, error) -> str:
-    """
-    Build a friendlier schema error location string.
+def _detect_config_branch(config: dict) -> ConfigBranch:
+    has_organizations = "organizations" in config
+    has_accounts = "accounts" in config
 
-    If the error points at organizations.<index>, include the org name when
-    available so users do not have to map indexes back to YAML entries.
-    """
+    if has_organizations and has_accounts:
+        raise ValueError(
+            "Config must contain exactly one top-level branch: "
+            "'organizations' or 'accounts'"
+        )
+
+    if has_organizations:
+        return ConfigBranch.ORGANIZATIONS
+
+    if has_accounts:
+        return ConfigBranch.ACCOUNTS
+
+    raise ValueError(
+        "Config must contain exactly one top-level branch: "
+        "'organizations' or 'accounts'"
+    )
+
+
+def _load_branch_schema(*, branch: ConfigBranch, schema_version: int) -> dict:
+    if schema_version != 1:
+        raise ValueError(
+            f"Unsupported schema_version: {schema_version}. Supported versions: [1]"
+        )
+
+    schema_file = SCHEMA_REGISTRY[branch.value]
+    return _load_schema_file(schema_file)
+
+
+def _format_schema_error_location(*, config: dict, error) -> str:
     path_parts = list(error.path)
     location = ".".join(str(path) for path in path_parts) or "root"
 
-    if (
-        len(path_parts) >= 2
-        and path_parts[0] == "organizations"
-        and isinstance(path_parts[1], int)
-    ):
-        org_index = path_parts[1]
-        organizations = config.get("organizations", [])
+    if len(path_parts) >= 2 and isinstance(path_parts[1], int):
+        branch_name = path_parts[0]
+        entry_index = path_parts[1]
 
-        if (
-            isinstance(organizations, list)
-            and 0 <= org_index < len(organizations)
-            and isinstance(organizations[org_index], dict)
-        ):
-            org_name = organizations[org_index].get("name")
-            if isinstance(org_name, str) and org_name.strip():
-                return f"organization '{org_name}' ({location})"
+        if branch_name not in {
+            ConfigBranch.ORGANIZATIONS.value,
+            ConfigBranch.ACCOUNTS.value,
+        }:
+            return location
+
+        entries = config.get(branch_name, [])
+        if not isinstance(entries, list) or not (0 <= entry_index < len(entries)):
+            return location
+
+        entry = entries[entry_index]
+        if not isinstance(entry, dict):
+            return location
+
+        entry_name = entry.get("name")
+        if not isinstance(entry_name, str) or not entry_name.strip():
+            return location
+
+        label = (
+            "account_group"
+            if branch_name == ConfigBranch.ACCOUNTS.value
+            else "organization"
+        )
+        return f"{label} '{entry_name}' ({location})"
 
     return location
 
 
-def validate_org_config_schema(*, config: dict) -> None:
+@lru_cache(maxsize=1)
+def _build_schema_registry() -> Registry:
+    schema_files = {
+        COMMON_SCHEMA_FILE,
+        SCHEMA_REGISTRY[ConfigBranch.ORGANIZATIONS.value],
+        SCHEMA_REGISTRY[ConfigBranch.ACCOUNTS.value],
+    }
+    registry = Registry()
+
+    for schema_file in schema_files:
+        schema = _load_schema_file(schema_file)
+        schema_uri = schema.get("$id")
+
+        if not isinstance(schema_uri, str) or not schema_uri:
+            schema_uri = f"{SCHEMA_BASE_URI}{schema_file}"
+
+        registry = registry.with_resource(
+            uri=schema_uri, resource=Resource.from_contents(schema)
+        )
+
+    return registry
+
+
+def validate_config_schema(*, config: dict) -> None:
     """
-    Validate org configuration against the packaged JSON Schema.
+    Validate config against the packaged JSON Schema selected by top-level branch.
     """
     schema_version = config.get("schema_version")
 
     if not isinstance(schema_version, int):
         raise ValueError("Missing or invalid 'schema_version' (must be an integer)")
 
-    schema = _load_org_schema(schema_version=schema_version)
+    branch = _detect_config_branch(config)
+    schema = _load_branch_schema(branch=branch, schema_version=schema_version)
+    registry = _build_schema_registry()
 
-    validator = Draft202012Validator(schema)
+    validator = Draft202012Validator(schema, registry=registry)
     errors = sorted(validator.iter_errors(config), key=lambda error: error.path)
 
     if errors:
@@ -86,30 +144,48 @@ def validate_org_config_schema(*, config: dict) -> None:
             location = _format_schema_error_location(config=config, error=error)
             messages.append(f"{location}: {error.message}")
 
-        raise ValueError("Org config schema validation failed:\n" + "\n".join(messages))
+        raise ValueError("Config schema validation failed:\n" + "\n".join(messages))
 
 
-def validate_org_descriptors(orgs: list[OrgDescriptor]) -> None:
+def load_config_descriptors(*, config: dict) -> LoadedConfig:
     """
-    Validate semantic correctness across organization descriptors.
+    Load and semantically validate target descriptors from config.
 
-    Raises:
-        ValueError: if semantic validation fails
+    Assumes schema validation has already succeeded.
     """
+    branch = _detect_config_branch(config)
+    entries = config[branch.value]
+    max_parallel_targets = config.get("max_parallel_targets", 1)
 
+    targets: list[TargetDescriptor] = []
+
+    for index, entry in enumerate(entries, start=1):
+        if not isinstance(entry, dict):
+            raise ValueError(f"{branch.value} entry #{index} must be a mapping")
+
+        targets.append(TargetDescriptor(config_branch=branch, **entry))
+
+    validate_target_descriptors(targets=targets)
+
+    return LoadedConfig(
+        branch=branch, max_parallel_targets=max_parallel_targets, targets=targets
+    )
+
+
+def validate_target_descriptors(*, targets: list[TargetDescriptor]) -> None:
+    """
+    Validate semantic correctness across loaded target descriptors.
+    """
     seen_names: set[str] = set()
 
-    for organization in orgs:
-        if organization.name in seen_names:
-            raise ValueError(
-                f"Duplicate organization name detected: '{organization.name}'"
-            )
+    for target in targets:
+        if target.name in seen_names:
+            raise ValueError(f"Duplicate target name detected: '{target.name}'")
 
-        seen_names.add(organization.name)
+        seen_names.add(target.name)
 
-        # Advisory rule (non-fatal)
-        if organization.fail_fast and organization.max_workers > 10:
+        if target.fail_fast and target.max_workers > 10:
             __LOGGER__.warning(
-                f"Org '{organization.name}' has fail_fast enabled with "
-                f"max_workers={organization.max_workers}"
+                f"Target '{target.name}' has fail_fast enabled with "
+                f"max_workers={target.max_workers}"
             )

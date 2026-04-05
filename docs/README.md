@@ -26,11 +26,12 @@ Anvil executes declarative task workflows across one or more AWS organizations, 
 At a high level:
 
 1. Each organization is defined independently in configuration.
-2. Each organization can declare its own profile, role, regions, worker limits, task graph, include or exclude filters, dry-run behavior, and fail-fast behavior.
-3. For each organization, Anvil authenticates, creates an organization-scoped base session, discovers eligible accounts, validates configured regions against enabled regions, and builds the effective account execution set.
-4. Selected accounts execute in parallel within that organization, bounded by the configured worker limit.
-5. Within an account, tasks execute in dependency order for each effective configured region.
-6. Results are captured at task, account, organization, and engine scope.
+1. Each organization can declare its own profile, role, regions, worker limits, task graph, include or exclude filters, dry-run behavior, and fail-fast behavior.
+1. Each YAML can optionally declare `max_parallel_targets` to bound how many configured targets are allowed to execute at once.
+1. For each organization, Anvil authenticates, creates an organization-scoped base session, discovers eligible accounts, validates configured regions against enabled regions, and builds the effective account execution set.
+   1. Selected accounts execute in parallel within that organization, bounded by the configured worker limit.
+1. Within an account, tasks execute in dependency order for each effective configured region.
+1. Results are captured at task, account, organization, and engine scope.
 
 This makes Anvil suitable for workflows that need consistent execution across multiple AWS organizations while still respecting account boundaries, region-specific service presence, and per-organization execution settings.
 
@@ -42,6 +43,7 @@ Anvil supports defining multiple organizations in a single run. Each organizatio
 - target regions
 - role name
 - include or exclude account filters
+- target-level YAML concurrency through `max_parallel_targets`
 - worker concurrency
 - dry-run behavior
 - fail-fast setting
@@ -256,7 +258,82 @@ Anvil currently exposes these primary command groups:
 Organization targeting can also be narrowed at invocation time with `--include` or `--exclude` account filters.
 
 ## Flow
+```mermaid
+flowchart TD
+    A["Run command"] --> B["Load YAML"]
+    B --> C["Start target pipeline"]
 
-<p align="center">
-  <img src="../images/flow-diagram.png" alt="flow-diagram" width="275" height="950">
-</p>
+    C --> D["Prepare targets in parallel<br/>bounded by<br/>max parallel targets"]
+    D --> E{"Target prepared"}
+    E --> F["Auth check"]
+    F --> G{"Auth OK?"}
+
+    G -->|No| H["Record auth result<br/>skip execution"]
+    G -->|Yes| I["Apply run-time overrides"]
+    I --> J["Resolve task graph"]
+    J --> K["Build execution context"]
+    K --> L["Ready queue"]
+
+    L --> M{"Execution slot open<br/>and org not already active?"}
+    M -->|No| N["Wait in ready queue"]
+    M -->|Yes| O{"Target type?"}
+
+    O -->|Organization| P1
+    O -->|Accounts| Q1
+
+    subgraph LEFT["Organization target"]
+        direction TD
+        P1["Create base session"]
+        P1 --> P2["Read org identity"]
+        P2 --> P3["Validate enabled regions"]
+        P3 --> P4["Discover active accounts"]
+        P4 --> P5["Apply include/exclude filters"]
+        P5 --> P6["Build account list"]
+    end
+
+    subgraph RIGHT["Explicit accounts target"]
+        direction TD
+        Q1["Create base session"]
+        Q1 --> Q2["Read explicit account list"]
+        Q2 --> Q3["Build account list"]
+    end
+
+    P6 --> R["Create account worker pool"]
+    Q3 --> R
+
+    R --> S["Dispatch accounts in parallel<br/>bounded by per-target max workers"]
+    S --> T["Worker executes one account"]
+
+    T --> U{"Management account?"}
+    U -->|Yes| V["Reuse worker session<br/>for region"]
+    U -->|No| W["Assume role"]
+    W --> X["Create region session"]
+
+    V --> Y["Run tasks by region<br/>in dependency order"]
+    X --> Y
+
+    Y --> YA{"More tasks or regions?"}
+    YA -->|Yes| Y
+    YA -->|No| Z{"Failure with fail-fast?"}
+
+    Z -->|No| AA["Continue account work"]
+    Z -->|Yes| AB["Set cancellation signal"]
+    AB --> AC["Stop pending account work"]
+
+    AA --> AD["Account result"]
+    AC --> AD
+
+    AD --> AE["Target result"]
+    AE --> AF["Release org slot if needed"]
+    AF --> AG["Record target result<br/>in input order"]
+
+    H --> AH{"More prep or<br/>execution work?"}
+    N --> AH
+    AG --> AH
+    AH -->|Yes| E
+    AH -->|No| AI["Build ordered auth results"]
+    AI --> AJ["Build ordered target results"]
+    AJ --> AK["Compute engine state"]
+    AK --> AL["Return engine result"]
+
+```
