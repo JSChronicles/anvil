@@ -29,5 +29,30 @@ jobs:
       - name: Install the project
         run: uv sync --all-groups
 
-      - name: Validate Yaml
-        run: uv run check-jsonschema --schemafile ./src/anvil/schemas/orgs.schema.v1.json ./yaml/*.yaml ./examples/*.yaml
+      - name: Validate YAML
+        run: |
+          uv run python - <<'PY'
+          from pathlib import Path
+
+          import yaml
+
+          from anvil.validators import validate_config_schema
+
+          patterns = (
+              "yaml/*.yaml",
+              "yaml/*.yml",
+              "examples/*.yaml",
+              "examples/*.yml",
+          )
+
+          config_paths = sorted(
+              {path for pattern in patterns for path in Path(".").glob(pattern)}
+          )
+
+          for config_path in config_paths:
+              with config_path.open("r", encoding="utf-8") as handle:
+                  config = yaml.safe_load(handle) or {}
+
+              validate_config_schema(config=config)
+              print(f"validated {config_path}")
+          PY
