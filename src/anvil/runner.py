@@ -244,6 +244,10 @@ def run_prepared_target(*, prepared_target: PreparedTarget) -> TargetExecutionOu
 def _next_eligible_target(
     *, pending: deque[PreparedTarget], active_organization_ids: set[str]
 ) -> PreparedTarget | None:
+
+    # Same-org targets may coexist in one YAML, but they must not execute at the
+    # same time. We enforce that only at execution admission so preparation can
+    # still proceed in parallel.
     for offset, prepared_target in enumerate(pending):
         organization_id = prepared_target.organization_id
         if organization_id is not None and organization_id in active_organization_ids:
@@ -291,9 +295,15 @@ def _run_target_pipeline(
     cli_include: list[str] | None,
     cli_exclude: list[str] | None,
 ) -> tuple[list[AuthResult], list[TargetResult], EngineState]:
+
+    # Preparation and execution complete out of order, but final EngineResult
+    # output must stay in the original YAML input order.
     auth_results_by_index: dict[int, AuthResult] = {}
     target_results_by_index: dict[int, TargetResult] = {}
     execution_state = EngineState.COMPLETED_SUCCESS
+
+    # Prepared targets wait here until an execution slot is free and any
+    # same-organization exclusion has cleared.
     ready_targets: deque[PreparedTarget] = deque()
     active_organization_ids: set[str] = set()
 

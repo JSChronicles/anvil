@@ -47,6 +47,10 @@ def execute_accounts(
                 ):
                     __LOGGER__.critical(f"Fail-fast triggered in '{name}'")
 
+                    # Fail-fast is cooperative: pending futures are cancelled
+                    # here, while already-running account work observes
+                    # context.cancel_event and stops at its next cancellation
+                    # check.
                     context.cancel_event.set()
                     fail_fast_triggered = True
 

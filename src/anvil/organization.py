@@ -44,6 +44,9 @@ class OrganizationResolver:
         if not effective_regions:
             raise ValueError("No effective configured regions remain after validation.")
 
+        # The runner may preflight organization identity up front and pass the
+        # management account ID here so we do not need a second
+        # describe_organization() call during execution.
         if self._management_account_id is not None:
             management_account_id = self._management_account_id
         else:

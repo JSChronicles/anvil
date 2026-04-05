@@ -25,7 +25,9 @@ def test_run_single_config_file_passes_max_parallel_targets(monkeypatch):
     args = SimpleNamespace(dry_run=None, include=None, exclude=None)
     seen = {}
 
-    monkeypatch.setattr(cli, "_load_targets_from_config_file", lambda path: loaded_config)
+    monkeypatch.setattr(
+        cli, "_load_targets_from_config_file", lambda path: loaded_config
+    )
     monkeypatch.setattr(cli, "_validate_cli_overrides", lambda **kwargs: None)
 
     def fake_run_multiple_targets(**kwargs):
