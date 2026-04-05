@@ -55,8 +55,4 @@ def run(
         f"Counted {vpc_count} VPC(s) in account {account_id} region {region_name}"
     )
 
-    return {
-        "region": region_name,
-        "vpc_count": vpc_count,
-        "vpc_ids": vpc_ids,
-    }
+    return {"region": region_name, "vpc_count": vpc_count, "vpc_ids": vpc_ids}
