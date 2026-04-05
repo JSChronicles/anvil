@@ -8,7 +8,7 @@ import argparse
 import json
 import logging
 from pathlib import Path
-
+from anvil.graph import render_graph
 import yaml
 from anvil.descriptors import LoadedConfig
 from anvil.results import EngineResult, EngineState
@@ -129,26 +129,29 @@ def _cmd_run(args) -> int:
 
 
 def _cmd_auth_check(args) -> int:
-    """
-    Auth-only execution for configured targets.
-    """
-    loaded_config: LoadedConfig = _load_targets_from_config_file(args.config_file)
-    _validate_cli_overrides(loaded_config=loaded_config, args=args)
+    overall_exit_code = 0
 
-    engine_result: EngineResult = run_auth_checks(targets=loaded_config.targets)
+    for config_file in args.config_file:
+        loaded_config: LoadedConfig = _load_targets_from_config_file(config_file)
+        _validate_cli_overrides(loaded_config=loaded_config, args=args)
 
-    auth_payload: dict[str, str | list[dict[str, object]]] = {
-        "generated_at": engine_result.generated_at,
-        "auth": [
-            auth_result.to_dict(config_branch=loaded_config.branch)
-            for auth_result in engine_result.auth_results
-        ],
-    }
+        engine_result: EngineResult = run_auth_checks(targets=loaded_config.targets)
 
-    if not args.quiet:
-        print(json.dumps(auth_payload, indent=2))
+        auth_payload: dict[str, str | list[dict[str, object]]] = {
+            "generated_at": engine_result.generated_at,
+            "auth": [
+                auth_result.to_dict(config_branch=loaded_config.branch)
+                for auth_result in engine_result.auth_results
+            ],
+        }
 
-    return 0 if engine_result.state is EngineState.COMPLETED_SUCCESS else 1
+        if not args.quiet:
+            print(json.dumps(auth_payload, indent=2))
+
+        if engine_result.state is not EngineState.COMPLETED_SUCCESS:
+            overall_exit_code = 1
+
+    return overall_exit_code
 
 
 def _cmd_list_tasks() -> int:
@@ -194,12 +197,11 @@ def _cmd_tasks_validate() -> int:
 
 
 def _cmd_graph(args) -> int:
-    loaded_config = _load_targets_from_config_file(args.config_file)
-    _validate_cli_overrides(loaded_config=loaded_config, args=args)
 
-    from anvil.graph import render_graph
-
-    render_graph(targets=loaded_config.targets, output_json=args.json)
+    for config_file in args.config_file:
+        loaded_config = _load_targets_from_config_file(config_file)
+        _validate_cli_overrides(loaded_config=loaded_config, args=args)
+        render_graph(targets=loaded_config.targets, output_json=args.json)
 
     return 0
 
