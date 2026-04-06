@@ -54,7 +54,9 @@ Replace the innards of the `account_task()` function with your own per-account l
 Replace the `--example-piece` argparse and `example_piece` in other areas or edit as desired
 
 ## Example Benchmarks
-To measure the impact of target-level parallelism, Anvil was tested across 3 organizations with a combined 260 accounts.
+To measure concurrency behavior, Anvil was tested across 3 organizations with a combined 260 accounts.
+
+`max_parallel_targets` controls how many organizations or account groups run at the same time, depending on the config type. `max_workers` controls how many accounts run in parallel inside each organization or account group.
 
 | Task        | Regions | max_parallel_targets |                 Runtime |
 | ----------- | ------: | -------------------: | ----------------------: |
