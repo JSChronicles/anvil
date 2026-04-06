@@ -58,14 +58,10 @@ To measure concurrency behavior, Anvil was tested across 3 organizations with a 
 
 `max_parallel_targets` controls how many organizations or account groups run at the same time, depending on the config type. `max_workers` controls how many accounts run in parallel inside each organization or account group.
 
-| Task        | Regions | max_parallel_targets |                 Runtime |
-| ----------- | ------: | -------------------: | ----------------------: |
-| `noop`      |       1 |                    1 |           52.41 seconds |
-| `noop`      |       1 |                    3 |           41.41 seconds |
-| `noop`      |       2 |                    1 |           52.73 seconds |
-| `noop`      |       2 |                    3 |           40.79 seconds |
-| `count_vpc` |       2 |                    1 | 2 minutes 40.93 seconds |
-| `count_vpc` |       2 |                    3 | 2 minutes 18.77 seconds |
+<p align="left">
+  <img src="images/count-vpc-runtime-comparison.png" alt="count_vpc runtime comparison" width="700">
+</p>
+
 
 
 ## Usage

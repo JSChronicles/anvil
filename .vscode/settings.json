@@ -1,6 +1,6 @@
 {
   // Global settings
-  "workbench.colorTheme": "Visual Studio Dark",
+  "workbench.colorTheme": "Dark Modern",
   "editor.bracketPairColorization.enabled": true,
   "editor.minimap.enabled": false,
 
