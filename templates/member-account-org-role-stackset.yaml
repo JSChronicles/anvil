@@ -1,0 +1,32 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Creates OrganizationAccountAccessRole in member accounts'
+
+Parameters:
+  ManagementAccountId:
+    Type: String
+    Description: The AWS Account ID of the management account
+    AllowedPattern: '^\d{12}$'
+
+Resources:
+  OrganizationAccountAccessRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: OrganizationAccountAccessRole
+      Description: Role to allow management account to assume into member accounts
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AdministratorAccess
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${ManagementAccountId}:root'
+            Action: 'sts:AssumeRole'
+      MaxSessionDuration: 3600
+
+Outputs:
+  RoleArn:
+    Description: ARN of the OrganizationAccountAccessRole
+    Value: !GetAtt OrganizationAccountAccessRole.Arn
+    Export:
+      Name: OrganizationAccountAccessRoleArn

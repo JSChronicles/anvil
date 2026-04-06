@@ -58,17 +58,19 @@ def _style_axes(ax, *, title: str, xlabel: str) -> None:
     ax.spines["bottom"].set_color("#64748b")
 
 
-def plot_count_vpc_comparison(
-    rows: list[BenchmarkRow], *, output_path: Path
-) -> None:
+def plot_count_vpc_comparison(rows: list[BenchmarkRow], *, output_path: Path) -> None:
     labels = [row.label for row in rows]
     values = [row.minutes for row in rows]
-    colors = [BASELINE, ANVIL]
+    positions = [0.00, 0.42]
+
+    colors = [ANVIL, BASELINE]
 
     plt.style.use("dark_background")
-    fig, ax = plt.subplots(figsize=(10.5, 4.8))
-    bars = ax.barh(labels, values, color=colors, height=0.56)
+    fig, ax = plt.subplots(figsize=(10.5, 3.3))
+    bars = ax.barh(positions, values, color=colors, height=0.18)
+    ax.set_yticks(positions, labels=labels)
     ax.invert_yaxis()
+    ax.margins(y=0.05)
 
     for bar, value in zip(bars, values, strict=True):
         ax.text(
@@ -82,34 +84,32 @@ def plot_count_vpc_comparison(
             fontweight="bold",
         )
 
-    _style_axes(
-        ax,
-        title="count_vpc Runtime Comparison",
-        xlabel="Minutes",
-    )
+    _style_axes(ax, title="count_vpc Runtime Comparison", xlabel="Minutes")
 
     fig.patch.set_facecolor(BACKGROUND)
-    plt.tight_layout()
-    axes_box = ax.get_position()
-    title_center_x = (axes_box.x0 + axes_box.x1) / 2
+    fig.subplots_adjust(left=0.17, right=0.97, bottom=0.18, top=0.78)
+
     fig.text(
-        title_center_x,
-        axes_box.y1 + 0.07,
+        0.5,
+        0.92,
         "count_vpc Runtime Comparison",
         color=TEXT,
         fontsize=15,
         ha="center",
+        va="center",
     )
     fig.text(
-        title_center_x,
-        axes_box.y1 + 0.03,
+        0.5,
+        0.865,
         "260 accounts across 3 organizations, 2 regions",
         color=TEXT,
         fontsize=10,
         alpha=0.85,
         ha="center",
+        va="center",
     )
-    fig.savefig(output_path, dpi=220, bbox_inches="tight")
+
+    fig.savefig(output_path, dpi=220)
     plt.close(fig)
 
 
