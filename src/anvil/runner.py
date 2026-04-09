@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import logging
+import threading
 from collections import deque
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 from boto3.session import Session
 
@@ -15,7 +16,7 @@ from anvil.execution_context import ExecutionContext
 from anvil.executor import execute_accounts
 from anvil.organization import OrganizationResolver
 from anvil.results import AuthResult, EngineResult, EngineState, TargetResult
-from anvil.session import BOTO_CONFIG, SessionFactory
+from anvil.session import SessionFactory
 from anvil.task_loader import ResolvedExecution, ResolvedTask, resolve_tasks
 
 __LOGGER__ = logging.getLogger(__name__)
@@ -37,8 +38,12 @@ class PreparedTarget:
     effective_target: TargetDescriptor
     auth_result: AuthResult
     context: ExecutionContext | None
+    session_factory: SessionFactory = field(default_factory=SessionFactory)
+    base_session: Session | None = None
     organization_id: str | None = None
     management_account_id: str | None = None
+    discovered_accounts: dict[str, dict[str, str]] | None = None
+    enabled_regions: list[str] | None = None
 
     @property
     def runnable(self) -> bool:
@@ -50,6 +55,34 @@ class TargetExecutionOutcome:
     index: int
     target_result: TargetResult
     cancelled: bool
+
+
+@dataclass(frozen=True, slots=True)
+class OrganizationRunCacheEntry:
+    management_account_id: str
+    discovered_accounts: dict[str, dict[str, str]]
+    enabled_regions: list[str]
+
+
+class OrganizationRunCache:
+    def __init__(self) -> None:
+        self._entries: dict[str, OrganizationRunCacheEntry] = {}
+        self._lock = threading.Lock()
+
+    def get(self, organization_id: str) -> OrganizationRunCacheEntry | None:
+        with self._lock:
+            return self._entries.get(organization_id)
+
+    def put_if_absent(
+        self, organization_id: str, entry: OrganizationRunCacheEntry
+    ) -> OrganizationRunCacheEntry:
+        with self._lock:
+            existing = self._entries.get(organization_id)
+            if existing is not None:
+                return existing
+
+            self._entries[organization_id] = entry
+            return entry
 
 
 def _elevate_state(current: EngineState, new: EngineState) -> EngineState:
@@ -142,15 +175,41 @@ def _build_execution_context(
 
 
 def _preflight_organization(
-    *, target: TargetDescriptor, context: ExecutionContext
-) -> tuple[str, str]:
-    session_factory = SessionFactory()
+    *,
+    target: TargetDescriptor,
+    context: ExecutionContext,
+    session_factory: SessionFactory,
+    organization_cache: OrganizationRunCache,
+) -> tuple[Session, str, str, dict[str, dict[str, str]], list[str]]:
     base_session: Session = session_factory.create_base_session(
         profile_name=target.profile, region_name=context.regions[0]
     )
-    org_client = base_session.client("organizations", config=BOTO_CONFIG)
-    organization = org_client.describe_organization()["Organization"]
-    return organization["Id"], organization["MasterAccountId"]
+    organization_id, management_account_id = OrganizationResolver.describe_organization(
+        base_session
+    )
+
+    cached_entry = organization_cache.get(organization_id)
+    if cached_entry is None:
+        cached_entry = organization_cache.put_if_absent(
+            organization_id,
+            OrganizationRunCacheEntry(
+                management_account_id=management_account_id,
+                discovered_accounts=OrganizationResolver.discover_accounts(
+                    base_session
+                ),
+                enabled_regions=OrganizationResolver.discover_enabled_regions(
+                    base_session
+                ),
+            ),
+        )
+
+    return (
+        base_session,
+        organization_id,
+        cached_entry.management_account_id,
+        cached_entry.discovered_accounts,
+        cached_entry.enabled_regions,
+    )
 
 
 def prepare_target(
@@ -160,7 +219,9 @@ def prepare_target(
     cli_dry_run: bool | None,
     cli_include: list[str] | None,
     cli_exclude: list[str] | None,
+    organization_cache: OrganizationRunCache,
 ) -> PreparedTarget:
+    session_factory = SessionFactory()
     auth_result: AuthResult = _run_auth_check_for_target(target)
     effective_target: TargetDescriptor = _build_effective_target(
         target=target,
@@ -175,6 +236,7 @@ def prepare_target(
             effective_target=effective_target,
             auth_result=auth_result,
             context=None,
+            session_factory=session_factory,
         )
 
     execution: ResolvedExecution = resolve_tasks(task_specs=effective_target.tasks)
@@ -183,11 +245,23 @@ def prepare_target(
         target=effective_target, tasks=tasks
     )
 
+    base_session: Session | None = None
     organization_id: str | None = None
     management_account_id: str | None = None
+    discovered_accounts: dict[str, dict[str, str]] | None = None
+    enabled_regions: list[str] | None = None
     if effective_target.is_organization_config:
-        organization_id, management_account_id = _preflight_organization(
-            target=effective_target, context=context
+        (
+            base_session,
+            organization_id,
+            management_account_id,
+            discovered_accounts,
+            enabled_regions,
+        ) = _preflight_organization(
+            target=effective_target,
+            context=context,
+            session_factory=session_factory,
+            organization_cache=organization_cache,
         )
 
     return PreparedTarget(
@@ -195,8 +269,12 @@ def prepare_target(
         effective_target=effective_target,
         auth_result=auth_result,
         context=context,
+        session_factory=session_factory,
+        base_session=base_session,
         organization_id=organization_id,
         management_account_id=management_account_id,
+        discovered_accounts=discovered_accounts,
+        enabled_regions=enabled_regions,
     )
 
 
@@ -212,9 +290,17 @@ def run_prepared_target(*, prepared_target: PreparedTarget) -> TargetExecutionOu
             descriptor=target,
             context=context,
             management_account_id=prepared_target.management_account_id,
+            session_factory=prepared_target.session_factory,
+            base_session=prepared_target.base_session,
+            discovered_accounts=prepared_target.discovered_accounts,
+            enabled_regions=prepared_target.enabled_regions,
         )
     else:
-        resolver = AccountResolver(descriptor=target, context=context)
+        resolver = AccountResolver(
+            descriptor=target,
+            context=context,
+            session_factory=prepared_target.session_factory,
+        )
 
     try:
         accounts: list[Account] = resolver.resolve_accounts()
@@ -306,6 +392,7 @@ def _run_target_pipeline(
     # same-organization exclusion has cleared.
     ready_targets: deque[PreparedTarget] = deque()
     active_organization_ids: set[str] = set()
+    organization_cache = OrganizationRunCache()
 
     if targets:
         worker_limit = max(1, min(max_parallel_targets, len(targets)))
@@ -322,6 +409,7 @@ def _run_target_pipeline(
                     cli_dry_run=cli_dry_run,
                     cli_include=cli_include,
                     cli_exclude=cli_exclude,
+                    organization_cache=organization_cache,
                 ): index
                 for index, target in enumerate(targets)
             }

@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 
 import boto3
+from boto3.session import Session
 
 from anvil.account import Account
 from anvil.descriptors import TargetDescriptor
@@ -24,11 +25,17 @@ class OrganizationResolver:
         context: ExecutionContext,
         management_account_id: str | None = None,
         session_factory: SessionFactory | None = None,
+        base_session: Session | None = None,
+        discovered_accounts: dict[str, dict[str, str]] | None = None,
+        enabled_regions: list[str] | None = None,
     ) -> None:
         self.descriptor = descriptor
         self.context = context
         self._management_account_id: str | None = management_account_id
         self._session_factory = session_factory or SessionFactory()
+        self._base_session = base_session
+        self._discovered_accounts = discovered_accounts
+        self._enabled_regions = enabled_regions
 
     def resolve_accounts(self) -> list[Account]:
         __LOGGER__.info(
@@ -36,11 +43,13 @@ class OrganizationResolver:
             f"(org={self.descriptor.name}, regions={self.context.regions})"
         )
 
-        base_session = self._session_factory.create_base_session(
+        base_session = self._base_session or self._session_factory.create_base_session(
             profile_name=self.descriptor.profile, region_name=self.context.regions[0]
         )
 
-        effective_regions = self._get_effective_regions(base_session)
+        effective_regions = self._get_effective_regions(
+            base_session, discovered_regions=self._enabled_regions
+        )
         if not effective_regions:
             raise ValueError("No effective configured regions remain after validation.")
 
@@ -50,21 +59,23 @@ class OrganizationResolver:
         if self._management_account_id is not None:
             management_account_id = self._management_account_id
         else:
-            management_account_id = self._get_management_account_id(base_session)
+            _, management_account_id = self.describe_organization(base_session)
 
         return self._build_accounts(
             base_session=base_session,
             management_account_id=management_account_id,
             effective_regions=effective_regions,
+            discovered_accounts=self._discovered_accounts,
         )
 
-    def _get_management_account_id(self, session: boto3.Session) -> str:
+    @staticmethod
+    def describe_organization(session: boto3.Session) -> tuple[str, str]:
         """
-        Return the management account ID for this AWS Organization.
+        Return the organization ID and management account ID.
         """
         org_client = session.client("organizations", config=BOTO_CONFIG)
         org = org_client.describe_organization()["Organization"]
-        return org["MasterAccountId"]
+        return org["Id"], org["MasterAccountId"]
 
     def _build_accounts(
         self,
@@ -72,11 +83,12 @@ class OrganizationResolver:
         base_session: boto3.Session,
         management_account_id: str,
         effective_regions: list[str],
+        discovered_accounts: dict[str, dict[str, str]] | None = None,
     ) -> list[Account]:
         """
         Build executable account objects for all selected target accounts.
         """
-        all_accounts = self._discover_accounts(base_session)
+        all_accounts = discovered_accounts or self.discover_accounts(base_session)
         target_accounts = self._filter_accounts(all_accounts)
 
         accounts: list[Account] = []
@@ -98,7 +110,8 @@ class OrganizationResolver:
 
         return accounts
 
-    def _discover_accounts(self, session: boto3.Session) -> dict[str, dict[str, str]]:
+    @staticmethod
+    def discover_accounts(session: boto3.Session) -> dict[str, dict[str, str]]:
         """
         Discover all active accounts in the organization.
         """
@@ -120,7 +133,8 @@ class OrganizationResolver:
 
         return accounts
 
-    def _discover_enabled_regions(self, session: boto3.Session) -> list[str]:
+    @staticmethod
+    def discover_enabled_regions(session: boto3.Session) -> list[str]:
         """
         Discover enabled AWS regions available to this organization context.
         """
@@ -170,12 +184,16 @@ class OrganizationResolver:
         remaining_ids = sorted(discovered_ids - exclude_set)
         return {account_id: all_accounts[account_id] for account_id in remaining_ids}
 
-    def _get_effective_regions(self, session: boto3.Session) -> list[str]:
+    def _get_effective_regions(
+        self, session: boto3.Session, *, discovered_regions: list[str] | None = None
+    ) -> list[str]:
         """
         Intersect configured regions with discovered enabled regions and warn on
         configured regions that are unavailable.
         """
-        discovered_regions = set(self._discover_enabled_regions(session))
+        discovered_regions = set(
+            discovered_regions or self.discover_enabled_regions(session)
+        )
         configured_regions = list(self.context.regions)
 
         unavailable_regions = sorted(set(configured_regions) - discovered_regions)
