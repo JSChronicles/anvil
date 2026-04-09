@@ -180,13 +180,7 @@ def _preflight_organization(
     context: ExecutionContext,
     session_factory: SessionFactory,
     organization_cache: OrganizationRunCache,
-) -> tuple[
-    Session,
-    str,
-    str,
-    dict[str, dict[str, str]],
-    list[str],
-]:
+) -> tuple[Session, str, str, dict[str, dict[str, str]], list[str]]:
     base_session: Session = session_factory.create_base_session(
         profile_name=target.profile, region_name=context.regions[0]
     )

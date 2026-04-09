@@ -51,10 +51,7 @@ def test_runner_auth_failure_short_circuits(monkeypatch):
 
 def test_prepare_target_reuses_same_org_discovery_cache(monkeypatch):
     discovered_accounts = {
-        "111111111111": {
-            "account_number": "111111111111",
-            "account_alias": "acct-a",
-        }
+        "111111111111": {"account_number": "111111111111", "account_alias": "acct-a"}
     }
     enabled_regions = ["us-east-1", "us-west-2"]
     call_counts = {"accounts": 0, "regions": 0}
@@ -163,10 +160,7 @@ def test_run_prepared_target_uses_cached_org_preflight(monkeypatch):
     )
     base_session = type("_BaseSession", (), {"profile_name": "shared"})()
     discovered_accounts = {
-        "111111111111": {
-            "account_number": "111111111111",
-            "account_alias": "acct-a",
-        }
+        "111111111111": {"account_number": "111111111111", "account_alias": "acct-a"}
     }
     enabled_regions = ["us-east-1"]
 
@@ -201,8 +195,9 @@ def test_run_prepared_target_uses_cached_org_preflight(monkeypatch):
 
     monkeypatch.setattr(
         "anvil.runner.execute_accounts",
-        lambda **kwargs: __import__("anvil.results", fromlist=["TargetResult"])
-        .TargetResult.create(
+        lambda **kwargs: __import__(
+            "anvil.results", fromlist=["TargetResult"]
+        ).TargetResult.create(
             config_branch=kwargs["config_branch"],
             target_name=kwargs["name"],
             dry_run=kwargs["context"].dry_run,
