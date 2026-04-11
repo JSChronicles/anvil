@@ -74,7 +74,8 @@ To measure concurrency behavior, Anvil was tested across 3 organizations with a 
    1. Sync the project's dependencies with the environment: uv sync
    1. Activate the virtual environment: .venv\Scripts\activate
 1. uv run:
-   1. Run a command in the project environment.: uv run example.py <args>
+   1. Run a command in the project environment.: `uv run example.py <args>`
+      1. uv run anvil run --config-file ./yaml/orgs.yaml
    1. Note that if you use uv run in a project, i.e. a directory with a pyproject.toml, it will install the current project before running the script.
 
 
@@ -267,6 +268,11 @@ anvil tasks validate
 [ERROR] task validation failed:
   - task 'cleanup' is missing required run() parameters: ['account_alias']
   - task 'inventory' is missing required run() parameters: ['metadata']
+```
+
+```console
+anvil tasks validate
+[OK] all tasks are valid
 ```
 
 ### Execution
