@@ -1,0 +1,189 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from anvil.account import Account
+from anvil.execution_context import ExecutionContext
+from anvil.results import ExecutionStatus
+from anvil.session import AssumedRoleCredentials
+from anvil.task_loader import ResolvedTask
+
+
+@dataclass
+class BaseSession:
+    profile_name: str | None = "profile-a"
+
+
+class WorkerSession:
+    region_name = "us-east-1"
+
+    def __init__(self, *, caller_account_id: str = "123456789012") -> None:
+        self._caller_account_id = caller_account_id
+
+    def client(self, service_name):
+        assert service_name == "sts"
+
+        class STSClient:
+            def __init__(self, *, account_id: str) -> None:
+                self._account_id = account_id
+
+            def get_caller_identity(self):
+                return {"Account": self._account_id}
+
+        return STSClient(account_id=self._caller_account_id)
+
+
+class RecordingSessionFactory:
+    def __init__(self, *, caller_account_id: str = "123456789012") -> None:
+        self.caller_account_id = caller_account_id
+        self.worker_session_calls = []
+        self.assume_role_calls = []
+        self.create_session_from_credentials_calls = []
+
+    def get_worker_session(self, **kwargs):
+        self.worker_session_calls.append(kwargs)
+        return WorkerSession(caller_account_id=self.caller_account_id)
+
+    def assume_role_credentials(self, **kwargs):
+        self.assume_role_calls.append(kwargs)
+        return AssumedRoleCredentials(
+            access_key_id="access",
+            secret_access_key="secret",
+            session_token="token",
+        )
+
+    def create_session_from_credentials(self, **kwargs):
+        self.create_session_from_credentials_calls.append(kwargs)
+        return object()
+
+
+def _context(*, tasks: list[ResolvedTask], regions: list[str] | None = None):
+    return ExecutionContext(
+        regions=regions or ["us-east-1"],
+        role_name="TestRole",
+        dry_run=True,
+        tasks=tasks,
+        metadata={"source": "test"},
+    )
+
+
+def _account(
+    *,
+    tasks: list[ResolvedTask],
+    session_factory: RecordingSessionFactory | None = None,
+    assume_role: bool = False,
+    regions: list[str] | None = None,
+) -> Account:
+    return Account(
+        account_id="123456789012",
+        account_alias="test-account",
+        is_management=not assume_role,
+        assume_role=assume_role,
+        base_session=BaseSession(),
+        context=_context(tasks=tasks, regions=regions),
+        regions=regions or ["us-east-1"],
+        session_factory=session_factory or RecordingSessionFactory(),
+    )
+
+
+def test_optional_task_failure_continues_to_later_tasks():
+    def optional_failure(**kwargs):
+        raise RuntimeError("optional failed")
+
+    def required_success(**kwargs):
+        return {"ok": True}
+
+    account = _account(
+        tasks=[
+            ResolvedTask("optional", optional_failure, depends_on=[], optional=True),
+            ResolvedTask("required", required_success, depends_on=[], optional=False),
+        ]
+    )
+
+    result = account.execute()
+
+    assert result.status is ExecutionStatus.SUCCESS
+    assert [task.task_name for task in result.tasks] == ["optional", "required"]
+    assert result.tasks[0].status is ExecutionStatus.ERROR
+    assert result.tasks[1].status is ExecutionStatus.SUCCESS
+
+
+def test_required_task_failure_stops_later_tasks():
+    def required_failure(**kwargs):
+        raise RuntimeError("required failed")
+
+    def should_not_run(**kwargs):
+        raise AssertionError("later task should not run")
+
+    account = _account(
+        tasks=[
+            ResolvedTask("required", required_failure, depends_on=[], optional=False),
+            ResolvedTask("later", should_not_run, depends_on=[], optional=False),
+        ]
+    )
+
+    result = account.execute()
+
+    assert result.status is ExecutionStatus.ERROR
+    assert [task.task_name for task in result.tasks] == ["required"]
+    assert result.tasks[0].error == "required failed"
+
+
+def test_dependency_failure_blocks_optional_dependent_task():
+    def dependency_failure(**kwargs):
+        raise RuntimeError("dependency failed")
+
+    def should_not_run(**kwargs):
+        raise AssertionError("dependent task should not run")
+
+    account = _account(
+        tasks=[
+            ResolvedTask("dependency", dependency_failure, depends_on=[], optional=True),
+            ResolvedTask(
+                "dependent",
+                should_not_run,
+                depends_on=["dependency"],
+                optional=True,
+            ),
+        ]
+    )
+
+    result = account.execute()
+
+    assert result.status is ExecutionStatus.SUCCESS
+    assert [task.task_name for task in result.tasks] == ["dependency", "dependent"]
+    assert result.tasks[1].status is ExecutionStatus.ERROR
+    assert result.tasks[1].error == "Blocked: dependency failed"
+
+
+def test_direct_account_mismatch_returns_account_error():
+    account = _account(
+        tasks=[],
+        session_factory=RecordingSessionFactory(caller_account_id="999999999999"),
+    )
+
+    result = account.execute()
+
+    assert result.status is ExecutionStatus.ERROR
+    assert result.tasks == []
+    assert "Direct execution credentials resolve to account" in result.error
+
+
+def test_assume_role_path_reuses_assumed_credentials_for_regions():
+    session_factory = RecordingSessionFactory()
+
+    account = _account(
+        tasks=[],
+        session_factory=session_factory,
+        assume_role=True,
+        regions=["us-east-1", "us-west-2"],
+    )
+
+    result = account.execute()
+
+    assert result.status is ExecutionStatus.SUCCESS
+    assert session_factory.assume_role_calls[0]["account_id"] == "123456789012"
+    assert session_factory.assume_role_calls[0]["role_name"] == "TestRole"
+    assert [
+        call["region_name"] for call in session_factory.create_session_from_credentials_calls
+    ] == ["us-east-1", "us-west-2"]
