@@ -47,7 +47,7 @@ def infer_auth_source(profile: str | None) -> AuthSource:
 
     keys: set[str] = set(parser.options(section))
 
-    if "sso_start_url" in keys:
+    if "sso_start_url" in keys or "sso_session" in keys:
         return AuthSource.SSO
     if "role_arn" in keys and "source_profile" in keys:
         return AuthSource.PROFILE_ASSUME_ROLE

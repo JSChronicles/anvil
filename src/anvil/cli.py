@@ -285,6 +285,8 @@ def main() -> None:
         level=getattr(logging, args.log_level),
         format=("%(levelname)-8s [%(filename)s:%(funcName)s:%(lineno)d] %(message)s"),
     )
+    # Suppress repeated botocore SSO cache reads at INFO while keeping Anvil INFO logs.
+    logging.getLogger("botocore.tokens").setLevel(logging.WARNING)
 
     try:
         exit_code = args.func(args)
