@@ -1,4 +1,4 @@
-from anvil.task_definition import ActionRecorder
+from anvil.actions import ActionRecorder
 
 
 def cleanup_user_resources(iam_client, user_name, dry_run, actions):

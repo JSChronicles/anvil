@@ -445,7 +445,7 @@ While only the `run()` function is required, tasks can optionally use Anvil-prov
 For example, tasks may import helpers such as:
 
 ```python
-from anvil.task_definition import ActionRecorder
+from anvil.actions import ActionRecorder
 ```
 
 This helper allow tasks to:

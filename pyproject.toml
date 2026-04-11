@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "anvil"
-version = "0.18.1"
+version = "0.19.0"
 description = "Anvil is a multi-org AWS execution runner"
 readme = "README.md"
 requires-python = ">=3.14,<3.15"
@@ -35,9 +35,6 @@ testpaths = ["tests"]
 
 [tool.coverage.run]
 omit = [
-    "src/anvil/account.py",
-    "src/anvil/organization.py",
-    "src/anvil/session.py",
     "src/anvil/tasks/*",
 ]
 
@@ -73,7 +70,7 @@ exclude = [
 ]
 line-length = 88
 indent-width = 4
-target-version = "py313"
+target-version = "py314"
 
 [tool.ruff.lint]
 select = ["N", "E4", "E7", "E9", "F"]
