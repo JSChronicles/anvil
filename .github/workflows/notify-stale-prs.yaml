@@ -113,13 +113,13 @@ jobs:
             echo "EOF"
           } >> $GITHUB_ENV
 
-      - name: Notify Slack about stale PRs
-        if: steps.fetch.outputs.count != '0'
-        uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
-        with:
-          token: ${{ secrets.SLACK_BOT_TOKEN }}
-          method: chat.postMessage
-          payload: |
-            channel: ${{ secrets.SLACK_CHANNEL_ID }}
-            text: "One or more stale pull requests were detected."
-            blocks: ${{ env.BLOCKS_JSON }}
+      # - name: Notify Slack about stale PRs
+      #   if: steps.fetch.outputs.count != '0'
+      #   uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+      #   with:
+      #     token: ${{ secrets.SLACK_BOT_TOKEN }}
+      #     method: chat.postMessage
+      #     payload: |
+      #       channel: ${{ secrets.SLACK_CHANNEL_ID }}
+      #       text: "One or more stale pull requests were detected."
+      #       blocks: ${{ env.BLOCKS_JSON }}

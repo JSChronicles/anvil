@@ -94,7 +94,7 @@ This project enforces a minimum test coverage threshold in CI. Coverage is inten
 
 - **Add documentation.** Document your changes with code doc comments or in existing guides.
 
-- **Update the CHANGELOG** for all enhancements and bug fixes. When there is an existing CHANGELOG include the corresponding issue number if one exists, and your GitHub username. (example: "- Fixed crash in profile view. #123 @<UserNameHere>")
+- **Let the release workflow update the CHANGELOG.** Use a conventional commit title or squash-merge title so the release automation can choose the correct version bump and changelog entry.
 
 - **Use the repo's default branch.** Branch from and [submit your pull request](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/creating-a-pull-request) to the repo's default branch. Usually this is `main`, but it could be `dev`, `develop`, or `master`.
 
@@ -110,17 +110,26 @@ This project enforces a minimum test coverage threshold in CI. Coverage is inten
 
 Please [write a great commit message](https://github.blog/developer-skills/github/write-better-commits-build-better-projects/).
 
+Release automation uses conventional commit titles on `main`:
+
+- `fix: correct account filtering` creates a patch release.
+- `feat: add organization resolver cache` creates a minor release.
+- `feat!: change task config shape` or a `BREAKING CHANGE:` footer creates a minor release while the project is still on `0.x.x`.
+- `docs:`, `test:`, `chore:`, and other non-release types do not create a release by themselves.
+
+If a pull request is squash-merged, the squash commit title is the title that matters for the release workflow.
+
 1. Separate subject from body with a blank line
 1. Limit the subject line to 50 characters
-1. Capitalize the subject line
+1. Use a conventional commit type in lowercase when the change should participate in release automation
 1. Do not end the subject line with a period
 1. Use the imperative mood in the subject line (example: "Fix networking issue")
 1. Wrap the body at about 72 characters
 1. Use the body to explain **why**, *not what and how* (the code shows that!)
-1. If applicable, prefix the title with the relevant component name. (examples: "[Docs] Fix typo", "[Profile] Fix missing avatar")
+1. If applicable, include the relevant component as a conventional commit scope. (examples: "docs: fix typo", "fix(profile): handle missing avatar")
 
 ```
-[TAG] Short summary of changes in 50 chars or less
+type(scope): short summary of changes in 50 chars or less
 
 Add a more detailed explanation here, if necessary. Possibly give
 some background about the issue being fixed, etc. The body of the
@@ -169,4 +178,3 @@ Consistency is the most important. Following the existing style, formatting, and
 For example, if all private properties are prefixed with an underscore `_`, then new ones you add should be prefixed in the same way. Or, if methods are named using camelcase, like `thisIsMyNewMethod`, then do not diverge from that by writing `this_is_my_new_method`. You get the idea. If in doubt, please ask or search the codebase for something similar.
 
 When possible, style and format will be enforced with a linter.
-

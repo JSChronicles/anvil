@@ -11,12 +11,13 @@ updates:
       interval: "monthly"
       time: "08:00"
       timezone: "America/Chicago"
+    cooldown:
+      default-days: 7
     groups:
-      minor-and-patch:
+      uv-dependencies:
         applies-to: version-updates
-        update-types:
-          - "patch"
-          - "minor"
+        patterns:
+          - "*"
     commit-message:
       prefix: "chore"
       include: "scope"
@@ -31,13 +32,13 @@ updates:
       interval: "monthly"
       time: "08:00"
       timezone: "America/Chicago"
+    cooldown:
+      default-days: 7
     groups:
-      versions:
+      github-actions:
         applies-to: version-updates
-        update-types:
-          - "major"
-          - "patch"
-          - "minor"
+        patterns:
+          - "*"
     commit-message:
       prefix: "chore"
       include: "scope"

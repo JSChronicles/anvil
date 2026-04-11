@@ -100,39 +100,39 @@ jobs:
             core.setOutput("check_summary", `✅ ${passed}/${total} checks passed`);
 
 
-      - name: Notify Slack (if all checks passed)
-        if: steps.checks.outputs.ready == 'true' || github.event.pull_request.user.login == 'dependabot[bot]'
-        uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
-        with:
-          token: ${{ secrets.SLACK_BOT_TOKEN }}
-          method: chat.postMessage
-          errors: "true"
-          payload: |
-            channel: ${{ secrets.SLACK_CHANNEL_ID }}
-            text: "Pull Request is ready to merge"
-            blocks:
-              - type: section
-                text:
-                  type: mrkdwn
-                  text: |
-                    :rocket: *Pull Request Ready to Merge*
+      # - name: Notify Slack (if all checks passed)
+      #   if: steps.checks.outputs.ready == 'true' || github.event.pull_request.user.login == 'dependabot[bot]'
+      #   uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+      #   with:
+      #     token: ${{ secrets.SLACK_BOT_TOKEN }}
+      #     method: chat.postMessage
+      #     errors: "true"
+      #     payload: |
+      #       channel: ${{ secrets.SLACK_CHANNEL_ID }}
+      #       text: "Pull Request is ready to merge"
+      #       blocks:
+      #         - type: section
+      #           text:
+      #             type: mrkdwn
+      #             text: |
+      #               :rocket: *Pull Request Ready to Merge*
 
-                    *<https://github.com/${{ github.repository }}/tree/${{ github.event.pull_request.head.ref }}|${{ github.event.pull_request.head.ref }}>*
-                    Author: ${{ github.event.pull_request.user.login == 'dependabot[bot]' && ':robot_face: Dependabot' || format('<https://github.com/{0}|@{0}>', github.event.pull_request.user.login || github.actor || 'N/A') }}
-              - type: context
-                elements:
-                  - type: mrkdwn
-                    text: "Branch: `${{ github.event.pull_request.head.ref || github.ref_name }} → ${{ github.event.pull_request.base.ref || 'main' }}`"
-                  - type: mrkdwn
-                    text: "Repo: `${{ github.repository }}`"
-                  - type: mrkdwn
-                    text: "${{ steps.checks.outputs.check_summary || '⚠️ Skipped waiting for checks (Dependabot)' }}"
-              - type: actions
-                elements:
-                  - type: button
-                    text:
-                      type: plain_text
-                      text: "View PR"
-                      emoji: true
-                    style: primary
-                    url: "${{ github.event.pull_request.html_url || format('https://github.com/{0}/pulls', github.repository) }}"
+      #               *<https://github.com/${{ github.repository }}/tree/${{ github.event.pull_request.head.ref }}|${{ github.event.pull_request.head.ref }}>*
+      #               Author: ${{ github.event.pull_request.user.login == 'dependabot[bot]' && ':robot_face: Dependabot' || format('<https://github.com/{0}|@{0}>', github.event.pull_request.user.login || github.actor || 'N/A') }}
+      #         - type: context
+      #           elements:
+      #             - type: mrkdwn
+      #               text: "Branch: `${{ github.event.pull_request.head.ref || github.ref_name }} → ${{ github.event.pull_request.base.ref || 'main' }}`"
+      #             - type: mrkdwn
+      #               text: "Repo: `${{ github.repository }}`"
+      #             - type: mrkdwn
+      #               text: "${{ steps.checks.outputs.check_summary || '⚠️ Skipped waiting for checks (Dependabot)' }}"
+      #         - type: actions
+      #           elements:
+      #             - type: button
+      #               text:
+      #                 type: plain_text
+      #                 text: "View PR"
+      #                 emoji: true
+      #               style: primary
+      #               url: "${{ github.event.pull_request.html_url || format('https://github.com/{0}/pulls', github.repository) }}"
