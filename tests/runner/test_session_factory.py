@@ -67,11 +67,15 @@ def test_get_worker_session_caches_by_profile_and_region(monkeypatch):
 
     factory = SessionFactory()
 
-    first = factory.get_worker_session(profile_name="profile-a", region_name="us-east-1")
+    first = factory.get_worker_session(
+        profile_name="profile-a", region_name="us-east-1"
+    )
     second = factory.get_worker_session(
         profile_name="profile-a", region_name="us-east-1"
     )
-    third = factory.get_worker_session(profile_name="profile-a", region_name="us-west-2")
+    third = factory.get_worker_session(
+        profile_name="profile-a", region_name="us-west-2"
+    )
 
     assert first is second
     assert third is not first
@@ -117,16 +121,13 @@ def test_assume_role_credentials_maps_sts_response():
 
 def test_assume_role_credentials_reraises_client_error():
     error = ClientError(
-        {"Error": {"Code": "AccessDenied", "Message": "denied"}},
-        "AssumeRole",
+        {"Error": {"Code": "AccessDenied", "Message": "denied"}}, "AssumeRole"
     )
     session = FakeSession(sts_client=FakeSTSClient(error=error))
 
     with pytest.raises(ClientError):
         SessionFactory().assume_role_credentials(
-            session=session,
-            account_id="123456789012",
-            role_name="TestRole",
+            session=session, account_id="123456789012", role_name="TestRole"
         )
 
 
@@ -135,9 +136,7 @@ def test_create_session_from_credentials_passes_credentials_to_boto3(monkeypatch
     monkeypatch.setattr(session_module.boto3, "Session", FakeBotoSession)
 
     credentials = AssumedRoleCredentials(
-        access_key_id="access",
-        secret_access_key="secret",
-        session_token="token",
+        access_key_id="access", secret_access_key="secret", session_token="token"
     )
 
     session = SessionFactory().create_session_from_credentials(

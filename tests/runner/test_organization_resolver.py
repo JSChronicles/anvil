@@ -70,10 +70,7 @@ def test_discover_accounts_keeps_active_accounts_and_defaults_alias():
                                         "Name": "active-account",
                                         "Status": "ACTIVE",
                                     },
-                                    {
-                                        "Id": "222222222222",
-                                        "Status": "ACTIVE",
-                                    },
+                                    {"Id": "222222222222", "Status": "ACTIVE"},
                                     {
                                         "Id": "333333333333",
                                         "Name": "suspended-account",
@@ -146,12 +143,10 @@ def test_filter_accounts_intersects_include_and_exclude_filters():
     }
 
     included = OrganizationResolver(
-        descriptor=_target(include=["222222222222", "999999999999"]),
-        context=_context(),
+        descriptor=_target(include=["222222222222", "999999999999"]), context=_context()
     )._filter_accounts(all_accounts)
     excluded = OrganizationResolver(
-        descriptor=_target(exclude=["111111111111", "999999999999"]),
-        context=_context(),
+        descriptor=_target(exclude=["111111111111", "999999999999"]), context=_context()
     )._filter_accounts(all_accounts)
 
     assert list(included) == ["222222222222"]
@@ -164,10 +159,7 @@ def test_resolve_accounts_uses_preflight_data_and_builds_account_modes():
             "account_number": "111111111111",
             "account_alias": "management",
         },
-        "222222222222": {
-            "account_number": "222222222222",
-            "account_alias": "member",
-        },
+        "222222222222": {"account_number": "222222222222", "account_alias": "member"},
     }
     base_session = object()
 

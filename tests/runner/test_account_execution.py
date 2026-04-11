@@ -47,9 +47,7 @@ class RecordingSessionFactory:
     def assume_role_credentials(self, **kwargs):
         self.assume_role_calls.append(kwargs)
         return AssumedRoleCredentials(
-            access_key_id="access",
-            secret_access_key="secret",
-            session_token="token",
+            access_key_id="access", secret_access_key="secret", session_token="token"
         )
 
     def create_session_from_credentials(self, **kwargs):
@@ -138,12 +136,11 @@ def test_dependency_failure_blocks_optional_dependent_task():
 
     account = _account(
         tasks=[
-            ResolvedTask("dependency", dependency_failure, depends_on=[], optional=True),
             ResolvedTask(
-                "dependent",
-                should_not_run,
-                depends_on=["dependency"],
-                optional=True,
+                "dependency", dependency_failure, depends_on=[], optional=True
+            ),
+            ResolvedTask(
+                "dependent", should_not_run, depends_on=["dependency"], optional=True
             ),
         ]
     )
@@ -185,5 +182,6 @@ def test_assume_role_path_reuses_assumed_credentials_for_regions():
     assert session_factory.assume_role_calls[0]["account_id"] == "123456789012"
     assert session_factory.assume_role_calls[0]["role_name"] == "TestRole"
     assert [
-        call["region_name"] for call in session_factory.create_session_from_credentials_calls
+        call["region_name"]
+        for call in session_factory.create_session_from_credentials_calls
     ] == ["us-east-1", "us-west-2"]
