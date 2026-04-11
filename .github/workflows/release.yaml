@@ -21,9 +21,18 @@ jobs:
       contents: write
       id-token: write
     steps:
+      - name: Create release bot token
+        id: app-token
+        uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+        with:
+          client-id: ${{ vars.ANVIL_RELEASE_BOT_CLIENT_ID }}
+          private-key: ${{ secrets.ANVIL_RELEASE_BOT_PRIVATE_KEY }}
+          permission-contents: write
+
       - name: Checkout release branch
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          token: ${{ steps.app-token.outputs.token }}
           ref: ${{ github.ref_name }}
           fetch-depth: 0
 
@@ -33,14 +42,23 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8.0.0
 
+      - name: Verify release baseline tag
+        run: |
+          if ! git tag --list 'v*' | grep -q .; then
+            current_version="$(uv version --short)"
+            echo "::error::No v* release tags exist. Create baseline tag v${current_version} on the current release commit before enabling semantic-release."
+            exit 1
+          fi
+
       - name: Tag semantic release
         id: release
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GIT_COMMIT_AUTHOR: ${{ steps.app-token.outputs.app-slug }}[bot] <${{ steps.app-token.outputs.app-slug }}[bot]@users.noreply.github.com>
           UV_CACHE_DIR: ./.uv-cache
         run: |
-          git config user.name "github-actions"
-          git config user.email "actions@users.noreply.github.com"
+          git config user.name "${{ steps.app-token.outputs.app-slug }}[bot]"
+          git config user.email "${{ steps.app-token.outputs.app-slug }}[bot]@users.noreply.github.com"
           uvx --from python-semantic-release==10.5.3 semantic-release version
           tag="$(git tag --points-at HEAD --list 'v*' | sort -V | tail -n 1)"
           if [ -n "$tag" ]; then
