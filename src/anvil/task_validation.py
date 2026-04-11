@@ -16,6 +16,7 @@ REQUIRED_RUN_KWARGS: set[str] = {
     "session",
     "dry_run",
     "metadata",
+    "actions",
 }
 
 
@@ -52,17 +53,17 @@ def validate_tasks(tasks: list) -> None:
         raise TaskValidationError("\n  - " + "\n  - ".join(errors))
 
 
-def _validate_task_name(task) -> None:
-    if not isinstance(task.name, str) or not task.name:
-        raise TaskValidationError("task name must be a non-empty string")
-
-
-def _validate_task_run_callable(task) -> None:
-    if not hasattr(task, "run"):
-        raise TaskValidationError(f"task '{task.name}' is missing run()")
-
-    if not callable(task.run):
-        raise TaskValidationError(f"task '{task.name}'.run is not callable")
+# def _validate_task_name(task) -> None:
+#     if not isinstance(task.name, str) or not task.name:
+#         raise TaskValidationError("task name must be a non-empty string")
+#
+#
+# def _validate_task_run_callable(task) -> None:
+#     if not hasattr(task, "run"):
+#         raise TaskValidationError(f"task '{task.name}' is missing run()")
+#
+#     if not callable(task.run):
+#         raise TaskValidationError(f"task '{task.name}'.run is not callable")
 
 
 def _validate_task_run_signature(task) -> None:
@@ -75,12 +76,16 @@ def _validate_task_run_signature(task) -> None:
 
     parameters = sig.parameters
 
+    accepts_extra_kwargs = any(
+        param.kind is Parameter.VAR_KEYWORD for param in parameters.values()
+    )
     missing = REQUIRED_RUN_KWARGS - set(parameters)
     if missing:
-        raise TaskValidationError(
-            f"task '{task.name}' is missing required run() parameters: "
-            f"{sorted(missing)}"
-        )
+        if not accepts_extra_kwargs:
+            raise TaskValidationError(
+                f"task '{task.name}' is missing required run() parameters: "
+                f"{sorted(missing)}"
+            )
 
     for param in parameters.values():
         if param.kind is Parameter.POSITIONAL_ONLY:
