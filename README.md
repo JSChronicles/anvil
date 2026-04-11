@@ -419,6 +419,7 @@ def run(
     session,
     dry_run: bool,
     metadata: dict,
+    actions=None,
 ):
     """
     Execute the task for a single AWS account.
