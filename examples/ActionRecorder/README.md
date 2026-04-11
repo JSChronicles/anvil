@@ -44,7 +44,7 @@ You may record actions directly inside the required `run()` function, or pass th
 This approach works well for small or single-purpose tasks.
 
 ```python
-from anvil.task_definition import ActionRecorder
+from anvil.actions import ActionRecorder
 
 def run(
     *,
@@ -66,7 +66,7 @@ def run(
 Passing the recorder into helper functions is recommended for larger tasks that split logic across multiple functions.
 
 ```python
-from anvil.task_definition import ActionRecorder
+from anvil.actions import ActionRecorder
 
 
 def cleanup_user(iam, user_name, dry_run, actions):

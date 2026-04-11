@@ -11,7 +11,7 @@ from boto3.session import Session
 from anvil.execution_context import ExecutionContext
 from anvil.results import AccountResult, ExecutionStatus, TaskResult
 from anvil.session import AssumedRoleCredentials, SessionFactory
-from anvil.task_definition import ActionRecorder
+from anvil.actions import ActionRecorder
 
 __LOGGER__ = logging.getLogger(__name__)
 

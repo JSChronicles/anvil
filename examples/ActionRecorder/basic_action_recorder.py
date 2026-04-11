@@ -1,6 +1,6 @@
 import logging
 
-from anvil.task_definition import ActionRecorder
+from anvil.actions import ActionRecorder
 
 LOGGER = logging.getLogger(__name__)
 

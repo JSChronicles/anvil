@@ -8,7 +8,7 @@ import boto3
 from botocore.client import BaseClient
 from botocore.exceptions import ClientError
 
-from anvil.task_definition import ActionRecorder
+from anvil.actions import ActionRecorder
 
 __LOGGER__ = logging.getLogger(__name__)
 

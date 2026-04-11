@@ -53,19 +53,6 @@ def validate_tasks(tasks: list) -> None:
         raise TaskValidationError("\n  - " + "\n  - ".join(errors))
 
 
-# def _validate_task_name(task) -> None:
-#     if not isinstance(task.name, str) or not task.name:
-#         raise TaskValidationError("task name must be a non-empty string")
-#
-#
-# def _validate_task_run_callable(task) -> None:
-#     if not hasattr(task, "run"):
-#         raise TaskValidationError(f"task '{task.name}' is missing run()")
-#
-#     if not callable(task.run):
-#         raise TaskValidationError(f"task '{task.name}'.run is not callable")
-
-
 def _validate_task_run_signature(task) -> None:
     try:
         sig = signature(task.run)

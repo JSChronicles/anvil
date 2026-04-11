@@ -18,7 +18,7 @@ jobs:
   pytest:
     runs-on: ubuntu-latest
     container:
-      image: python:3.13-slim
+      image: python:3.14-slim
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -27,6 +27,14 @@ jobs:
 
       - name: Install the project
         run: uv sync --all-groups
+
+      - name: Build package
+        run: uv build
+
+      - name: Smoke test CLI entrypoint
+        run: |
+          uv run anvil --help
+          uv run anvil tasks validate
 
       - name: Set PYTHONPATH
         run: echo "PYTHONPATH=$(pwd)" >> $GITHUB_ENV
