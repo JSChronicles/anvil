@@ -4,7 +4,7 @@ Count VPCs in the current execution region.
 
 import logging
 
-from anvil.task_definition import ActionRecorder
+from anvil.actions import ActionRecorder
 
 __LOGGER__ = logging.getLogger(__name__)
 
