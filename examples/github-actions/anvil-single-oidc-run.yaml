@@ -1,0 +1,130 @@
+name: Anvil Single OIDC Run
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        type: boolean
+        description: Run Anvil in dry-run mode
+        required: true
+        default: true
+      include_accounts:
+        type: string
+        description: Optional space-separated account IDs to include
+        required: false
+        default: ""
+      exclude_accounts:
+        type: string
+        description: Optional space-separated account IDs to exclude
+        required: false
+        default: ""
+      log_level:
+        type: choice
+        description: Anvil log level
+        required: true
+        default: INFO
+        options:
+          - DEBUG
+          - INFO
+          - WARNING
+          - ERROR
+          - CRITICAL
+      environment:
+        type: environment
+        description: GitHub environment containing AWS variables and approvals
+        required: true
+        default: aws-production
+  schedule:
+    - cron: "0 13 * * 1"
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: anvil-single-oidc-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  anvil:
+    name: Run Anvil
+    runs-on: ubuntu-latest
+    container:
+      image: python:3.14-slim
+    environment: ${{ inputs.environment || 'aws-production' }}
+    timeout-minutes: 55
+    env:
+      ANVIL_CONFIG_FILE: examples/github-actions/noop-single-oidc.yaml
+      ANVIL_DRY_RUN: ${{ github.event_name != 'workflow_dispatch' || inputs.dry_run }}
+      ANVIL_INCLUDE_ACCOUNTS: ${{ inputs.include_accounts || '' }}
+      ANVIL_EXCLUDE_ACCOUNTS: ${{ inputs.exclude_accounts || '' }}
+      ANVIL_LOG_LEVEL: ${{ inputs.log_level || 'INFO' }}
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8.0.0
+        with:
+          enable-cache: true
+
+      - name: Install Anvil
+        run: uv sync --frozen --all-groups
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+        with:
+          role-to-assume: ${{ vars.ANVIL_AWS_ROLE_ARN }}
+          role-session-name: anvil-${{ github.run_id }}-${{ github.run_attempt }}
+          aws-region: ${{ env.AWS_REGION }}
+          mask-aws-account-id: true
+
+      - name: Verify AWS caller identity
+        run: aws sts get-caller-identity
+
+      - name: Validate task discovery
+        run: uv run anvil tasks validate --log-level "${ANVIL_LOG_LEVEL}"
+
+      - name: Run Anvil
+        run: |
+          set -euo pipefail
+
+          if [ -n "${ANVIL_INCLUDE_ACCOUNTS}" ] && [ -n "${ANVIL_EXCLUDE_ACCOUNTS}" ]; then
+            echo "Use include_accounts or exclude_accounts, not both." >&2
+            exit 1
+          fi
+
+          common_args=(
+            --config-file "${ANVIL_CONFIG_FILE}"
+            --log-level "${ANVIL_LOG_LEVEL}"
+          )
+
+          if [ -n "${ANVIL_INCLUDE_ACCOUNTS}" ]; then
+            read -r -a include_accounts <<< "${ANVIL_INCLUDE_ACCOUNTS}"
+            common_args+=(--include "${include_accounts[@]}")
+          fi
+
+          if [ -n "${ANVIL_EXCLUDE_ACCOUNTS}" ]; then
+            read -r -a exclude_accounts <<< "${ANVIL_EXCLUDE_ACCOUNTS}"
+            common_args+=(--exclude "${exclude_accounts[@]}")
+          fi
+
+          uv run anvil auth check "${common_args[@]}"
+
+          run_args=("${common_args[@]}")
+          if [ "${ANVIL_DRY_RUN}" = "true" ]; then
+            run_args+=(--dry-run)
+          fi
+
+          uv run anvil run "${run_args[@]}"
+
+      - name: Upload Anvil JSON results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: anvil-results-single-oidc-${{ github.run_id }}-${{ github.run_attempt }}
+          path: results/**/*.json
+          if-no-files-found: warn
+          retention-days: 30

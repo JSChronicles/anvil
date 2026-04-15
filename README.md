@@ -80,6 +80,10 @@ To measure concurrency behavior, Anvil was tested across 3 organizations with a 
    1. Note that if you use uv run in a project, i.e. a directory with a pyproject.toml, it will install the current project before running the script.
 
 
+For a complete GitHub Actions example that runs Anvil with AWS OIDC and uploads
+the generated JSON results as workflow artifacts, see
+[`examples/github-actions`](./examples/github-actions/README.md).
+
 There are multiple global commands
 ```console
 anvil auth …
