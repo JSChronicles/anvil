@@ -382,23 +382,39 @@ Directories named `tasks/` are conventional only and are not automatically scann
 
 
 ### Create a project-local tasks directory
-These set of steps is because I'm waiting on pypi for a certain issue.
+These set of steps is because I'm waiting on pypi for a certain issue. After this is fixed this will be much smoother.
 
-Create a directory anywhere in your project:
+The minimal recommended project-local task layout:
 
 ```text
-my-project/
-├─ tasks/
-│  ├─ inventory.py
-│  ├─ cleanup.py
-│  └─ tagging.py
+my-test-project/
+  pyproject.toml
+  src/
+    my_test_project/
+      __init__.py
+    tasks/
+      __init__.py
+      project_check.py
+  yaml/
+    orgs.yaml
 ```
-Each task module must define a callable run() function.
+
+If you are wiring tasks into an existing project manually, put custom task
+modules in an importable package such as `src/tasks/`.
 
 ### Register tasks in your project’s pyproject.toml using entry points
 ```ini
+[project]
+name = "my-test-project"
+version = "0.0.1"
+requires-python = ">=3.14"
+
 [project.entry-points."anvil.tasks"]
-project = "tasks"
+my_test_project = "tasks"
+
+[build-system]
+requires = ["uv-build"]
+build-backend = "uv_build"
 ```
 
 Note you may need to do these steps to activate your test project and anvil into the same venv
