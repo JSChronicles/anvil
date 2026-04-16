@@ -1,0 +1,36 @@
+schema_version: 1
+max_parallel_targets: 3
+
+organizations:
+  - name: production
+    profile: production
+    regions:
+      - us-east-1
+    role_name: OrganizationAccountAccessRole
+    max_workers: 10
+    fail_fast: false
+    dry_run: true
+    tasks:
+      - name: noop
+
+  - name: security
+    profile: security
+    regions:
+      - us-east-1
+    role_name: OrganizationAccountAccessRole
+    max_workers: 10
+    fail_fast: false
+    dry_run: true
+    tasks:
+      - name: noop
+
+  - name: sandbox
+    profile: sandbox
+    regions:
+      - us-east-1
+    role_name: OrganizationAccountAccessRole
+    max_workers: 10
+    fail_fast: false
+    dry_run: true
+    tasks:
+      - name: noop

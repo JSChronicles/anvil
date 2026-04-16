@@ -34,9 +34,14 @@ Using `ActionRecorder` is optional but strongly recommended for tasks that:
 
 ## Usage
 
-`ActionRecorder` is available to tasks during execution and can be used anywhere within your task module.
+`ActionRecorder` is available to tasks during execution and records concise,
+audit-level task actions. Use logging for detailed task progress and
+per-resource cleanup details.
 
-You may record actions directly inside the required `run()` function, or pass the recorder into helper functions for more complex workflows.
+You may record actions directly inside the required `run()` function. For larger
+tasks, helper functions should usually log detailed per-resource work and return
+control to `run()`, where the task records one high-level planned or completed
+action.
 
 ---
 
@@ -56,24 +61,31 @@ def run(
     actions: ActionRecorder,
 ) -> None:
 
-    actions.record(
-        "Validated account configuration",
-        details={"account": account_alias},
-    )
+    if dry_run:
+        actions.record("(dry-run) Would validate account configuration")
+    else:
+        actions.record("Validated account configuration")
 ```
 
-### Example - Using ActionRecorder in Helper Functions
-Passing the recorder into helper functions is recommended for larger tasks that split logic across multiple functions.
+### Example - Log Details in Helper Functions
+Passing work into helper functions is recommended for larger tasks that split
+logic across multiple functions. Log detailed per-resource work in helpers and
+record a concise action from `run()`.
 
 ```python
+import logging
+
 from anvil.actions import ActionRecorder
 
+__LOGGER__ = logging.getLogger(__name__)
 
-def cleanup_user(iam, user_name, dry_run, actions):
-    actions.record(f"Cleaning resources for {user_name}")
 
-    if not dry_run:
+def cleanup_user(iam, user_name, dry_run):
+    if dry_run:
+        __LOGGER__.debug(f"(dry-run) Would delete IAM user: {user_name}")
+    else:
         iam.delete_user(UserName=user_name)
+        __LOGGER__.debug(f"Deleted IAM user: {user_name}")
 
 def run(
     *,
@@ -85,7 +97,14 @@ def run(
     actions: ActionRecorder,
 ) -> None:
     iam = session.client("iam")
-    cleanup_user(iam, metadata["user_name"], dry_run, actions)
+    cleanup_user(iam, metadata["user_name"], dry_run)
+
+    if dry_run:
+        actions.record(
+            f"(dry-run) Would clean IAM resources for {metadata['user_name']}"
+        )
+    else:
+        actions.record(f"Cleaned IAM resources for {metadata['user_name']}")
 ```
 
 

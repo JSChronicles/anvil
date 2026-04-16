@@ -2,7 +2,7 @@ import logging
 
 from anvil.actions import ActionRecorder
 
-LOGGER = logging.getLogger(__name__)
+__LOGGER__ = logging.getLogger(__name__)
 
 
 def run(
@@ -18,11 +18,15 @@ def run(
     user_name = metadata.get("user_name", "example")
 
     if dry_run:
-        actions.record(f"Would check IAM user: {user_name}")
+        message = f"(dry-run) Would check IAM user: {user_name}"
+        __LOGGER__.info(message)
+        actions.record(message)
         return
 
     try:
         iam.get_user(UserName=user_name)
+        __LOGGER__.info(f"IAM user exists: {user_name}")
         actions.record(f"IAM user exists: {user_name}")
     except Exception:
+        __LOGGER__.info(f"IAM user not found: {user_name}")
         actions.record(f"IAM user not found: {user_name}")
