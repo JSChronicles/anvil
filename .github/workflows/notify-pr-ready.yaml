@@ -17,6 +17,9 @@ concurrency:
   group: pr-merge-${{ github.event.pull_request.number || github.ref || github.run_id }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   wait-for-checks-and-notify:
     runs-on: ubuntu-latest
