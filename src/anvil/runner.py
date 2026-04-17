@@ -171,6 +171,7 @@ def _build_execution_context(
         tasks=tasks,
         metadata=target.metadata,
         fail_fast=target.fail_fast,
+        max_parallel_regions=target.max_parallel_regions,
     )
 
 
@@ -304,6 +305,13 @@ def run_prepared_target(*, prepared_target: PreparedTarget) -> TargetExecutionOu
 
     try:
         accounts: list[Account] = resolver.resolve_accounts()
+        account_region_limit = target.max_workers * context.max_parallel_regions
+        __LOGGER__.info(
+            f"Target '{target.name}' concurrency: "
+            f"max_workers={target.max_workers}, "
+            f"max_parallel_regions={context.max_parallel_regions}, "
+            f"account_region_limit={account_region_limit}"
+        )
         target_result: TargetResult = execute_accounts(
             name=target.name,
             config_branch=target.config_branch,

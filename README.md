@@ -33,7 +33,7 @@ It provides a structured way to define what should run (tasks and dependencies) 
 
 Anvil is intentionally task-agnostic. Tasks are implemented as simple Python modules with a defined runtime contract, allowing teams to build inventory, validation, enforcement, and reporting workflows without coupling business logic to the execution engine. Within an organization, account execution is parallelized through bounded worker pools, while dependency ordering and execution context are handled centrally by the engine.
 
-At the YAML level, `max_parallel_targets` controls how many configured organization or account-group entries may execute at the same time within one config file. Per-target `max_workers` still controls account concurrency inside each target.
+At the YAML level, `max_parallel_targets` controls how many configured organization or account-group entries may execute at the same time within one config file. Per-target `max_workers` controls account concurrency inside each target, and per-target `max_parallel_regions` controls how many regions may run concurrently within one account.
 
 If you'd like to check out the flow or have a little more in-depth information about Anvil you can check out this [doc](docs/README.md)
 
@@ -57,7 +57,7 @@ Replace the `--example-piece` argparse and `example_piece` in other areas or edi
 ## Example Benchmarks
 To measure concurrency behavior, Anvil was tested across 3 organizations with a combined 260 accounts.
 
-`max_parallel_targets` controls how many organizations or account groups run at the same time, depending on the config type. `max_workers` controls how many accounts run in parallel inside each organization or account group.
+`max_parallel_targets` controls how many organizations or account groups run at the same time, depending on the config type. `max_workers` controls how many accounts run in parallel inside each organization or account group. `max_parallel_regions` controls how many regions run in parallel within each account, defaults to 1, and is capped at 4.
 
 <p align="left">
   <img src="images/count-vpc-runtime-comparison.png" alt="count_vpc runtime comparison" width="700">
@@ -341,14 +341,17 @@ To run multiple YAML files in one command, pass them after a single `--config-fi
 anvil run --config-file ./yaml/orgs.yaml ./yaml/orgs2.yaml ./yaml/orgs3.yaml
 ```
 
-Within a single YAML, you can bound how many configured targets run in parallel. This is separate from each target's `max_workers` setting:
+Within a single YAML, you can bound how many configured targets run in parallel. This is separate from each target's `max_workers` and `max_parallel_regions` settings:
 ```yaml
 schema_version: 1
 max_parallel_targets: 4
 organizations:
   - name: root
     max_workers: 10
+    max_parallel_regions: 2
 ```
+
+`max_parallel_regions` defaults to `1`, which preserves serial region execution within each account. Values from `2` through `4` allow bounded parallel region execution. Approximate account-region task streams per target are `max_workers * max_parallel_regions`, before considering `max_parallel_targets`.
 
 You can run `--include`, `--exclude`, or `--dry-run` to override the YAML file if you want to just test something or run on certain accounts.
 ```console

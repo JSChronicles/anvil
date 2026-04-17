@@ -34,6 +34,25 @@ def test_load_config_descriptors_reads_max_parallel_targets():
     assert loaded.max_parallel_targets == 3
 
 
+def test_load_config_descriptors_reads_max_parallel_regions():
+    validators = _import_validators_or_skip()
+
+    loaded = validators.load_config_descriptors(
+        config={
+            "schema_version": 1,
+            "accounts": [
+                {
+                    "name": "group-a",
+                    "include": ["111111111111"],
+                    "max_parallel_regions": 4,
+                }
+            ],
+        }
+    )
+
+    assert loaded.targets[0].max_parallel_regions == 4
+
+
 def test_validate_config_schema_accepts_max_parallel_targets_for_organizations():
     validators = _import_validators_or_skip()
 
@@ -58,6 +77,34 @@ def test_validate_config_schema_accepts_max_parallel_targets_for_accounts():
     )
 
 
+def test_validate_config_schema_accepts_max_parallel_regions_for_organizations():
+    validators = _import_validators_or_skip()
+
+    validators.validate_config_schema(
+        config={
+            "schema_version": 1,
+            "organizations": [{"name": "org-a", "max_parallel_regions": 4}],
+        }
+    )
+
+
+def test_validate_config_schema_accepts_max_parallel_regions_for_accounts():
+    validators = _import_validators_or_skip()
+
+    validators.validate_config_schema(
+        config={
+            "schema_version": 1,
+            "accounts": [
+                {
+                    "name": "group-a",
+                    "include": ["111111111111"],
+                    "max_parallel_regions": 2,
+                }
+            ],
+        }
+    )
+
+
 def test_validate_config_schema_rejects_invalid_max_parallel_targets():
     validators = _import_validators_or_skip()
 
@@ -67,5 +114,22 @@ def test_validate_config_schema_rejects_invalid_max_parallel_targets():
                 "schema_version": 1,
                 "max_parallel_targets": 0,
                 "organizations": [{"name": "org-a"}],
+            }
+        )
+
+
+@pytest.mark.parametrize("max_parallel_regions", [True, 0, 5])
+def test_validate_config_schema_rejects_invalid_max_parallel_regions(
+    max_parallel_regions,
+):
+    validators = _import_validators_or_skip()
+
+    with pytest.raises(ValueError, match="max_parallel_regions"):
+        validators.validate_config_schema(
+            config={
+                "schema_version": 1,
+                "organizations": [
+                    {"name": "org-a", "max_parallel_regions": max_parallel_regions}
+                ],
             }
         )

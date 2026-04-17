@@ -13,6 +13,7 @@ accounts:
     tasks:
       - name: noop
     max_workers: 10
+    max_parallel_regions: 1
     fail_fast: false
     dry_run: false
     metadata:

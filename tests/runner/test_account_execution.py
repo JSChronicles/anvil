@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+import time
 from dataclasses import dataclass
 
 from anvil.account import Account
@@ -15,10 +17,11 @@ class BaseSession:
 
 
 class WorkerSession:
-    region_name = "us-east-1"
-
-    def __init__(self, *, caller_account_id: str = "123456789012") -> None:
+    def __init__(
+        self, *, caller_account_id: str = "123456789012", region_name: str = "us-east-1"
+    ) -> None:
         self._caller_account_id = caller_account_id
+        self.region_name = region_name
 
     def client(self, service_name):
         assert service_name == "sts"
@@ -42,7 +45,9 @@ class RecordingSessionFactory:
 
     def get_worker_session(self, **kwargs):
         self.worker_session_calls.append(kwargs)
-        return WorkerSession(caller_account_id=self.caller_account_id)
+        return WorkerSession(
+            caller_account_id=self.caller_account_id, region_name=kwargs["region_name"]
+        )
 
     def assume_role_credentials(self, **kwargs):
         self.assume_role_calls.append(kwargs)
@@ -52,16 +57,22 @@ class RecordingSessionFactory:
 
     def create_session_from_credentials(self, **kwargs):
         self.create_session_from_credentials_calls.append(kwargs)
-        return object()
+        return WorkerSession(region_name=kwargs["region_name"])
 
 
-def _context(*, tasks: list[ResolvedTask], regions: list[str] | None = None):
+def _context(
+    *,
+    tasks: list[ResolvedTask],
+    regions: list[str] | None = None,
+    max_parallel_regions: int = 1,
+):
     return ExecutionContext(
         regions=regions or ["us-east-1"],
         role_name="TestRole",
         dry_run=True,
         tasks=tasks,
         metadata={"source": "test"},
+        max_parallel_regions=max_parallel_regions,
     )
 
 
@@ -71,15 +82,21 @@ def _account(
     session_factory: RecordingSessionFactory | None = None,
     assume_role: bool = False,
     regions: list[str] | None = None,
+    max_parallel_regions: int = 1,
 ) -> Account:
+    resolved_regions = regions or ["us-east-1"]
     return Account(
         account_id="123456789012",
         account_alias="test-account",
         is_management=not assume_role,
         assume_role=assume_role,
         base_session=BaseSession(),
-        context=_context(tasks=tasks, regions=regions),
-        regions=regions or ["us-east-1"],
+        context=_context(
+            tasks=tasks,
+            regions=resolved_regions,
+            max_parallel_regions=max_parallel_regions,
+        ),
+        regions=resolved_regions,
         session_factory=session_factory or RecordingSessionFactory(),
     )
 
@@ -185,3 +202,127 @@ def test_assume_role_path_reuses_assumed_credentials_for_regions():
         call["region_name"]
         for call in session_factory.create_session_from_credentials_calls
     ] == ["us-east-1", "us-west-2"]
+
+
+def test_serial_regions_keep_account_scoped_action_recorder():
+    seen_actions: list[list[str]] = []
+
+    def task(**kwargs):
+        seen_actions.append(list(kwargs["actions"].actions))
+        kwargs["actions"].record(kwargs["session"].region_name)
+        return {"region": kwargs["session"].region_name}
+
+    account = _account(
+        tasks=[ResolvedTask("task", task, depends_on=[], optional=False)],
+        regions=["us-east-1", "us-west-2"],
+    )
+
+    result = account.execute()
+
+    assert result.status is ExecutionStatus.SUCCESS
+    assert seen_actions == [[], ["us-east-1"]]
+
+
+def test_parallel_regions_overlap_and_preserve_result_order():
+    started_regions: set[str] = set()
+    started_lock = threading.Lock()
+    both_started = threading.Event()
+    release_tasks = threading.Event()
+
+    def blocking_task(**kwargs):
+        region = kwargs["session"].region_name
+        with started_lock:
+            started_regions.add(region)
+            if {"us-east-1", "us-west-2"}.issubset(started_regions):
+                both_started.set()
+
+        if region in {"us-east-1", "us-west-2"}:
+            assert both_started.wait(timeout=1)
+            assert release_tasks.wait(timeout=1)
+
+        return {"region": region}
+
+    account = _account(
+        tasks=[ResolvedTask("blocking", blocking_task, depends_on=[], optional=False)],
+        regions=["us-east-1", "us-west-2", "eu-west-1"],
+        max_parallel_regions=2,
+    )
+
+    result_holder = {}
+    thread = threading.Thread(
+        target=lambda: result_holder.setdefault("result", account.execute())
+    )
+    thread.start()
+
+    assert both_started.wait(timeout=1)
+    release_tasks.set()
+    thread.join(timeout=1)
+
+    assert not thread.is_alive()
+    result = result_holder["result"]
+    assert result.status is ExecutionStatus.SUCCESS
+    assert [task.region for task in result.tasks] == [
+        "us-east-1",
+        "us-west-2",
+        "eu-west-1",
+    ]
+
+
+def test_parallel_region_failure_prevents_unscheduled_regions_from_starting():
+    started_regions: list[str] = []
+    started_lock = threading.Lock()
+
+    def task(**kwargs):
+        region = kwargs["session"].region_name
+        with started_lock:
+            started_regions.append(region)
+
+        if region == "us-east-1":
+            raise RuntimeError("hard failure")
+
+        time.sleep(0.05)
+        return {"region": region}
+
+    account = _account(
+        tasks=[ResolvedTask("task", task, depends_on=[], optional=False)],
+        regions=["us-east-1", "us-west-2", "eu-west-1"],
+        max_parallel_regions=2,
+    )
+
+    result = account.execute()
+
+    assert result.status is ExecutionStatus.ERROR
+    assert "us-east-1" in started_regions
+    assert "eu-west-1" not in started_regions
+    assert [task.region for task in result.tasks] in (
+        ["us-east-1"],
+        ["us-east-1", "us-west-2"],
+    )
+
+
+def test_parallel_account_cancelled_before_regions_start_is_interrupted():
+    def task(**kwargs):
+        raise AssertionError("task should not run after cancellation")
+
+    context = _context(
+        tasks=[ResolvedTask("task", task, depends_on=[], optional=False)],
+        regions=["us-east-1", "us-west-2"],
+        max_parallel_regions=2,
+    )
+    context.cancel_event.set()
+
+    account = Account(
+        account_id="123456789012",
+        account_alias="test-account",
+        is_management=True,
+        assume_role=False,
+        base_session=BaseSession(),
+        context=context,
+        regions=["us-east-1", "us-west-2"],
+        session_factory=RecordingSessionFactory(),
+    )
+
+    result = account.execute()
+
+    assert result.status is ExecutionStatus.INTERRUPTED
+    assert result.tasks == []

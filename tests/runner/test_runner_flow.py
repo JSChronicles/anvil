@@ -230,3 +230,41 @@ def test_run_prepared_target_uses_cached_org_preflight(monkeypatch):
 
     assert outcome.target_result.target_name == "org-a"
     assert outcome.cancelled is False
+
+
+def test_prepare_target_carries_max_parallel_regions_into_context(monkeypatch):
+    monkeypatch.setattr(
+        "anvil.runner._run_auth_check_for_target",
+        lambda target: AuthResult(
+            target_name=target.name,
+            status=ExecutionStatus.SUCCESS,
+            source="test",
+            started_at="start",
+            ended_at="end",
+            duration_seconds=0.0,
+            message="ok",
+        ),
+    )
+    monkeypatch.setattr(
+        "anvil.runner.resolve_tasks",
+        lambda task_specs: ResolvedExecution(ordered=[], adjacency={}),
+    )
+
+    target = TargetDescriptor(
+        config_branch=ConfigBranch.ACCOUNTS,
+        name="group-a",
+        include=["111111111111"],
+        max_parallel_regions=3,
+    )
+
+    prepared = prepare_target(
+        index=0,
+        target=target,
+        cli_dry_run=None,
+        cli_include=None,
+        cli_exclude=None,
+        organization_cache=OrganizationRunCache(),
+    )
+
+    assert prepared.context is not None
+    assert prepared.context.max_parallel_regions == 3

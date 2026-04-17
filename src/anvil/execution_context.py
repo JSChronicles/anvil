@@ -19,5 +19,6 @@ class ExecutionContext:
     metadata: dict[str, object]
 
     fail_fast: bool = False
+    max_parallel_regions: int = 1
     log_level: str | int | None = None
     cancel_event: threading.Event = field(default_factory=threading.Event)
