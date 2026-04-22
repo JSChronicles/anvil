@@ -60,7 +60,7 @@ To measure concurrency behavior, Anvil was tested across 3 organizations with a 
 `max_parallel_targets` controls how many organizations or account groups run at the same time, depending on the config type. `max_workers` controls how many accounts run in parallel inside each organization or account group. `max_parallel_regions` controls how many regions run in parallel within each account, defaults to 1, and is capped at 4.
 
 <p align="left">
-  <img src="images/count-vpc-runtime-comparison.png" alt="count_vpc runtime comparison" width="700">
+  <img src="images/count-vpc-grouped-comparison.png" alt="count_vpc runtime comparison" width="1200" height="600">
 </p>
 
 
