@@ -109,9 +109,10 @@ class AccountResult(TimedResult):
     status: ExecutionStatus
     tasks: list[TaskResult]
     error: str | None = None
+    benchmark: dict[str, object] | None = None
 
     def to_dict(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "account_id": self.account_id,
             "account_alias": self.account_alias,
             "status": self.status.value,
@@ -121,6 +122,10 @@ class AccountResult(TimedResult):
             "tasks": [task.to_dict() for task in self.tasks],
             "error": self.error,
         }
+        if self.benchmark is not None:
+            payload["benchmark"] = self.benchmark
+
+        return payload
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,6 +136,7 @@ class TargetResult:
     dry_run: bool
     account_results: list[AccountResult]
     error: str | None = None
+    benchmark: dict[str, object] | None = None
 
     @property
     def total_accounts(self) -> int:
@@ -161,7 +167,7 @@ class TargetResult:
     def to_dict(self) -> dict[str, object]:
         singular_key, _ = _result_labels(self.config_branch)
 
-        return {
+        payload: dict[str, object] = {
             singular_key: self.target_name,
             "generated_at": self.generated_at,
             "dry_run": self.dry_run,
@@ -169,6 +175,10 @@ class TargetResult:
             "account_results": [result.to_dict() for result in self.account_results],
             "error": self.error,
         }
+        if self.benchmark is not None:
+            payload["benchmark"] = self.benchmark
+
+        return payload
 
     @classmethod
     def create(
@@ -179,6 +189,7 @@ class TargetResult:
         dry_run: bool,
         account_results: list[AccountResult],
         error: str | None = None,
+        benchmark: dict[str, object] | None = None,
     ) -> TargetResult:
         return cls(
             config_branch=config_branch,
@@ -187,6 +198,7 @@ class TargetResult:
             dry_run=dry_run,
             account_results=account_results,
             error=error,
+            benchmark=benchmark,
         )
 
 
@@ -201,6 +213,7 @@ class EngineResult:
     generated_at: str
     auth_results: list[AuthResult]
     target_results: list[TargetResult]
+    benchmark: dict[str, object] | None = None
 
     @property
     def has_auth_failures(self) -> bool:
@@ -226,7 +239,7 @@ class EngineResult:
     def to_dict(self) -> dict[str, object]:
         _, plural_key = _result_labels(self.config_branch)
 
-        return {
+        payload: dict[str, object] = {
             "state": self.state.value,
             "generated_at": self.generated_at,
             "auth": [
@@ -237,6 +250,10 @@ class EngineResult:
                 target_result.to_dict() for target_result in self.target_results
             ],
         }
+        if self.benchmark is not None:
+            payload["benchmark"] = self.benchmark
+
+        return payload
 
     @classmethod
     def create(
@@ -246,6 +263,7 @@ class EngineResult:
         state: EngineState,
         auth_results: list[AuthResult],
         target_results: list[TargetResult],
+        benchmark: dict[str, object] | None = None,
     ) -> EngineResult:
         return cls(
             config_branch=config_branch,
@@ -253,6 +271,7 @@ class EngineResult:
             generated_at=datetime.datetime.now(datetime.UTC).isoformat(),
             auth_results=auth_results,
             target_results=target_results,
+            benchmark=benchmark,
         )
 
     def build_summary(self) -> dict[str, object]:
@@ -304,10 +323,15 @@ class EngineResult:
                     "failed_tasks": failed_tasks,
                     "has_failures": target_result.has_failures,
                     "error": target_result.error,
+                    **(
+                        {"benchmark": target_result.benchmark}
+                        if target_result.benchmark is not None
+                        else {}
+                    ),
                 }
             )
 
-        return {
+        payload: dict[str, object] = {
             "state": self.state.value,
             "generated_at": self.generated_at,
             "auth": auth_results,
@@ -316,3 +340,7 @@ class EngineResult:
             "total_interrupted_accounts": total_interrupted_accounts,
             "total_failed_tasks": total_failed_tasks,
         }
+        if self.benchmark is not None:
+            payload["benchmark"] = self.benchmark
+
+        return payload

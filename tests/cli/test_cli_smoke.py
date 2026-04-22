@@ -70,13 +70,18 @@ def test_cmd_run_returns_failure_if_any_config_file_fails(monkeypatch):
     assert seen_paths == [Path("orgs.yaml"), Path("orgs2.yaml"), Path("orgs3.yaml")]
 
 
-def test_write_run_results_prefixes_summary_with_config_stem(monkeypatch, tmp_path):
+def test_write_run_results_prefixes_summary_with_config_stem(monkeypatch):
     from pathlib import Path
     from types import SimpleNamespace
 
     cli = _import_cli_or_skip()
+    scratch_dir = (Path("tests") / "_tmp" / "cli-smoke").resolve()
+    results_dir = scratch_dir / "results"
+    summary_path = results_dir / "orgs-target-summary.json"
+    target_path = results_dir / "org2.json"
 
     engine_result = SimpleNamespace(
+        benchmark=None,
         target_results=[
             SimpleNamespace(target_name="org2", to_dict=lambda: {"name": "org2"})
         ],
@@ -84,14 +89,21 @@ def test_write_run_results_prefixes_summary_with_config_stem(monkeypatch, tmp_pa
     )
 
     original_cwd = Path.cwd()
-    monkeypatch.chdir(tmp_path)
+    scratch_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(scratch_dir)
 
     try:
         cli._write_run_results(
             config_file=Path("yaml/orgs.yaml"), engine_result=engine_result
         )
 
-        assert (tmp_path / "results" / "orgs-target-summary.json").exists()
-        assert (tmp_path / "results" / "org2.json").exists()
+        assert summary_path.exists()
+        assert target_path.exists()
     finally:
         monkeypatch.chdir(original_cwd)
+        summary_path.unlink(missing_ok=True)
+        target_path.unlink(missing_ok=True)
+        if results_dir.exists():
+            results_dir.rmdir()
+        if scratch_dir.exists():
+            scratch_dir.rmdir()

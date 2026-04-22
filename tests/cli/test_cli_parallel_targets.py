@@ -12,7 +12,19 @@ def _import_cli_or_skip():
     return cli
 
 
-def test_run_single_config_file_passes_max_parallel_targets(monkeypatch):
+@pytest.mark.parametrize(
+    ("args", "expected_benchmark"),
+    [
+        (SimpleNamespace(dry_run=None, include=None, exclude=None), False),
+        (
+            SimpleNamespace(dry_run=None, include=None, exclude=None, benchmark=True),
+            True,
+        ),
+    ],
+)
+def test_run_single_config_file_passes_run_controls(
+    monkeypatch, args, expected_benchmark
+):
     from pathlib import Path
 
     cli = _import_cli_or_skip()
@@ -22,7 +34,6 @@ def test_run_single_config_file_passes_max_parallel_targets(monkeypatch):
         targets=["target-a"],
         max_parallel_targets=4,
     )
-    args = SimpleNamespace(dry_run=None, include=None, exclude=None)
     seen = {}
 
     monkeypatch.setattr(
@@ -41,3 +52,4 @@ def test_run_single_config_file_passes_max_parallel_targets(monkeypatch):
 
     assert exit_code == 0
     assert seen["kwargs"]["max_parallel_targets"] == 4
+    assert seen["kwargs"]["benchmark_enabled"] is expected_benchmark

@@ -81,12 +81,3 @@ def test_discover_tasks_includes_stock_tasks():
     noop = next(task for task in tasks if task.name == "noop")
     assert noop.source == "stock"
     assert callable(noop.run)
-
-
-def test_stock_tasks_override_plugin_tasks(monkeypatch):
-    # monkeypatch entry_points() to return a conflicting plugin
-    ...
-    tasks = discover_tasks()
-
-    task = next(task for task in tasks if task.name == "noop")
-    assert task.source == "stock"

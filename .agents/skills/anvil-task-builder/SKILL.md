@@ -92,6 +92,40 @@ Runtime facts:
   `dry_run`, unless the task needs a renamed or transformed value for its own
   result schema.
 
+## Task Granularity And Performance
+
+Before creating or splitting inventory tasks, consider whether related data
+should be gathered together. Task boundaries are useful for reuse and clear
+failure semantics, but each task may repeat AWS client setup and list/describe
+calls inside the same account-region.
+
+Prefer separate tasks when:
+
+- The tasks have different safety profiles, especially read-only vs mutating.
+- They are commonly run independently.
+- They need different optional/fail-fast behavior.
+- A dependency relationship is meaningful to the workflow.
+- Combining them would make the result shape confusing or too broad.
+
+Consider one combined inventory task when:
+
+- The tasks are read-only.
+- They query the same AWS service in the same account-region.
+- They repeat the same list or describe operations.
+- Their outputs are normally consumed together.
+- Performance matters more than task-level granularity.
+
+For example, VPCs, VPC endpoints, and subnets are all EC2 regional inventory.
+If the goal is a network inventory report, a single task can create one EC2
+client, gather the related data once, and share in-memory results instead of
+having multiple tasks rediscover overlapping state.
+
+When overlap is present but separate tasks still make sense, prefer extracting
+small shared helper functions over duplicating AWS pagination logic. For
+benchmarking or heavy inventory tasks, consider metadata such as
+`include_details: false` so users can return counts and timings without writing
+large result payloads.
+
 ## Python And AWS Guidance
 
 - Keep task modules import-safe. Do not make AWS calls at import time.

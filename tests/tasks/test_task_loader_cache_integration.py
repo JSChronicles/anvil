@@ -71,7 +71,9 @@ def test_graph_and_run_paths_behave_the_same_with_cached_resolution(
         def resolve_accounts(self):
             return []
 
-    def fake_execute_accounts(*, name, config_branch, max_workers, context, accounts):
+    def fake_execute_accounts(
+        *, name, config_branch, max_workers, context, accounts, **kwargs
+    ):
         observed_tasks.append([task.name for task in context.tasks])
         return results.TargetResult.create(
             config_branch=config_branch,
