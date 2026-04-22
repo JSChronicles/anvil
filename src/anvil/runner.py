@@ -568,10 +568,7 @@ def run_multiple_targets(
             benchmark_enabled=benchmark_enabled,
         )
     recorder.update(
-        {
-            "max_parallel_targets": max_parallel_targets,
-            "target_count": len(targets),
-        }
+        {"max_parallel_targets": max_parallel_targets, "target_count": len(targets)}
     )
 
     return EngineResult.create(

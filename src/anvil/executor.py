@@ -85,8 +85,7 @@ def execute_accounts(
                 "account_execution_window_seconds": account_window_seconds,
                 "sum_account_duration_seconds": sum_account_duration_seconds,
                 "max_account_duration_seconds": max(
-                    (result.duration_seconds for result in account_results),
-                    default=0.0,
+                    (result.duration_seconds for result in account_results), default=0.0
                 ),
                 "worker_utilization": _worker_utilization(
                     sum_account_duration_seconds=sum_account_duration_seconds,
@@ -117,7 +116,9 @@ def _account_window_seconds(account_results: list[AccountResult]) -> float:
     starts = [
         datetime.datetime.fromisoformat(result.started_at) for result in account_results
     ]
-    ends = [datetime.datetime.fromisoformat(result.ended_at) for result in account_results]
+    ends = [
+        datetime.datetime.fromisoformat(result.ended_at) for result in account_results
+    ]
     return (max(ends) - min(starts)).total_seconds()
 
 

@@ -89,10 +89,7 @@ class Account:
             assumed_credentials: AssumedRoleCredentials | None = None
             recorder = BenchmarkRecorder(enabled=self._context.benchmark_enabled)
             recorder.update(
-                {
-                    "assume_role_seconds": 0.0,
-                    "direct_access_validation_seconds": 0.0,
-                }
+                {"assume_role_seconds": 0.0, "direct_access_validation_seconds": 0.0}
             )
 
             if self._assume_role:

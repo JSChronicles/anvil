@@ -51,9 +51,7 @@ def _get_subnet_details(ec2_client) -> tuple[list[dict[str, object]], int]:
                     "available_ip_address_count": subnet.get(
                         "AvailableIpAddressCount", 0
                     ),
-                    "map_public_ip_on_launch": subnet.get(
-                        "MapPublicIpOnLaunch", False
-                    ),
+                    "map_public_ip_on_launch": subnet.get("MapPublicIpOnLaunch", False),
                 }
             )
 
@@ -109,15 +107,11 @@ def run(
     )
 
     actions.record(
-        f"Counted {len(subnets)} subnet(s) in account {account_id} "
-        f"region {region_name}"
+        f"Counted {len(subnets)} subnet(s) in account {account_id} region {region_name}"
     )
 
     return {
-        "summary": {
-            "total_subnets": len(subnets),
-            "total_vpcs": len(vpc_ids),
-        },
+        "summary": {"total_subnets": len(subnets), "total_vpcs": len(vpc_ids)},
         "subnets": subnets,
         "timing": timing,
     }

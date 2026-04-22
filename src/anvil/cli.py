@@ -108,9 +108,7 @@ def _write_run_results(*, config_file: Path, engine_result) -> None:
             )
 
     if engine_result.benchmark is not None:
-        engine_result.benchmark["result_write"] = {
-            "target_files": target_files,
-        }
+        engine_result.benchmark["result_write"] = {"target_files": target_files}
 
     summary = engine_result.build_summary()
     summary_path = results_dir / f"{config_file.stem}-target-summary.json"
