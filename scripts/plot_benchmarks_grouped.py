@@ -12,7 +12,7 @@ ANVIL = "#7c4dff"
 BASELINE = "#f97316"
 
 rows = "[{'group': 'Sequential orgs\\nSequential accounts', 'region_label': '1 region', 'minutes': 6.966666666666667}, {'group': 'Sequential orgs\\nSequential accounts', 'region_label': '2 regions', 'minutes': 11.133333333333333}, {'group': 'Parallel orgs\\nSequential accounts', 'region_label': '1 region', 'minutes': 4.483333333333333}, {'group': 'Parallel orgs\\nSequential accounts', 'region_label': '2 regions', 'minutes': 7.316666666666666}, {'group': 'Parallel orgs\\nParallel accounts', 'region_label': '1 region', 'minutes': 1.5833333333333335}, {'group': 'Parallel orgs\\nParallel accounts', 'region_label': '2 regions', 'minutes': 2.8}]"
-manual_minutes = '43.333333333333336'
+manual_minutes = "43.333333333333336"
 
 
 def fmt_minutes(value: float) -> str:
@@ -40,7 +40,7 @@ def plot_grouped(rows: list[dict[str, object]], *, output_path: Path) -> None:
 
     positions = [0, 1, 3, 4, 6, 7]
     values = [float(row["minutes"]) for row in rows]
-    labels = [f'{row["group"]}\n{row["region_label"]}' for row in rows]
+    labels = [f"{row['group']}\n{row['region_label']}" for row in rows]
 
     bars = ax.barh(positions, values, color=ANVIL, height=0.7)
 

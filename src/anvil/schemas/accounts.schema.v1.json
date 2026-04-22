@@ -48,6 +48,9 @@
           "max_workers": {
             "$ref": "common.schema.v1.json#/$defs/baseTargetProperties/max_workers"
           },
+          "max_parallel_regions": {
+            "$ref": "common.schema.v1.json#/$defs/baseTargetProperties/max_parallel_regions"
+          },
           "fail_fast": {
             "$ref": "common.schema.v1.json#/$defs/baseTargetProperties/fail_fast"
           },

@@ -10,6 +10,7 @@ organizations:
     role_name: OrganizationAccountAccessRole
 
     max_workers: 5
+    max_parallel_regions: 2
     fail_fast: false
     dry_run: true
 
@@ -39,6 +40,7 @@ organizations:
     role_name: OrganizationAccountAccessRole
 
     max_workers: 10
+    max_parallel_regions: 1
     fail_fast: true
     dry_run: false
 

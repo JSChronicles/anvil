@@ -26,11 +26,11 @@ Anvil executes declarative task workflows across one or more AWS organizations, 
 At a high level:
 
 1. Each organization is defined independently in configuration.
-1. Each organization can declare its own profile, role, regions, worker limits, task graph, include or exclude filters, dry-run behavior, and fail-fast behavior.
+1. Each organization can declare its own profile, role, regions, worker limits, region concurrency, task graph, include or exclude filters, dry-run behavior, and fail-fast behavior.
 1. Each YAML can optionally declare `max_parallel_targets` to bound how many configured targets are allowed to execute at once.
 1. For each organization, Anvil authenticates, creates an organization-scoped base session, discovers eligible accounts, validates configured regions against enabled regions, and builds the effective account execution set.
    1. Selected accounts execute in parallel within that organization, bounded by the configured worker limit.
-1. Within an account, tasks execute in dependency order for each effective configured region.
+1. Within an account, tasks execute in dependency order for each effective configured region, with optional bounded region concurrency.
 1. Results are captured at task, account, organization, and engine scope.
 
 This makes Anvil suitable for workflows that need consistent execution across multiple AWS organizations while still respecting account boundaries, region-specific service presence, and per-organization execution settings.
@@ -45,6 +45,7 @@ Anvil supports defining multiple organizations in a single run. Each organizatio
 - include or exclude account filters
 - target-level YAML concurrency through `max_parallel_targets`
 - worker concurrency
+- region concurrency through `max_parallel_regions`
 - dry-run behavior
 - fail-fast setting
 - task definitions
@@ -60,6 +61,12 @@ Configured regions are treated as part of the execution scope rather than as a s
 
 Task execution then occurs per account and per region, and task results include the region they ran in. This makes region-specific inventory, validation, enforcement, and reporting workflows easier to reason about and easier to audit later from structured output.
 
+By default, regions execute serially within each account. A target can set `max_parallel_regions` from `1` through `4` to run multiple regions for the same account concurrently while preserving task dependency order inside each region.
+
+Region scheduling is intentionally strict. Anvil only starts up to `max_parallel_regions` regions at a time for one account. If a non-optional task fails in one region, regions that have not started are left unstarted, while already-running regions stop cooperatively before their next task.
+
+Even when regions finish out of order, task results are returned in configured region order and then task order.
+
 ### Account selection
 
 After discovering active accounts in an organization, Anvil applies optional include or exclude filters to determine the final execution set.
@@ -70,7 +77,11 @@ If an include or exclude list references unknown account IDs, Anvil warns but co
 
 Accounts execute concurrently within an organization through a bounded worker pool controlled by the organization configuration.
 
-This keeps execution scalable across many accounts while avoiding unbounded concurrency and preserving a clear organization-level execution boundary.
+This keeps execution scalable across many accounts while avoiding unbounded concurrency and preserving a clear organization-level execution boundary. The `max_workers` setting controls how many account executions may run at the same time for a target.
+
+Account work is submitted to the account worker pool up front, and the executor runs up to `max_workers` accounts at a time. If fail-fast is enabled, Anvil signals cancellation and cancels pending account futures where possible. Accounts already running stop cooperatively when they observe the cancellation signal before starting another task.
+
+When `max_parallel_regions` is greater than `1`, approximate account-region task streams per target are `max_workers * max_parallel_regions`, before considering `max_parallel_targets`.
 
 ### Fail-fast behavior and cancellation
 

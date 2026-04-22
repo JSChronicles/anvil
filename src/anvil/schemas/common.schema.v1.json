@@ -89,6 +89,13 @@
       "default": 10,
       "description": "Maximum number of concurrent account workers."
     },
+    "max_parallel_regions": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4,
+      "default": 1,
+      "description": "Maximum number of concurrent regions to execute within one account."
+    },
     "max_parallel_targets": {
       "type": "integer",
       "minimum": 1,
@@ -139,6 +146,9 @@
       },
       "max_workers": {
         "$ref": "#/$defs/max_workers"
+      },
+      "max_parallel_regions": {
+        "$ref": "#/$defs/max_parallel_regions"
       },
       "fail_fast": {
         "$ref": "#/$defs/fail_fast"

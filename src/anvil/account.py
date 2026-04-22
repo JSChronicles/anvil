@@ -2,8 +2,17 @@ from __future__ import annotations
 
 import datetime
 import logging
+import threading
 import time
-from typing import Literal
+from collections import deque
+from concurrent.futures import (
+    FIRST_COMPLETED,
+    CancelledError,
+    Future,
+    ThreadPoolExecutor,
+    wait,
+)
+from dataclasses import dataclass
 
 import boto3
 from boto3.session import Session
@@ -14,6 +23,14 @@ from anvil.session import AssumedRoleCredentials, SessionFactory
 from anvil.actions import ActionRecorder
 
 __LOGGER__ = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class RegionExecutionOutcome:
+    region: str
+    task_results: list[TaskResult]
+    interrupted: bool
+    failed: bool
 
 
 class Account:
@@ -62,9 +79,7 @@ class Account:
         started_perf = time.perf_counter()
         started_at = datetime.datetime.now(datetime.UTC).isoformat()
 
-        actions = ActionRecorder(actions=[])
         task_results: list[TaskResult] = []
-        interrupted = False
 
         optional_map = {task.name: task.optional for task in self._context.tasks}
 
@@ -78,153 +93,24 @@ class Account:
             else:
                 self._validate_direct_account_access()
 
-            # Execute configured regions in declared order
-            for region in self._regions:
-                session: Session = self._get_region_session(
-                    region=region, assumed_credentials=assumed_credentials
-                )
-
-                region_task_results: dict[str, TaskResult] = {}
-
-                # Execute tasks
-                for task in self._context.tasks:
-                    # Cooperative cancellation check
-                    if self._context.cancel_event.is_set():
-                        __LOGGER__.warning(
-                            f"Account {self.account_id} stopping due to cancellation signal"
-                        )
-                        interrupted = True
-                        break
-
-                    # Dependency gate
-                    dependency_failed: bool = any(
-                        region_task_results[dep].status.is_error
-                        for dep in task.depends_on
-                        if dep in region_task_results
-                    )
-
-                    if dependency_failed:
-                        now_at: str = datetime.datetime.now(datetime.UTC).isoformat()
-
-                        blocked_result = TaskResult(
-                            task_name=task.name,
-                            region=region,
-                            status=ExecutionStatus.ERROR,
-                            started_at=now_at,
-                            ended_at=now_at,
-                            duration_seconds=0.0,
-                            error="Blocked: dependency failed",
-                        )
-
-                        region_task_results[task.name] = blocked_result
-                        task_results.append(blocked_result)
-
-                        if not task.optional:
-                            __LOGGER__.error(
-                                f"Task '{task.name}' blocked by failed dependency "
-                                f"in account {self.account_id} region {region}"
-                            )
-                            break
-
-                        __LOGGER__.warning(
-                            f"Optional task '{task.name}' skipped due to dependency "
-                            f"failure in account {self.account_id} region {region}"
-                        )
-                        continue
-
-                    # Execute task
-                    task_started_perf: int | float = time.perf_counter()
-                    task_started_at: str = datetime.datetime.now(
-                        datetime.UTC
-                    ).isoformat()
-
-                    try:
-                        result = task.run(
-                            account_id=self.account_id,
-                            account_alias=self.account_alias,
-                            session=session,
-                            dry_run=self._context.dry_run,
-                            metadata=self._context.metadata,
-                            actions=actions,
-                        )
-
-                        task_ended_perf: int | float = time.perf_counter()
-                        task_ended_at: str = datetime.datetime.now(
-                            datetime.UTC
-                        ).isoformat()
-
-                        success_result = TaskResult(
-                            task_name=task.name,
-                            region=region,
-                            status=ExecutionStatus.SUCCESS,
-                            started_at=task_started_at,
-                            ended_at=task_ended_at,
-                            duration_seconds=task_ended_perf - task_started_perf,
-                            result=result,
-                        )
-
-                        region_task_results[task.name] = success_result
-                        task_results.append(success_result)
-
-                    except Exception as error:
-                        task_ended_perf: int | float = time.perf_counter()
-                        task_ended_at: str = datetime.datetime.now(
-                            datetime.UTC
-                        ).isoformat()
-
-                        error_result = TaskResult(
-                            task_name=task.name,
-                            region=region,
-                            status=ExecutionStatus.ERROR,
-                            started_at=task_started_at,
-                            ended_at=task_ended_at,
-                            duration_seconds=task_ended_perf - task_started_perf,
-                            error=str(error),
-                        )
-
-                        region_task_results[task.name] = error_result
-                        task_results.append(error_result)
-
-                        __LOGGER__.error(
-                            f"Task '{task.name}' failed in account "
-                            f"{self.account_id} region {region}: {error}"
-                        )
-
-                        if not task.optional:
-                            break
-
-                non_optional_region_failure = any(
-                    result.status.is_error
-                    and not optional_map.get(result.task_name, False)
-                    for result in region_task_results.values()
-                )
-
-                if interrupted or non_optional_region_failure:
-                    break
-
-            # Derive account status
-            account_failed: bool = any(
-                result.status.is_error and not optional_map.get(result.task_name, False)
-                for result in task_results
+            account_cancel_event = threading.Event()
+            region_outcomes = self._execute_regions(
+                assumed_credentials=assumed_credentials,
+                optional_map=optional_map,
+                account_cancel_event=account_cancel_event,
             )
-            expected_total_tasks: int = len(self._context.tasks) * len(self._regions)
-            account_interrupted: bool = (
-                interrupted and len(task_results) < expected_total_tasks
+            for outcome in region_outcomes:
+                task_results.extend(outcome.task_results)
+
+            self._sort_task_results(task_results)
+            account_status = self._derive_account_status(
+                task_results=task_results,
+                region_outcomes=region_outcomes,
+                optional_map=optional_map,
             )
 
             ended_perf: int | float = time.perf_counter()
             ended_at: str = datetime.datetime.now(datetime.UTC).isoformat()
-
-            if account_failed:
-                account_status: Literal[ExecutionStatus.ERROR] = ExecutionStatus.ERROR
-            elif account_interrupted:
-                account_status: Literal[ExecutionStatus.INTERRUPTED] = (
-                    ExecutionStatus.INTERRUPTED
-                )
-            else:
-                account_status: Literal[ExecutionStatus.SUCCESS] = (
-                    ExecutionStatus.SUCCESS
-                )
 
             return AccountResult(
                 account_id=self.account_id,
@@ -250,6 +136,273 @@ class Account:
                 tasks=task_results,
                 error=str(error),
             )
+
+    def _derive_account_status(
+        self,
+        *,
+        task_results: list[TaskResult],
+        region_outcomes: list[RegionExecutionOutcome],
+        optional_map: dict[str, bool],
+    ) -> ExecutionStatus:
+        account_failed = any(
+            result.status.is_error and not optional_map.get(result.task_name, False)
+            for result in task_results
+        )
+        if account_failed:
+            return ExecutionStatus.ERROR
+
+        expected_total_tasks = len(self._context.tasks) * len(self._regions)
+        account_interrupted = (
+            self._context.cancel_event.is_set()
+            or any(outcome.interrupted for outcome in region_outcomes)
+        ) and len(task_results) < expected_total_tasks
+        if account_interrupted:
+            return ExecutionStatus.INTERRUPTED
+
+        return ExecutionStatus.SUCCESS
+
+    def _execute_regions(
+        self,
+        *,
+        assumed_credentials: AssumedRoleCredentials | None,
+        optional_map: dict[str, bool],
+        account_cancel_event: threading.Event,
+    ) -> list[RegionExecutionOutcome]:
+        if self._context.max_parallel_regions == 1:
+            return self._execute_regions_sequential(
+                assumed_credentials=assumed_credentials,
+                optional_map=optional_map,
+                account_cancel_event=account_cancel_event,
+            )
+
+        return self._execute_regions_parallel(
+            assumed_credentials=assumed_credentials,
+            optional_map=optional_map,
+            account_cancel_event=account_cancel_event,
+        )
+
+    def _execute_regions_sequential(
+        self,
+        *,
+        assumed_credentials: AssumedRoleCredentials | None,
+        optional_map: dict[str, bool],
+        account_cancel_event: threading.Event,
+    ) -> list[RegionExecutionOutcome]:
+        outcomes: list[RegionExecutionOutcome] = []
+        actions = ActionRecorder(actions=[])
+
+        for region in self._regions:
+            outcome = self._execute_region(
+                region=region,
+                assumed_credentials=assumed_credentials,
+                optional_map=optional_map,
+                account_cancel_event=account_cancel_event,
+                actions=actions,
+            )
+            outcomes.append(outcome)
+
+            if outcome.interrupted or outcome.failed:
+                account_cancel_event.set()
+                break
+
+        return outcomes
+
+    def _execute_regions_parallel(
+        self,
+        *,
+        assumed_credentials: AssumedRoleCredentials | None,
+        optional_map: dict[str, bool],
+        account_cancel_event: threading.Event,
+    ) -> list[RegionExecutionOutcome]:
+        pending_regions: deque[str] = deque(self._regions)
+        active_futures: set[Future[RegionExecutionOutcome]] = set()
+        outcomes: list[RegionExecutionOutcome] = []
+        region_worker_limit = min(
+            self._context.max_parallel_regions, len(self._regions)
+        )
+
+        with ThreadPoolExecutor(max_workers=region_worker_limit) as executor:
+            while pending_regions or active_futures:
+                while (
+                    pending_regions
+                    and not account_cancel_event.is_set()
+                    and not self._context.cancel_event.is_set()
+                    and len(active_futures) < region_worker_limit
+                ):
+                    region = pending_regions.popleft()
+                    future = executor.submit(
+                        self._execute_region,
+                        region=region,
+                        assumed_credentials=assumed_credentials,
+                        optional_map=optional_map,
+                        account_cancel_event=account_cancel_event,
+                    )
+                    active_futures.add(future)
+
+                if not active_futures:
+                    break
+
+                done, _ = wait(active_futures, return_when=FIRST_COMPLETED)
+
+                for future in done:
+                    active_futures.remove(future)
+                    try:
+                        outcome = future.result()
+                    except CancelledError:
+                        continue
+
+                    outcomes.append(outcome)
+
+                    if outcome.interrupted or outcome.failed:
+                        account_cancel_event.set()
+                        pending_regions.clear()
+
+                if account_cancel_event.is_set():
+                    for future in active_futures:
+                        future.cancel()
+
+        return outcomes
+
+    def _execute_region(
+        self,
+        *,
+        region: str,
+        assumed_credentials: AssumedRoleCredentials | None,
+        optional_map: dict[str, bool],
+        account_cancel_event: threading.Event,
+        actions: ActionRecorder | None = None,
+    ) -> RegionExecutionOutcome:
+        session: Session = self._get_region_session(
+            region=region, assumed_credentials=assumed_credentials
+        )
+
+        if actions is None:
+            actions = ActionRecorder(actions=[])
+        task_results: list[TaskResult] = []
+        region_task_results: dict[str, TaskResult] = {}
+        interrupted = False
+
+        for task in self._context.tasks:
+            if self._context.cancel_event.is_set() or account_cancel_event.is_set():
+                __LOGGER__.warning(
+                    f"Account {self.account_id} region {region} stopping "
+                    f"due to cancellation signal"
+                )
+                interrupted = True
+                break
+
+            dependency_failed: bool = any(
+                region_task_results[dep].status.is_error
+                for dep in task.depends_on
+                if dep in region_task_results
+            )
+
+            if dependency_failed:
+                now_at: str = datetime.datetime.now(datetime.UTC).isoformat()
+
+                blocked_result = TaskResult(
+                    task_name=task.name,
+                    region=region,
+                    status=ExecutionStatus.ERROR,
+                    started_at=now_at,
+                    ended_at=now_at,
+                    duration_seconds=0.0,
+                    error="Blocked: dependency failed",
+                )
+
+                region_task_results[task.name] = blocked_result
+                task_results.append(blocked_result)
+
+                if not task.optional:
+                    __LOGGER__.error(
+                        f"Task '{task.name}' blocked by failed dependency "
+                        f"in account {self.account_id} region {region}"
+                    )
+                    break
+
+                __LOGGER__.warning(
+                    f"Optional task '{task.name}' skipped due to dependency "
+                    f"failure in account {self.account_id} region {region}"
+                )
+                continue
+
+            task_started_perf: int | float = time.perf_counter()
+            task_started_at: str = datetime.datetime.now(datetime.UTC).isoformat()
+
+            try:
+                result = task.run(
+                    account_id=self.account_id,
+                    account_alias=self.account_alias,
+                    session=session,
+                    dry_run=self._context.dry_run,
+                    metadata=self._context.metadata,
+                    actions=actions,
+                )
+
+                task_ended_perf: int | float = time.perf_counter()
+                task_ended_at: str = datetime.datetime.now(datetime.UTC).isoformat()
+
+                success_result = TaskResult(
+                    task_name=task.name,
+                    region=region,
+                    status=ExecutionStatus.SUCCESS,
+                    started_at=task_started_at,
+                    ended_at=task_ended_at,
+                    duration_seconds=task_ended_perf - task_started_perf,
+                    result=result,
+                )
+
+                region_task_results[task.name] = success_result
+                task_results.append(success_result)
+
+            except Exception as error:
+                task_ended_perf: int | float = time.perf_counter()
+                task_ended_at: str = datetime.datetime.now(datetime.UTC).isoformat()
+
+                error_result = TaskResult(
+                    task_name=task.name,
+                    region=region,
+                    status=ExecutionStatus.ERROR,
+                    started_at=task_started_at,
+                    ended_at=task_ended_at,
+                    duration_seconds=task_ended_perf - task_started_perf,
+                    error=str(error),
+                )
+
+                region_task_results[task.name] = error_result
+                task_results.append(error_result)
+
+                __LOGGER__.error(
+                    f"Task '{task.name}' failed in account "
+                    f"{self.account_id} region {region}: {error}"
+                )
+
+                if not task.optional:
+                    break
+
+        non_optional_region_failure = any(
+            result.status.is_error and not optional_map.get(result.task_name, False)
+            for result in region_task_results.values()
+        )
+
+        return RegionExecutionOutcome(
+            region=region,
+            task_results=task_results,
+            interrupted=interrupted,
+            failed=non_optional_region_failure,
+        )
+
+    def _sort_task_results(self, task_results: list[TaskResult]) -> None:
+        region_order = {region: index for index, region in enumerate(self._regions)}
+        task_order = {
+            task.name: index for index, task in enumerate(self._context.tasks)
+        }
+        task_results.sort(
+            key=lambda result: (
+                region_order.get(result.region, len(region_order)),
+                task_order.get(result.task_name, len(task_order)),
+            )
+        )
 
     def _get_assumed_role_credentials(self) -> AssumedRoleCredentials:
         """

@@ -261,18 +261,14 @@ class EngineResult:
         """
         singular_key, plural_key = _result_labels(self.config_branch)
 
-        summary = {
-            "state": self.state.value,
-            "generated_at": self.generated_at,
-            "auth": [
-                auth_result.to_dict(config_branch=self.config_branch)
-                for auth_result in self.auth_results
-            ],
-            plural_key: [],
-            "total_failed_accounts": 0,
-            "total_interrupted_accounts": 0,
-            "total_failed_tasks": 0,
-        }
+        target_summaries: list[dict[str, object]] = []
+        auth_results = [
+            auth_result.to_dict(config_branch=self.config_branch)
+            for auth_result in self.auth_results
+        ]
+        total_failed_accounts = 0
+        total_interrupted_accounts = 0
+        total_failed_tasks = 0
 
         for target_result in self.target_results:
             account_results = target_result.account_results
@@ -295,11 +291,11 @@ class EngineResult:
                 if task.status.is_error
             )
 
-            summary["total_failed_accounts"] += len(failed_accounts)
-            summary["total_interrupted_accounts"] += len(interrupted_accounts)
-            summary["total_failed_tasks"] += failed_tasks
+            total_failed_accounts += len(failed_accounts)
+            total_interrupted_accounts += len(interrupted_accounts)
+            total_failed_tasks += failed_tasks
 
-            summary[plural_key].append(
+            target_summaries.append(
                 {
                     singular_key: target_result.target_name,
                     "total_accounts": target_result.total_accounts,
@@ -311,4 +307,12 @@ class EngineResult:
                 }
             )
 
-        return summary
+        return {
+            "state": self.state.value,
+            "generated_at": self.generated_at,
+            "auth": auth_results,
+            plural_key: target_summaries,
+            "total_failed_accounts": total_failed_accounts,
+            "total_interrupted_accounts": total_interrupted_accounts,
+            "total_failed_tasks": total_failed_tasks,
+        }

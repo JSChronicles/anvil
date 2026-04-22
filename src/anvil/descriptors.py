@@ -27,6 +27,7 @@ class TargetDescriptor:
     tasks: list[dict[str, object]] = field(default_factory=lambda: [{"name": "noop"}])
 
     max_workers: int = 10
+    max_parallel_regions: int = 1
     fail_fast: bool = False
     dry_run: bool = False
 
@@ -46,6 +47,9 @@ class TargetDescriptor:
     def __post_init__(self) -> None:
         if self.max_workers < 1:
             raise ValueError("max_workers must be >= 1")
+
+        if not 1 <= self.max_parallel_regions <= 4:
+            raise ValueError("max_parallel_regions must be between 1 and 4")
 
         if not self.regions:
             raise ValueError("regions must contain at least one region")
