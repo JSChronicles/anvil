@@ -336,6 +336,12 @@ INFO     [cli.py:_write_run_results:90] Wrote summary to xxxx\xxxx\results\noop-
 }
 ```
 
+Use `--benchmark` only for performance investigations. It adds engine, target,
+account, region, and result-write timing details to result JSON, which can
+dramatically increase output size on large account, region, or task runs. Leave
+it off for normal audit/reporting runs, and enable it when comparing benchmark
+runs or looking for bottlenecks.
+
 To run multiple YAML files in one command, pass them after a single `--config-file` flag. They run sequentially in the order provided. Each YAML remains an isolated run with its own summary file, and the overall command exits non-zero if any YAML run fails.
 ```console
 anvil run --config-file ./yaml/orgs.yaml ./yaml/orgs2.yaml ./yaml/orgs3.yaml
@@ -352,6 +358,8 @@ organizations:
 ```
 
 `max_parallel_regions` defaults to `1`, which preserves serial region execution within each account. Values from `2` through `4` allow bounded parallel region execution. Approximate account-region task streams per target are `max_workers * max_parallel_regions`, before considering `max_parallel_targets`.
+
+Use `max_parallel_regions` selectively. It is most useful when each region performs heavier, independent work, such as deep inventory, long paginated scans, slow regional service checks, or multiple regional tasks that hit different AWS services. For broad lightweight inventory across many accounts, account-level parallelism is often enough; increasing region parallelism can multiply AWS API pressure and make each regional call slower, especially when several tasks all call the same service. When tuning, start with `max_parallel_regions: 1`, raise it only for tasks with meaningful per-region runtime, and benchmark the full concurrency shape: `max_parallel_targets * max_workers * max_parallel_regions`.
 
 You can run `--include`, `--exclude`, or `--dry-run` to override the YAML file if you want to just test something or run on certain accounts.
 ```console

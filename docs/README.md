@@ -63,6 +63,8 @@ Task execution then occurs per account and per region, and task results include 
 
 By default, regions execute serially within each account. A target can set `max_parallel_regions` from `1` through `4` to run multiple regions for the same account concurrently while preserving task dependency order inside each region.
 
+Use parallel regions for workloads where each region has enough independent work to benefit from overlap, such as long paginated inventory, deep regional checks, slow service-specific scans, or multiple regional tasks that call different AWS services. For lightweight describe/list tasks across many accounts, region parallelism can increase AWS API pressure enough that each regional call slows down. This is especially likely when several tasks all call the same AWS service, such as multiple EC2 inventory tasks. In those cases, leave `max_parallel_regions` at `1` and rely first on account-level concurrency.
+
 Region scheduling is intentionally strict. Anvil only starts up to `max_parallel_regions` regions at a time for one account. If a non-optional task fails in one region, regions that have not started are left unstarted, while already-running regions stop cooperatively before their next task.
 
 Even when regions finish out of order, task results are returned in configured region order and then task order.
@@ -81,7 +83,7 @@ This keeps execution scalable across many accounts while avoiding unbounded conc
 
 Account work is submitted to the account worker pool up front, and the executor runs up to `max_workers` accounts at a time. If fail-fast is enabled, Anvil signals cancellation and cancels pending account futures where possible. Accounts already running stop cooperatively when they observe the cancellation signal before starting another task.
 
-When `max_parallel_regions` is greater than `1`, approximate account-region task streams per target are `max_workers * max_parallel_regions`, before considering `max_parallel_targets`.
+When `max_parallel_regions` is greater than `1`, approximate account-region task streams per target are `max_workers * max_parallel_regions`, before considering `max_parallel_targets`. Across multiple targets, the rough upper bound is `max_parallel_targets * max_workers * max_parallel_regions`, so benchmark changes with the same target count and task mix you plan to run in production.
 
 ### Fail-fast behavior and cancellation
 
@@ -113,6 +115,13 @@ Anvil records structured results at four layers:
   - Summarize the entire multi-organization run.
 
 This helps humans review and makes downstream machine processing easier.
+
+Benchmark output is diagnostic and intentionally more verbose than normal
+results. Use `anvil run --benchmark` when comparing performance, tuning
+concurrency, or looking for bottlenecks. Avoid enabling it for routine
+audit/reporting runs because it adds engine, target, account, region, and
+result-write timings that can dramatically increase result JSON size on large
+runs.
 
 ### Session and credential model
 

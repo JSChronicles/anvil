@@ -126,6 +126,18 @@ benchmarking or heavy inventory tasks, consider metadata such as
 `include_details: false` so users can return counts and timings without writing
 large result payloads.
 
+When suggesting YAML concurrency, treat `max_parallel_regions` as a targeted
+tool rather than a default speed knob. It is most likely to help tasks with
+meaningful per-region runtime, such as long paginated scans or slow regional
+service checks. It can also help a multi-task regional workflow when the tasks
+hit different AWS services, because the work is less concentrated on one
+service API path. For lightweight describe/list inventory across many accounts,
+especially multiple tasks that all call the same service, prefer
+`max_parallel_regions: 1` first because total pressure grows as
+`max_parallel_targets * max_workers * max_parallel_regions`, and regional API
+calls can become slower under that load. Recommend benchmarking the actual task
+mix before raising region concurrency.
+
 ## Python And AWS Guidance
 
 - Keep task modules import-safe. Do not make AWS calls at import time.

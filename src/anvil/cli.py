@@ -276,7 +276,10 @@ def main() -> None:
     run_parser.add_argument(
         "--benchmark",
         action="store_true",
-        help="Include engine and target phase timing details in result JSON",
+        help=(
+            "Include diagnostic phase timings in result JSON. "
+            "This can significantly increase output size."
+        ),
     )
     run_parser.set_defaults(func=_cmd_run)
 
