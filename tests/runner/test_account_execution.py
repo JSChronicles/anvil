@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import datetime
 import threading
 import time
 from dataclasses import dataclass
 
-from anvil.account import Account
+from anvil.account import (
+    ASSUMED_CREDENTIAL_REFRESH_BUFFER,
+    MINIMUM_ASSUMED_CREDENTIAL_REFRESH_WINDOW,
+    Account,
+)
 from anvil.execution_context import ExecutionContext
 from anvil.results import ExecutionStatus
 from anvil.session import AssumedRoleCredentials, CachedClientSession
@@ -41,8 +46,14 @@ class WorkerSession:
 
 
 class RecordingSessionFactory:
-    def __init__(self, *, caller_account_id: str = "123456789012") -> None:
+    def __init__(
+        self,
+        *,
+        caller_account_id: str = "123456789012",
+        credential_expirations: list[datetime.datetime | None] | None = None,
+    ) -> None:
         self.caller_account_id = caller_account_id
+        self.credential_expirations = credential_expirations or []
         self.worker_session_calls = []
         self.assume_role_calls = []
         self.create_session_from_credentials_calls = []
@@ -56,8 +67,16 @@ class RecordingSessionFactory:
 
     def assume_role_credentials(self, **kwargs):
         self.assume_role_calls.append(kwargs)
+        expiration = (
+            self.credential_expirations.pop(0)
+            if self.credential_expirations
+            else None
+        )
         return AssumedRoleCredentials(
-            access_key_id="access", secret_access_key="secret", session_token="token"
+            access_key_id=f"access-{len(self.assume_role_calls)}",
+            secret_access_key="secret",
+            session_token="token",
+            expiration=expiration,
         )
 
     def create_session_from_credentials(self, **kwargs):
@@ -211,6 +230,136 @@ def test_assume_role_path_reuses_assumed_credentials_for_regions():
         call["region_name"]
         for call in session_factory.create_session_from_credentials_calls
     ] == ["us-east-1", "us-west-2"]
+
+
+def test_assume_role_path_refreshes_expiring_credentials_before_region():
+    now = datetime.datetime.now(datetime.UTC)
+    session_factory = RecordingSessionFactory(
+        credential_expirations=[
+            now + MINIMUM_ASSUMED_CREDENTIAL_REFRESH_WINDOW,
+            now + datetime.timedelta(hours=1),
+        ]
+    )
+
+    account = _account(
+        tasks=[],
+        session_factory=session_factory,
+        assume_role=True,
+        regions=["us-east-1"],
+    )
+
+    result = account.execute()
+
+    assert result.status is ExecutionStatus.SUCCESS
+    assert len(session_factory.assume_role_calls) == 2
+    assert (
+        session_factory.create_session_from_credentials_calls[0]["credentials"]
+        .access_key_id
+        == "access-2"
+    )
+
+
+def test_assume_role_parallel_regions_refresh_credentials_once():
+    now = datetime.datetime.now(datetime.UTC)
+    session_factory = RecordingSessionFactory(
+        credential_expirations=[
+            now + MINIMUM_ASSUMED_CREDENTIAL_REFRESH_WINDOW,
+            now + datetime.timedelta(hours=1),
+        ]
+    )
+    started_regions: set[str] = set()
+    started_lock = threading.Lock()
+    both_started = threading.Event()
+    release_tasks = threading.Event()
+
+    def blocking_task(**kwargs):
+        region = kwargs["session"].region_name
+        with started_lock:
+            started_regions.add(region)
+            if {"us-east-1", "us-west-2"}.issubset(started_regions):
+                both_started.set()
+
+        assert both_started.wait(timeout=1)
+        assert release_tasks.wait(timeout=1)
+        return {"region": region}
+
+    account = _account(
+        tasks=[ResolvedTask("blocking", blocking_task, depends_on=[], optional=False)],
+        session_factory=session_factory,
+        assume_role=True,
+        regions=["us-east-1", "us-west-2"],
+        max_parallel_regions=2,
+    )
+
+    result_holder = {}
+    thread = threading.Thread(
+        target=lambda: result_holder.setdefault("result", account.execute())
+    )
+    thread.start()
+
+    assert both_started.wait(timeout=1)
+    release_tasks.set()
+    thread.join(timeout=1)
+
+    assert not thread.is_alive()
+    assert result_holder["result"].status is ExecutionStatus.SUCCESS
+    assert len(session_factory.assume_role_calls) == 2
+    assert [
+        call["credentials"].access_key_id
+        for call in session_factory.create_session_from_credentials_calls
+    ] == ["access-2", "access-2"]
+
+
+def test_adaptive_assume_role_refresh_window_uses_observed_region_duration():
+    region_duration = datetime.timedelta(minutes=15)
+
+    assert Account._refresh_window_for_region_duration(
+        region_duration.total_seconds()
+    ) == region_duration + ASSUMED_CREDENTIAL_REFRESH_BUFFER
+
+
+def test_adaptive_assume_role_refresh_window_keeps_minimum_for_short_regions():
+    region_duration = datetime.timedelta(seconds=10)
+
+    assert (
+        Account._refresh_window_for_region_duration(region_duration.total_seconds())
+        == MINIMUM_ASSUMED_CREDENTIAL_REFRESH_WINDOW
+    )
+
+
+def test_sequential_regions_use_adaptive_refresh_window(monkeypatch):
+    now = datetime.datetime.now(datetime.UTC)
+    session_factory = RecordingSessionFactory(
+        credential_expirations=[
+            now + datetime.timedelta(minutes=10),
+            now + datetime.timedelta(hours=1),
+        ]
+    )
+
+    monkeypatch.setattr(
+        Account,
+        "_refresh_window_for_region_duration",
+        staticmethod(lambda region_duration_seconds: datetime.timedelta(minutes=12)),
+    )
+
+    def task(**kwargs):
+        return {"region": kwargs["session"].region_name}
+
+    account = _account(
+        tasks=[ResolvedTask("task", task, depends_on=[], optional=False)],
+        session_factory=session_factory,
+        assume_role=True,
+        regions=["us-east-1", "us-west-2"],
+    )
+
+    result = account.execute()
+
+    assert result.status is ExecutionStatus.SUCCESS
+    assert len(session_factory.assume_role_calls) == 2
+    assert [
+        call["credentials"].access_key_id
+        for call in session_factory.create_session_from_credentials_calls
+    ] == ["access-1", "access-2"]
 
 
 def test_serial_regions_keep_account_scoped_action_recorder():

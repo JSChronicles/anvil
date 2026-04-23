@@ -210,6 +210,28 @@ For member accounts, Anvil assumes the configured role once per account executio
 
 This avoids repeating STS role assumption for every region while still giving each region run its own correctly scoped boto3 session.
 
+Before each member-account region starts, Anvil checks whether the shared
+assumed-role credentials are expired or too close to expiration. The safety
+window starts at five minutes, then expands during the account run based on the
+longest completed region duration plus a small buffer. This prevents Anvil from
+starting a later region with credentials that are technically still valid but
+unlikely to last through a similar region task stream.
+
+If credentials are inside that safety window, Anvil refreshes them before
+constructing the region's session. Parallel region execution coordinates this
+refresh with a per-account lock so multiple region workers do not all re-assume
+the role at the same time. When benchmark output is enabled, account benchmark
+data includes `assume_role_refresh_count` and
+`assume_role_refresh_window_seconds`.
+
+With parallel region execution, the first wave of regions starts before any
+region-duration history exists, so it uses the initial five-minute safety
+window. As regions finish, their observed durations can expand the safety window
+for later scheduled regions in the same account. Regions that have already
+started keep the session they were given; the guard prevents starting new region
+work with near-expired credentials, but it does not refresh credentials in the
+middle of a running task.
+
 ### Management-account execution
 
 Management accounts do not require role assumption. They execute directly with the organization/profile-backed worker session for each region.

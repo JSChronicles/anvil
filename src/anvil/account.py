@@ -12,7 +12,7 @@ from concurrent.futures import (
     ThreadPoolExecutor,
     wait,
 )
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import boto3
 from boto3.session import Session
@@ -25,6 +25,9 @@ from anvil.actions import ActionRecorder
 
 __LOGGER__ = logging.getLogger(__name__)
 
+MINIMUM_ASSUMED_CREDENTIAL_REFRESH_WINDOW = datetime.timedelta(minutes=5)
+ASSUMED_CREDENTIAL_REFRESH_BUFFER = datetime.timedelta(minutes=2)
+
 
 @dataclass(frozen=True, slots=True)
 class RegionExecutionOutcome:
@@ -33,6 +36,14 @@ class RegionExecutionOutcome:
     interrupted: bool
     failed: bool
     duration_seconds: float
+
+
+@dataclass(slots=True)
+class _AssumedCredentialState:
+    credentials: AssumedRoleCredentials
+    refresh_window: datetime.timedelta = MINIMUM_ASSUMED_CREDENTIAL_REFRESH_WINDOW
+    refresh_count: int = 0
+    lock: threading.Lock = field(default_factory=threading.Lock)
 
 
 class Account:
@@ -86,16 +97,20 @@ class Account:
         optional_map = {task.name: task.optional for task in self._context.tasks}
 
         try:
-            assumed_credentials: AssumedRoleCredentials | None = None
+            assumed_credential_state: _AssumedCredentialState | None = None
             recorder = BenchmarkRecorder(enabled=self._context.benchmark_enabled)
             recorder.update(
-                {"assume_role_seconds": 0.0, "direct_access_validation_seconds": 0.0}
+                {
+                    "assume_role_seconds": 0.0,
+                    "assume_role_refresh_count": 0,
+                    "direct_access_validation_seconds": 0.0,
+                }
             )
 
             if self._assume_role:
                 with recorder.phase("assume_role_seconds"):
-                    assumed_credentials: AssumedRoleCredentials = (
-                        self._get_assumed_role_credentials()
+                    assumed_credential_state = _AssumedCredentialState(
+                        credentials=self._get_assumed_role_credentials()
                     )
             else:
                 with recorder.phase("direct_access_validation_seconds"):
@@ -104,9 +119,18 @@ class Account:
             account_cancel_event = threading.Event()
             with recorder.phase("region_execution_seconds"):
                 region_outcomes = self._execute_regions(
-                    assumed_credentials=assumed_credentials,
+                    assumed_credential_state=assumed_credential_state,
                     optional_map=optional_map,
                     account_cancel_event=account_cancel_event,
+                )
+            if assumed_credential_state is not None:
+                recorder.set(
+                    "assume_role_refresh_count",
+                    assumed_credential_state.refresh_count,
+                )
+                recorder.set(
+                    "assume_role_refresh_window_seconds",
+                    assumed_credential_state.refresh_window.total_seconds(),
                 )
             recorder.set(
                 "regions",
@@ -186,19 +210,19 @@ class Account:
     def _execute_regions(
         self,
         *,
-        assumed_credentials: AssumedRoleCredentials | None,
+        assumed_credential_state: _AssumedCredentialState | None,
         optional_map: dict[str, bool],
         account_cancel_event: threading.Event,
     ) -> list[RegionExecutionOutcome]:
         if self._context.max_parallel_regions == 1:
             return self._execute_regions_sequential(
-                assumed_credentials=assumed_credentials,
+                assumed_credential_state=assumed_credential_state,
                 optional_map=optional_map,
                 account_cancel_event=account_cancel_event,
             )
 
         return self._execute_regions_parallel(
-            assumed_credentials=assumed_credentials,
+            assumed_credential_state=assumed_credential_state,
             optional_map=optional_map,
             account_cancel_event=account_cancel_event,
         )
@@ -206,7 +230,7 @@ class Account:
     def _execute_regions_sequential(
         self,
         *,
-        assumed_credentials: AssumedRoleCredentials | None,
+        assumed_credential_state: _AssumedCredentialState | None,
         optional_map: dict[str, bool],
         account_cancel_event: threading.Event,
     ) -> list[RegionExecutionOutcome]:
@@ -216,12 +240,16 @@ class Account:
         for region in self._regions:
             outcome = self._execute_region(
                 region=region,
-                assumed_credentials=assumed_credentials,
+                assumed_credential_state=assumed_credential_state,
                 optional_map=optional_map,
                 account_cancel_event=account_cancel_event,
                 actions=actions,
             )
             outcomes.append(outcome)
+            self._update_assumed_credential_refresh_window(
+                assumed_credential_state=assumed_credential_state,
+                region_duration_seconds=outcome.duration_seconds,
+            )
 
             if outcome.interrupted or outcome.failed:
                 account_cancel_event.set()
@@ -232,7 +260,7 @@ class Account:
     def _execute_regions_parallel(
         self,
         *,
-        assumed_credentials: AssumedRoleCredentials | None,
+        assumed_credential_state: _AssumedCredentialState | None,
         optional_map: dict[str, bool],
         account_cancel_event: threading.Event,
     ) -> list[RegionExecutionOutcome]:
@@ -255,7 +283,7 @@ class Account:
                     future = executor.submit(
                         self._execute_region,
                         region=region,
-                        assumed_credentials=assumed_credentials,
+                        assumed_credential_state=assumed_credential_state,
                         optional_map=optional_map,
                         account_cancel_event=account_cancel_event,
                     )
@@ -274,6 +302,10 @@ class Account:
                         continue
 
                     outcomes.append(outcome)
+                    self._update_assumed_credential_refresh_window(
+                        assumed_credential_state=assumed_credential_state,
+                        region_duration_seconds=outcome.duration_seconds,
+                    )
 
                     if outcome.interrupted or outcome.failed:
                         account_cancel_event.set()
@@ -289,16 +321,14 @@ class Account:
         self,
         *,
         region: str,
-        assumed_credentials: AssumedRoleCredentials | None,
+        assumed_credential_state: _AssumedCredentialState | None,
         optional_map: dict[str, bool],
         account_cancel_event: threading.Event,
         actions: ActionRecorder | None = None,
     ) -> RegionExecutionOutcome:
-        region_started = (
-            time.perf_counter() if self._context.benchmark_enabled else None
-        )
+        region_started = time.perf_counter()
         session: Session = self._get_region_session(
-            region=region, assumed_credentials=assumed_credentials
+            region=region, assumed_credential_state=assumed_credential_state
         )
         session = self._session_factory.create_cached_client_session(session=session)
 
@@ -416,11 +446,7 @@ class Account:
             task_results=task_results,
             interrupted=interrupted,
             failed=non_optional_region_failure,
-            duration_seconds=(
-                time.perf_counter() - region_started
-                if region_started is not None
-                else 0.0
-            ),
+            duration_seconds=time.perf_counter() - region_started,
         )
 
     def _sort_task_results(self, task_results: list[TaskResult]) -> None:
@@ -456,6 +482,71 @@ class Account:
             role_name=self._context.role_name,
         )
 
+    @staticmethod
+    def _assumed_credentials_should_refresh(
+        credentials: AssumedRoleCredentials,
+        *,
+        refresh_window: datetime.timedelta = MINIMUM_ASSUMED_CREDENTIAL_REFRESH_WINDOW,
+        now: datetime.datetime | None = None,
+    ) -> bool:
+        expiration = credentials.expiration
+        if not isinstance(expiration, datetime.datetime):
+            return False
+
+        if expiration.tzinfo is None:
+            expiration = expiration.replace(tzinfo=datetime.UTC)
+
+        current_time = now or datetime.datetime.now(datetime.UTC)
+        if current_time.tzinfo is None:
+            current_time = current_time.replace(tzinfo=datetime.UTC)
+
+        return expiration <= current_time + refresh_window
+
+    @staticmethod
+    def _refresh_window_for_region_duration(
+        region_duration_seconds: float,
+    ) -> datetime.timedelta:
+        if region_duration_seconds <= 0:
+            return MINIMUM_ASSUMED_CREDENTIAL_REFRESH_WINDOW
+
+        return max(
+            MINIMUM_ASSUMED_CREDENTIAL_REFRESH_WINDOW,
+            datetime.timedelta(seconds=region_duration_seconds)
+            + ASSUMED_CREDENTIAL_REFRESH_BUFFER,
+        )
+
+    def _update_assumed_credential_refresh_window(
+        self,
+        *,
+        assumed_credential_state: _AssumedCredentialState | None,
+        region_duration_seconds: float,
+    ) -> None:
+        if assumed_credential_state is None:
+            return
+
+        observed_window = self._refresh_window_for_region_duration(
+            region_duration_seconds
+        )
+        with assumed_credential_state.lock:
+            if observed_window > assumed_credential_state.refresh_window:
+                assumed_credential_state.refresh_window = observed_window
+
+    def _get_valid_assumed_role_credentials(
+        self, state: _AssumedCredentialState
+    ) -> AssumedRoleCredentials:
+        with state.lock:
+            if self._assumed_credentials_should_refresh(
+                state.credentials, refresh_window=state.refresh_window
+            ):
+                __LOGGER__.info(
+                    f"Refreshing assumed-role credentials for account "
+                    f"{self.account_alias} ({self.account_id})"
+                )
+                state.credentials = self._get_assumed_role_credentials()
+                state.refresh_count += 1
+
+            return state.credentials
+
     def _validate_direct_account_access(self) -> None:
         source_region: str = self._regions[0]
         worker_session: Session = self._session_factory.get_worker_session(
@@ -472,7 +563,7 @@ class Account:
             )
 
     def _get_region_session(
-        self, *, region: str, assumed_credentials: AssumedRoleCredentials | None
+        self, *, region: str, assumed_credential_state: _AssumedCredentialState | None
     ) -> boto3.Session:
         """
         Build the execution session for one account-region pair.
@@ -486,11 +577,14 @@ class Account:
                 profile_name=self._base_session.profile_name, region_name=region
             )
 
-        if assumed_credentials is None:
+        if assumed_credential_state is None:
             raise ValueError(
                 "Expected assumed credentials for member account execution"
             )
 
+        assumed_credentials = self._get_valid_assumed_role_credentials(
+            assumed_credential_state
+        )
         return self._session_factory.create_session_from_credentials(
             credentials=assumed_credentials, region_name=region
         )
