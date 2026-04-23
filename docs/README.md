@@ -53,6 +53,15 @@ Anvil supports defining multiple organizations in a single run. Each organizatio
 
 This allows a single execution to coordinate work across separate AWS environments without forcing them into a shared credential model or shared runtime configuration.
 
+When one YAML contains multiple targets that resolve to the same AWS
+organization, Anvil reuses organization discovery results during that run. The
+first target to discover active accounts and enabled regions populates a
+run-local cache keyed by organization ID. Concurrent preparation for the same
+organization waits for that in-flight discovery instead of issuing duplicate
+`list_accounts` and `list_regions` calls. Target execution is still serialized
+per organization later in the pipeline so two same-organization targets do not
+execute account work at the same time.
+
 ### Multi-region execution
 
 Within each organization, Anvil can execute tasks across multiple configured AWS regions.

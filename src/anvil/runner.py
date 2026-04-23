@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from collections.abc import Callable
 from collections import deque
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field, replace
@@ -66,25 +67,74 @@ class OrganizationRunCacheEntry:
     enabled_regions: list[str]
 
 
+@dataclass(frozen=True, slots=True)
+class _OrganizationRunCacheLookup:
+    entry: OrganizationRunCacheEntry
+    hit: bool
+    waited: bool
+
+
+@dataclass(slots=True)
+class _OrganizationRunCacheFlight:
+    event: threading.Event = field(default_factory=threading.Event)
+    entry: OrganizationRunCacheEntry | None = None
+    error: BaseException | None = None
+
+
 class OrganizationRunCache:
     def __init__(self) -> None:
         self._entries: dict[str, OrganizationRunCacheEntry] = {}
+        self._flights: dict[str, _OrganizationRunCacheFlight] = {}
         self._lock = threading.Lock()
 
-    def get(self, organization_id: str) -> OrganizationRunCacheEntry | None:
-        with self._lock:
-            return self._entries.get(organization_id)
-
-    def put_if_absent(
-        self, organization_id: str, entry: OrganizationRunCacheEntry
-    ) -> OrganizationRunCacheEntry:
+    def get_or_discover(
+        self,
+        *,
+        organization_id: str,
+        discover: Callable[[], OrganizationRunCacheEntry],
+    ) -> _OrganizationRunCacheLookup:
         with self._lock:
             existing = self._entries.get(organization_id)
             if existing is not None:
-                return existing
+                return _OrganizationRunCacheLookup(
+                    entry=existing, hit=True, waited=False
+                )
 
-            self._entries[organization_id] = entry
-            return entry
+            flight = self._flights.get(organization_id)
+            if flight is None:
+                flight = _OrganizationRunCacheFlight()
+                self._flights[organization_id] = flight
+                owns_discovery = True
+            else:
+                owns_discovery = False
+
+        if owns_discovery:
+            try:
+                discovered_entry = discover()
+            except BaseException as error:
+                with self._lock:
+                    flight.error = error
+                    self._flights.pop(organization_id, None)
+                    flight.event.set()
+                raise
+
+            with self._lock:
+                existing = self._entries.get(organization_id)
+                entry = existing or discovered_entry
+                self._entries[organization_id] = entry
+                flight.entry = entry
+                self._flights.pop(organization_id, None)
+                flight.event.set()
+
+            return _OrganizationRunCacheLookup(entry=entry, hit=False, waited=False)
+
+        flight.event.wait()
+        if flight.error is not None:
+            raise flight.error
+        if flight.entry is None:
+            raise RuntimeError("Organization discovery cache flight completed empty")
+
+        return _OrganizationRunCacheLookup(entry=flight.entry, hit=True, waited=True)
 
 
 def _elevate_state(current: EngineState, new: EngineState) -> EngineState:
@@ -198,8 +248,7 @@ def _preflight_organization(
             OrganizationResolver.describe_organization(base_session)
         )
 
-    cached_entry = organization_cache.get(organization_id)
-    if cached_entry is None:
+    def discover_organization() -> OrganizationRunCacheEntry:
         with sink.phase("discover_accounts_seconds"):
             discovered_accounts = OrganizationResolver.discover_accounts(base_session)
 
@@ -208,24 +257,24 @@ def _preflight_organization(
                 base_session
             )
 
-        cached_entry = organization_cache.put_if_absent(
-            organization_id,
-            OrganizationRunCacheEntry(
-                management_account_id=management_account_id,
-                discovered_accounts=discovered_accounts,
-                enabled_regions=enabled_regions,
-            ),
+        return OrganizationRunCacheEntry(
+            management_account_id=management_account_id,
+            discovered_accounts=discovered_accounts,
+            enabled_regions=enabled_regions,
         )
-        sink.set("organization_cache_hit", False)
-    else:
-        sink.set("organization_cache_hit", True)
+
+    lookup = organization_cache.get_or_discover(
+        organization_id=organization_id, discover=discover_organization
+    )
+    sink.set("organization_cache_hit", lookup.hit)
+    sink.set("organization_cache_waited", lookup.waited)
 
     return (
         base_session,
         organization_id,
-        cached_entry.management_account_id,
-        cached_entry.discovered_accounts,
-        cached_entry.enabled_regions,
+        lookup.entry.management_account_id,
+        lookup.entry.discovered_accounts,
+        lookup.entry.enabled_regions,
     )
 
 

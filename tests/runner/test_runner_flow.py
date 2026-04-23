@@ -1,8 +1,14 @@
+import threading
+from concurrent.futures import ThreadPoolExecutor
+
+import pytest
+
 from anvil.descriptors import ConfigBranch, TargetDescriptor
 from anvil.execution_context import ExecutionContext
 from anvil.results import AuthResult, ExecutionStatus
 from anvil.runner import (
     OrganizationRunCache,
+    OrganizationRunCacheEntry,
     PreparedTarget,
     prepare_target,
     run_multiple_targets,
@@ -140,6 +146,111 @@ def test_prepare_target_reuses_same_org_discovery_cache(monkeypatch):
     assert prepared_b.discovered_accounts == discovered_accounts
     assert prepared_a.enabled_regions == enabled_regions
     assert prepared_b.enabled_regions == enabled_regions
+
+
+def test_organization_run_cache_single_flights_concurrent_discovery():
+    entry = OrganizationRunCacheEntry(
+        management_account_id="999999999999",
+        discovered_accounts={
+            "111111111111": {
+                "account_number": "111111111111",
+                "account_alias": "acct-a",
+            }
+        },
+        enabled_regions=["us-east-1"],
+    )
+    cache = OrganizationRunCache()
+    discovery_started = threading.Event()
+    waiter_started = threading.Event()
+    release_discovery = threading.Event()
+    discover_calls = 0
+    discover_lock = threading.Lock()
+
+    def discover():
+        nonlocal discover_calls
+        with discover_lock:
+            discover_calls += 1
+
+        discovery_started.set()
+        assert waiter_started.wait(timeout=1)
+        assert release_discovery.wait(timeout=1)
+        return entry
+
+    def owner_lookup():
+        return cache.get_or_discover(organization_id="o-shared", discover=discover)
+
+    def waiter_lookup():
+        waiter_started.set()
+        return cache.get_or_discover(organization_id="o-shared", discover=discover)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(owner_lookup)
+        assert discovery_started.wait(timeout=1)
+
+        second = executor.submit(waiter_lookup)
+        assert waiter_started.wait(timeout=1)
+        release_discovery.set()
+
+        first_lookup = first.result(timeout=1)
+        second_lookup = second.result(timeout=1)
+
+    assert discover_calls == 1
+    assert first_lookup.entry is entry
+    assert first_lookup.hit is False
+    assert first_lookup.waited is False
+    assert second_lookup.entry is entry
+    assert second_lookup.hit is True
+    assert second_lookup.waited is True
+
+
+def test_organization_run_cache_releases_waiters_after_discovery_error():
+    cache = OrganizationRunCache()
+    discovery_started = threading.Event()
+    waiter_started = threading.Event()
+    release_discovery = threading.Event()
+
+    def fail_discovery():
+        discovery_started.set()
+        assert waiter_started.wait(timeout=1)
+        assert release_discovery.wait(timeout=1)
+        raise RuntimeError("discovery failed")
+
+    def owner_lookup():
+        return cache.get_or_discover(
+            organization_id="o-shared", discover=fail_discovery
+        )
+
+    def waiter_lookup():
+        waiter_started.set()
+        return cache.get_or_discover(
+            organization_id="o-shared", discover=fail_discovery
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(owner_lookup)
+        assert discovery_started.wait(timeout=1)
+
+        second = executor.submit(waiter_lookup)
+        assert waiter_started.wait(timeout=1)
+        release_discovery.set()
+
+        with pytest.raises(RuntimeError, match="discovery failed"):
+            second.result(timeout=1)
+        with pytest.raises(RuntimeError, match="discovery failed"):
+            first.result(timeout=1)
+
+    entry = OrganizationRunCacheEntry(
+        management_account_id="999999999999",
+        discovered_accounts={},
+        enabled_regions=["us-east-1"],
+    )
+    retry_lookup = cache.get_or_discover(
+        organization_id="o-shared", discover=lambda: entry
+    )
+
+    assert retry_lookup.entry is entry
+    assert retry_lookup.hit is False
+    assert retry_lookup.waited is False
 
 
 def test_run_prepared_target_uses_cached_org_preflight(monkeypatch):
