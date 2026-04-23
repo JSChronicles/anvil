@@ -138,6 +138,7 @@ The `SessionFactory` exists to centralize session and credential mechanics that 
   - managing thread-local worker sessions
   - assuming role into member accounts
   - constructing region-scoped sessions from assumed credentials
+  - wrapping account-region sessions with lazy client caching
 
 This also allows Anvil to separate credential acquisition from session construction.
 
@@ -149,6 +150,24 @@ For example, in a run with 50 accounts, 4 regions, and 49 member accounts:
 - current behavior: 49 member accounts × 1 = 49 AssumeRole calls
 
 This reduces avoidable STS churn while still giving each region run its own correctly scoped boto3 session.
+
+### Account-region client caching
+
+For task execution, Anvil wraps each account-region session with a small lazy client cache before passing it to tasks.
+
+The cache scope is intentionally narrow: one account, one region, one ordered task stream. If two tasks in the same account-region both call `session.client("ec2")`, the first call creates the EC2 client and the second call reuses it. If a task calls a different service, or calls the same service with different client arguments such as a different `region_name`, Anvil creates a separate client for that distinct call shape.
+
+This is an engine behavior, not a YAML setting. Task authors should continue to use the normal boto3-style pattern:
+
+```python
+ec2_client = session.client("ec2")
+```
+
+The cache is lazy, so a single task that creates one client pays only a small lookup before normal client creation. The benefit shows up when a workflow has multiple tasks in the same account-region that use the same AWS service, such as separate EC2 inventory tasks.
+
+Client caching reduces repeated boto3 client construction, service model setup, endpoint setup, and connection pool churn. It does not reduce AWS API calls. For example, a workflow that runs one VPC task and one subnet task can reuse the EC2 client, but it still calls both `describe_vpcs` and `describe_subnets`.
+
+Larger inventory optimizations should still happen at the task design level. If several read-only tasks repeatedly scan related EC2 inventory, a combined inventory task may reduce duplicate AWS API calls more than client caching can.
 
 ### Organization-scoped session setup
 
@@ -329,8 +348,9 @@ flowchart TD
     U -->|No| W["Assume role"]
     W --> X["Create region session"]
 
-    V --> Y["Run tasks by region<br/>in dependency order"]
-    X --> Y
+    V --> C1["Wrap account-region session<br/>with lazy client cache"]
+    X --> C1
+    C1 --> Y["Run tasks by region<br/>in dependency order"]
 
     Y --> YA{"More tasks or regions?"}
     YA -->|Yes| Y

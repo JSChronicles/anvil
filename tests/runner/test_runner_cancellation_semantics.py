@@ -37,6 +37,9 @@ class StubSessionFactory:
     def create_session_from_credentials(self, **kwargs):
         return object()
 
+    def create_cached_client_session(self, **kwargs):
+        return kwargs["session"]
+
 
 def _base_session():
     class _BaseSession:

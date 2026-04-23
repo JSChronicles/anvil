@@ -39,6 +39,17 @@ class FakeSession:
         return self.sts_client
 
 
+class FakeClientSession:
+    def __init__(self) -> None:
+        self.region_name = "us-east-1"
+        self.profile_name = "profile-a"
+        self.client_calls = []
+
+    def client(self, service_name, *args, **kwargs):
+        self.client_calls.append((service_name, args, kwargs))
+        return object()
+
+
 def test_create_base_session_omits_none_profile(monkeypatch):
     FakeBotoSession.created = []
     monkeypatch.setattr(session_module.boto3, "Session", FakeBotoSession)
@@ -149,3 +160,33 @@ def test_create_session_from_credentials_passes_credentials_to_boto3(monkeypatch
         "aws_session_token": "token",
         "region_name": "us-west-2",
     }
+
+
+def test_cached_client_session_reuses_matching_client_calls():
+    raw_session = FakeClientSession()
+    session = SessionFactory().create_cached_client_session(session=raw_session)
+
+    first = session.client("ec2")
+    second = session.client("ec2")
+
+    assert first is second
+    assert raw_session.client_calls == [("ec2", (), {})]
+    assert session.region_name == "us-east-1"
+    assert session.profile_name == "profile-a"
+
+
+def test_cached_client_session_separates_services_and_kwargs():
+    raw_session = FakeClientSession()
+    session = SessionFactory().create_cached_client_session(session=raw_session)
+
+    ec2_default = session.client("ec2")
+    ec2_west = session.client("ec2", region_name="us-west-2")
+    s3_default = session.client("s3")
+
+    assert ec2_default is not ec2_west
+    assert ec2_default is not s3_default
+    assert raw_session.client_calls == [
+        ("ec2", (), {}),
+        ("ec2", (), {"region_name": "us-west-2"}),
+        ("s3", (), {}),
+    ]

@@ -300,6 +300,7 @@ class Account:
         session: Session = self._get_region_session(
             region=region, assumed_credentials=assumed_credentials
         )
+        session = self._session_factory.create_cached_client_session(session=session)
 
         if actions is None:
             actions = ActionRecorder(actions=[])

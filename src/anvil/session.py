@@ -45,6 +45,63 @@ class AssumedRoleCredentials:
     expiration: datetime.datetime | None = None
 
 
+def _cacheable_client_arg(value: object) -> object:
+    if isinstance(value, str | int | float | bool | type(None)):
+        return value
+    if isinstance(value, tuple | list):
+        return tuple(_cacheable_client_arg(item) for item in value)
+    if isinstance(value, dict):
+        items = [
+            (_cacheable_client_arg(key), _cacheable_client_arg(item))
+            for key, item in value.items()
+        ]
+        return tuple(sorted(items, key=repr))
+
+    return ("object", id(value))
+
+
+def _client_cache_key(
+    service_name: str, args: tuple[object, ...], kwargs: dict[str, object]
+) -> tuple[str, tuple[object, ...], tuple[tuple[str, object], ...]]:
+    return (
+        service_name,
+        tuple(_cacheable_client_arg(value) for value in args),
+        tuple(
+            sorted(
+                (key, _cacheable_client_arg(value)) for key, value in kwargs.items()
+            )
+        ),
+    )
+
+
+class CachedClientSession:
+    """
+    Boto3 session wrapper that lazily caches clients for one execution scope.
+
+    Anvil creates one wrapper per account-region execution. This lets multiple
+    tasks in the same account-region reuse clients without sharing clients
+    across accounts or regions.
+    """
+
+    def __init__(self, *, session: boto3.Session) -> None:
+        self._session = session
+        self._clients: dict[
+            tuple[str, tuple[object, ...], tuple[tuple[str, object], ...]], object
+        ] = {}
+
+    def client(self, service_name: str, *args: object, **kwargs: object) -> object:
+        key = _client_cache_key(service_name=service_name, args=args, kwargs=kwargs)
+        client = self._clients.get(key)
+        if client is None:
+            client = self._session.client(service_name, *args, **kwargs)
+            self._clients[key] = client
+
+        return client
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self._session, name)
+
+
 class SessionFactory:
     """
     Factory for boto3 sessions and STS-assumed credentials.
@@ -163,6 +220,15 @@ class SessionFactory:
             aws_session_token=credentials.session_token,
             region_name=region_name,
         )
+
+    def create_cached_client_session(
+        self, *, session: boto3.Session
+    ) -> CachedClientSession:
+        """
+        Wrap a region-scoped boto3 session with lazy client caching.
+        """
+
+        return CachedClientSession(session=session)
 
     def _get_worker_session_cache(self) -> dict[tuple[str | None, str], boto3.Session]:
         """

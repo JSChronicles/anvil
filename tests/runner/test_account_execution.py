@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from anvil.account import Account
 from anvil.execution_context import ExecutionContext
 from anvil.results import ExecutionStatus
-from anvil.session import AssumedRoleCredentials
+from anvil.session import AssumedRoleCredentials, CachedClientSession
 from anvil.task_loader import ResolvedTask
 
 
@@ -22,18 +22,22 @@ class WorkerSession:
     ) -> None:
         self._caller_account_id = caller_account_id
         self.region_name = region_name
+        self.client_calls = []
 
-    def client(self, service_name):
-        assert service_name == "sts"
+    def client(self, service_name, **kwargs):
+        self.client_calls.append((service_name, kwargs))
 
-        class STSClient:
-            def __init__(self, *, account_id: str) -> None:
-                self._account_id = account_id
+        if service_name == "sts":
+            class STSClient:
+                def __init__(self, *, account_id: str) -> None:
+                    self._account_id = account_id
 
-            def get_caller_identity(self):
-                return {"Account": self._account_id}
+                def get_caller_identity(self):
+                    return {"Account": self._account_id}
 
-        return STSClient(account_id=self._caller_account_id)
+            return STSClient(account_id=self._caller_account_id)
+
+        return object()
 
 
 class RecordingSessionFactory:
@@ -42,6 +46,7 @@ class RecordingSessionFactory:
         self.worker_session_calls = []
         self.assume_role_calls = []
         self.create_session_from_credentials_calls = []
+        self.cached_session_calls = []
 
     def get_worker_session(self, **kwargs):
         self.worker_session_calls.append(kwargs)
@@ -58,6 +63,10 @@ class RecordingSessionFactory:
     def create_session_from_credentials(self, **kwargs):
         self.create_session_from_credentials_calls.append(kwargs)
         return WorkerSession(region_name=kwargs["region_name"])
+
+    def create_cached_client_session(self, **kwargs):
+        self.cached_session_calls.append(kwargs)
+        return CachedClientSession(session=kwargs["session"])
 
 
 def _context(
@@ -221,6 +230,27 @@ def test_serial_regions_keep_account_scoped_action_recorder():
 
     assert result.status is ExecutionStatus.SUCCESS
     assert seen_actions == [[], ["us-east-1"]]
+
+
+def test_tasks_in_same_region_share_cached_clients():
+    seen_clients = []
+
+    def task(**kwargs):
+        seen_clients.append(kwargs["session"].client("ec2"))
+        return {"ok": True}
+
+    account = _account(
+        tasks=[
+            ResolvedTask("first", task, depends_on=[], optional=False),
+            ResolvedTask("second", task, depends_on=[], optional=False),
+        ]
+    )
+
+    result = account.execute()
+
+    assert result.status is ExecutionStatus.SUCCESS
+    assert len(seen_clients) == 2
+    assert seen_clients[0] is seen_clients[1]
 
 
 def test_parallel_regions_overlap_and_preserve_result_order():
