@@ -105,6 +105,26 @@ def test_validate_config_schema_accepts_max_parallel_regions_for_accounts():
     )
 
 
+def test_validate_config_schema_reuses_cached_branch_schema(monkeypatch):
+    validators = _import_validators_or_skip()
+    validators._load_branch_schema.cache_clear()
+
+    load_calls: list[str] = []
+    original_load_schema_file = validators._load_schema_file
+
+    def recording_load_schema_file(schema_file: str):
+        load_calls.append(schema_file)
+        return original_load_schema_file(schema_file)
+
+    monkeypatch.setattr(validators, "_load_schema_file", recording_load_schema_file)
+
+    config = {"schema_version": 1, "organizations": [{"name": "org-a"}]}
+    validators.validate_config_schema(config=config)
+    validators.validate_config_schema(config=config)
+
+    assert load_calls.count("orgs.schema.v1.json") == 1
+
+
 def test_validate_config_schema_rejects_invalid_max_parallel_targets():
     validators = _import_validators_or_skip()
 
