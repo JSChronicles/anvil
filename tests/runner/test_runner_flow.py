@@ -3,10 +3,12 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
+from anvil.auth import AuthSource
 from anvil.descriptors import ConfigBranch, TargetDescriptor
 from anvil.execution_context import ExecutionContext
 from anvil.results import AuthResult, ExecutionStatus
 from anvil.runner import (
+    AuthCheckCache,
     OrganizationRunCache,
     OrganizationRunCacheEntry,
     PreparedTarget,
@@ -55,6 +57,88 @@ def test_runner_auth_failure_short_circuits(monkeypatch):
     assert engine_result.has_auth_failures
 
 
+def test_run_multiple_targets_reuses_same_profile_auth_during_preparation(monkeypatch):
+    auth_check_calls: list[str] = []
+
+    monkeypatch.setattr(
+        "anvil.runner.infer_auth_source",
+        lambda profile: AuthSource.PROFILE_STATIC,
+    )
+
+    def fake_auth_check(**kwargs):
+        auth_check_calls.append(kwargs["target_name"])
+        return AuthResult(
+            target_name=kwargs["target_name"],
+            status=ExecutionStatus.SUCCESS,
+            source=kwargs["auth_source"].value,
+            started_at="start",
+            ended_at="end",
+            duration_seconds=0.0,
+            message="ok",
+        )
+
+    monkeypatch.setattr("anvil.runner.auth_check", fake_auth_check)
+    monkeypatch.setattr(
+        "anvil.runner.resolve_tasks",
+        lambda task_specs: ResolvedExecution(ordered=[], adjacency={}),
+    )
+    monkeypatch.setattr(
+        "anvil.runner._preflight_organization",
+        lambda **kwargs: (
+            object(),
+            "o-shared",
+            "999999999999",
+            {
+                "999999999999": {
+                    "account_number": "999999999999",
+                    "account_alias": "management",
+                }
+            },
+            ["us-east-1"],
+        ),
+    )
+    monkeypatch.setattr(
+        "anvil.runner.execute_accounts",
+        lambda **kwargs: __import__(
+            "anvil.results", fromlist=["TargetResult"]
+        ).TargetResult.create(
+            config_branch=kwargs["config_branch"],
+            target_name=kwargs["name"],
+            dry_run=kwargs["context"].dry_run,
+            account_results=[],
+        ),
+    )
+
+    targets = [
+        TargetDescriptor(
+            config_branch=ConfigBranch.ORGANIZATIONS,
+            name="org-a",
+            profile="shared",
+            tasks=[],
+        ),
+        TargetDescriptor(
+            config_branch=ConfigBranch.ORGANIZATIONS,
+            name="org-b",
+            profile="shared",
+            tasks=[],
+        ),
+    ]
+
+    engine_result = run_multiple_targets(
+        targets=targets,
+        max_parallel_targets=1,
+        cli_dry_run=None,
+        cli_include=None,
+        cli_exclude=None,
+    )
+
+    assert auth_check_calls == ["org-a"]
+    assert [result.target_name for result in engine_result.auth_results] == [
+        "org-a",
+        "org-b",
+    ]
+
+
 def test_prepare_target_reuses_same_org_discovery_cache(monkeypatch):
     discovered_accounts = {
         "111111111111": {"account_number": "111111111111", "account_alias": "acct-a"}
@@ -63,8 +147,8 @@ def test_prepare_target_reuses_same_org_discovery_cache(monkeypatch):
     call_counts = {"accounts": 0, "regions": 0}
 
     monkeypatch.setattr(
-        "anvil.runner._run_auth_check_for_target",
-        lambda target: AuthResult(
+        "anvil.runner._run_cached_auth_check_for_target",
+        lambda target, auth_cache: AuthResult(
             target_name=target.name,
             status=ExecutionStatus.SUCCESS,
             source="test",
@@ -107,6 +191,7 @@ def test_prepare_target_reuses_same_org_discovery_cache(monkeypatch):
     )
 
     organization_cache = OrganizationRunCache()
+    auth_cache = AuthCheckCache()
     target_a = TargetDescriptor(
         config_branch=ConfigBranch.ORGANIZATIONS,
         name="org-a",
@@ -129,6 +214,7 @@ def test_prepare_target_reuses_same_org_discovery_cache(monkeypatch):
         cli_include=None,
         cli_exclude=None,
         organization_cache=organization_cache,
+        auth_cache=auth_cache,
     )
     prepared_b = prepare_target(
         index=1,
@@ -137,6 +223,7 @@ def test_prepare_target_reuses_same_org_discovery_cache(monkeypatch):
         cli_include=None,
         cli_exclude=None,
         organization_cache=organization_cache,
+        auth_cache=auth_cache,
     )
 
     assert call_counts == {"accounts": 1, "regions": 1}
@@ -345,8 +432,8 @@ def test_run_prepared_target_uses_cached_org_preflight(monkeypatch):
 
 def test_prepare_target_carries_max_parallel_regions_into_context(monkeypatch):
     monkeypatch.setattr(
-        "anvil.runner._run_auth_check_for_target",
-        lambda target: AuthResult(
+        "anvil.runner._run_cached_auth_check_for_target",
+        lambda target, auth_cache: AuthResult(
             target_name=target.name,
             status=ExecutionStatus.SUCCESS,
             source="test",
@@ -375,6 +462,7 @@ def test_prepare_target_carries_max_parallel_regions_into_context(monkeypatch):
         cli_include=None,
         cli_exclude=None,
         organization_cache=OrganizationRunCache(),
+        auth_cache=AuthCheckCache(),
     )
 
     assert prepared.context is not None

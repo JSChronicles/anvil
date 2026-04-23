@@ -242,6 +242,13 @@ Anvil includes an authentication check mode that validates AWS access for each c
 
 Authentication checks run concurrently across organizations through a small bounded worker pool. Anvil currently validates up to **4 organizations at a time**, which reduces startup latency while keeping concurrency controlled.
 
+Within one run, Anvil reuses auth-check outcomes for targets that use the same
+profile and inferred authentication source. The first target performs the STS
+identity check, while concurrent or later targets with the same auth identity
+reuse that outcome. Output remains target-specific: each target still receives
+its own `AuthResult`, and a cached failure is reported for every target that
+uses the failing identity.
+
 ### What auth check does
 
 For each configured organization, Anvil:
