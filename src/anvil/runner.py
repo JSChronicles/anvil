@@ -3,8 +3,8 @@ from __future__ import annotations
 import datetime
 import logging
 import threading
-from collections.abc import Callable
 from collections import deque
+from collections.abc import Callable
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field, replace
 
@@ -39,6 +39,64 @@ STATE_PRECEDENCE: dict[EngineState, int] = {
 }
 
 DEFAULT_AUTH_CHECK_MAX_WORKERS = 4
+
+
+@dataclass(slots=True)
+class _SingleFlightEntry:
+    event: threading.Event = field(default_factory=threading.Event)
+    value: object | None = None
+    error: BaseException | None = None
+
+
+class _SingleFlightCache:
+    def __init__(self) -> None:
+        self._values: dict[object, object] = {}
+        self._flights: dict[object, _SingleFlightEntry] = {}
+        self._lock = threading.Lock()
+
+    def get_or_create(
+        self, *, key: object, create: Callable[[], object]
+    ) -> tuple[object, bool, bool]:
+        with self._lock:
+            existing = self._values.get(key)
+            if existing is not None:
+                return existing, True, False
+
+            flight = self._flights.get(key)
+            if flight is None:
+                flight = _SingleFlightEntry()
+                self._flights[key] = flight
+                owns_create = True
+            else:
+                owns_create = False
+
+        if owns_create:
+            try:
+                value = create()
+            except BaseException as error:
+                with self._lock:
+                    flight.error = error
+                    self._flights.pop(key, None)
+                    flight.event.set()
+                raise
+
+            with self._lock:
+                existing = self._values.get(key)
+                cached_value = existing if existing is not None else value
+                self._values[key] = cached_value
+                flight.value = cached_value
+                self._flights.pop(key, None)
+                flight.event.set()
+
+            return cached_value, False, False
+
+        flight.event.wait()
+        if flight.error is not None:
+            raise flight.error
+        if flight.value is None:
+            raise RuntimeError("Single-flight cache entry completed empty")
+
+        return flight.value, True, True
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,18 +143,9 @@ class _AuthCheckCacheLookup:
     waited: bool
 
 
-@dataclass(slots=True)
-class _AuthCheckCacheFlight:
-    event: threading.Event = field(default_factory=threading.Event)
-    outcome: AuthCheckOutcome | None = None
-    error: BaseException | None = None
-
-
 class AuthCheckCache:
     def __init__(self) -> None:
-        self._outcomes: dict[tuple[str | None, str], AuthCheckOutcome] = {}
-        self._flights: dict[tuple[str | None, str], _AuthCheckCacheFlight] = {}
-        self._lock = threading.Lock()
+        self._cache = _SingleFlightCache()
 
     def get_or_check(
         self,
@@ -106,49 +155,11 @@ class AuthCheckCache:
         check: Callable[[], AuthCheckOutcome],
     ) -> _AuthCheckCacheLookup:
         key = (profile, auth_source.value)
+        outcome, hit, waited = self._cache.get_or_create(key=key, create=check)
+        if not isinstance(outcome, AuthCheckOutcome):
+            raise RuntimeError("Auth check cache returned unexpected value")
 
-        with self._lock:
-            existing = self._outcomes.get(key)
-            if existing is not None:
-                return _AuthCheckCacheLookup(outcome=existing, hit=True, waited=False)
-
-            flight = self._flights.get(key)
-            if flight is None:
-                flight = _AuthCheckCacheFlight()
-                self._flights[key] = flight
-                owns_check = True
-            else:
-                owns_check = False
-
-        if owns_check:
-            try:
-                outcome = check()
-            except BaseException as error:
-                with self._lock:
-                    flight.error = error
-                    self._flights.pop(key, None)
-                    flight.event.set()
-                raise
-
-            with self._lock:
-                existing = self._outcomes.get(key)
-                cached_outcome = existing or outcome
-                self._outcomes[key] = cached_outcome
-                flight.outcome = cached_outcome
-                self._flights.pop(key, None)
-                flight.event.set()
-
-            return _AuthCheckCacheLookup(
-                outcome=cached_outcome, hit=False, waited=False
-            )
-
-        flight.event.wait()
-        if flight.error is not None:
-            raise flight.error
-        if flight.outcome is None:
-            raise RuntimeError("Auth check cache flight completed empty")
-
-        return _AuthCheckCacheLookup(outcome=flight.outcome, hit=True, waited=True)
+        return _AuthCheckCacheLookup(outcome=outcome, hit=hit, waited=waited)
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,18 +176,9 @@ class _OrganizationRunCacheLookup:
     waited: bool
 
 
-@dataclass(slots=True)
-class _OrganizationRunCacheFlight:
-    event: threading.Event = field(default_factory=threading.Event)
-    entry: OrganizationRunCacheEntry | None = None
-    error: BaseException | None = None
-
-
 class OrganizationRunCache:
     def __init__(self) -> None:
-        self._entries: dict[str, OrganizationRunCacheEntry] = {}
-        self._flights: dict[str, _OrganizationRunCacheFlight] = {}
-        self._lock = threading.Lock()
+        self._cache = _SingleFlightCache()
 
     def get_or_discover(
         self,
@@ -184,48 +186,13 @@ class OrganizationRunCache:
         organization_id: str,
         discover: Callable[[], OrganizationRunCacheEntry],
     ) -> _OrganizationRunCacheLookup:
-        with self._lock:
-            existing = self._entries.get(organization_id)
-            if existing is not None:
-                return _OrganizationRunCacheLookup(
-                    entry=existing, hit=True, waited=False
-                )
+        entry, hit, waited = self._cache.get_or_create(
+            key=organization_id, create=discover
+        )
+        if not isinstance(entry, OrganizationRunCacheEntry):
+            raise RuntimeError("Organization discovery cache returned unexpected value")
 
-            flight = self._flights.get(organization_id)
-            if flight is None:
-                flight = _OrganizationRunCacheFlight()
-                self._flights[organization_id] = flight
-                owns_discovery = True
-            else:
-                owns_discovery = False
-
-        if owns_discovery:
-            try:
-                discovered_entry = discover()
-            except BaseException as error:
-                with self._lock:
-                    flight.error = error
-                    self._flights.pop(organization_id, None)
-                    flight.event.set()
-                raise
-
-            with self._lock:
-                existing = self._entries.get(organization_id)
-                entry = existing or discovered_entry
-                self._entries[organization_id] = entry
-                flight.entry = entry
-                self._flights.pop(organization_id, None)
-                flight.event.set()
-
-            return _OrganizationRunCacheLookup(entry=entry, hit=False, waited=False)
-
-        flight.event.wait()
-        if flight.error is not None:
-            raise flight.error
-        if flight.entry is None:
-            raise RuntimeError("Organization discovery cache flight completed empty")
-
-        return _OrganizationRunCacheLookup(entry=flight.entry, hit=True, waited=True)
+        return _OrganizationRunCacheLookup(entry=entry, hit=hit, waited=waited)
 
 
 def _elevate_state(current: EngineState, new: EngineState) -> EngineState:
@@ -277,17 +244,6 @@ def _auth_result_from_outcome(
         duration_seconds=duration_seconds,
         message=outcome.message,
         remediation=outcome.remediation,
-    )
-
-
-def _run_auth_check_for_target(target: TargetDescriptor) -> AuthResult:
-    """
-    Run an auth check for a single target descriptor.
-    """
-    auth_source: AuthSource = infer_auth_source(target.profile)
-
-    return auth_check(
-        target_name=target.name, profile=target.profile, auth_source=auth_source
     )
 
 
