@@ -10,6 +10,7 @@ import logging
 from pathlib import Path
 from anvil.graph import render_graph
 import yaml
+from anvil.benchmark import BenchmarkRecorder
 from anvil.descriptors import LoadedConfig
 from anvil.results import EngineResult, EngineState
 from anvil.runner import run_auth_checks, run_multiple_targets
@@ -81,19 +82,40 @@ def _write_run_results(*, config_file: Path, engine_result) -> None:
     results_dir = Path.cwd() / "results"
     results_dir.mkdir(exist_ok=True)
 
-    summary = engine_result.build_summary()
+    recorder = BenchmarkRecorder(enabled=engine_result.benchmark is not None)
+    target_files: list[dict[str, object]] = []
 
     for target_result in engine_result.target_results:
         safe_name = target_result.target_name.replace("/", "_").replace(" ", "_")
         result_file = results_dir / f"{safe_name}.json"
 
-        with result_file.open("w", encoding="utf-8") as handle:
-            json.dump(target_result.to_dict(), handle, indent=2)
+        with recorder.phase("serialization_seconds"):
+            target_json = json.dumps(target_result.to_dict(), indent=2)
+        target_serialize_seconds = recorder.pop("serialization_seconds")
 
+        with recorder.phase("write_seconds"):
+            with result_file.open("w", encoding="utf-8") as handle:
+                handle.write(target_json)
+        target_write_seconds = recorder.pop("write_seconds")
+        if recorder.enabled:
+            target_files.append(
+                {
+                    "target": target_result.target_name,
+                    "serialization_seconds": target_serialize_seconds,
+                    "write_seconds": target_write_seconds,
+                    "bytes": len(target_json.encode("utf-8")),
+                }
+            )
+
+    if engine_result.benchmark is not None:
+        engine_result.benchmark["result_write"] = {"target_files": target_files}
+
+    summary = engine_result.build_summary()
     summary_path = results_dir / f"{config_file.stem}-target-summary.json"
 
+    summary_json = json.dumps(summary, indent=2)
     with summary_path.open("w", encoding="utf-8") as handle:
-        json.dump(summary, handle, indent=2)
+        handle.write(summary_json)
 
     __LOGGER__.info(
         f"Wrote summary to {summary_path} and "
@@ -111,6 +133,7 @@ def _run_single_config_file(*, config_file: Path, args) -> int:
         cli_dry_run=args.dry_run,
         cli_include=args.include,
         cli_exclude=args.exclude,
+        benchmark_enabled=getattr(args, "benchmark", False),
     )
     _write_run_results(config_file=config_file, engine_result=engine_result)
 
@@ -249,6 +272,14 @@ def main() -> None:
         action="store_true",
         default=None,
         help="Run without making changes",
+    )
+    run_parser.add_argument(
+        "--benchmark",
+        action="store_true",
+        help=(
+            "Include diagnostic phase timings in result JSON. "
+            "This can significantly increase output size."
+        ),
     )
     run_parser.set_defaults(func=_cmd_run)
 

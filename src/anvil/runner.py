@@ -8,6 +8,7 @@ from dataclasses import dataclass, field, replace
 
 from boto3.session import Session
 
+from anvil.benchmark import BenchmarkRecorder
 from anvil.account import Account
 from anvil.account_resolver import AccountResolver
 from anvil.auth import AuthSource, auth_check, infer_auth_source
@@ -44,6 +45,7 @@ class PreparedTarget:
     management_account_id: str | None = None
     discovered_accounts: dict[str, dict[str, str]] | None = None
     enabled_regions: list[str] | None = None
+    benchmark: dict[str, object] | None = None
 
     @property
     def runnable(self) -> bool:
@@ -162,7 +164,7 @@ def _build_effective_target(
 
 
 def _build_execution_context(
-    *, target: TargetDescriptor, tasks: list[ResolvedTask]
+    *, target: TargetDescriptor, tasks: list[ResolvedTask], benchmark_enabled: bool
 ) -> ExecutionContext:
     return ExecutionContext(
         regions=target.regions,
@@ -172,6 +174,7 @@ def _build_execution_context(
         metadata=target.metadata,
         fail_fast=target.fail_fast,
         max_parallel_regions=target.max_parallel_regions,
+        benchmark_enabled=benchmark_enabled,
     )
 
 
@@ -181,28 +184,41 @@ def _preflight_organization(
     context: ExecutionContext,
     session_factory: SessionFactory,
     organization_cache: OrganizationRunCache,
+    benchmark: dict[str, object] | None = None,
 ) -> tuple[Session, str, str, dict[str, dict[str, str]], list[str]]:
-    base_session: Session = session_factory.create_base_session(
-        profile_name=target.profile, region_name=context.regions[0]
-    )
-    organization_id, management_account_id = OrganizationResolver.describe_organization(
-        base_session
-    )
+    sink = BenchmarkRecorder(data=benchmark)
+
+    with sink.phase("create_base_session_seconds"):
+        base_session: Session = session_factory.create_base_session(
+            profile_name=target.profile, region_name=context.regions[0]
+        )
+
+    with sink.phase("describe_organization_seconds"):
+        organization_id, management_account_id = (
+            OrganizationResolver.describe_organization(base_session)
+        )
 
     cached_entry = organization_cache.get(organization_id)
     if cached_entry is None:
+        with sink.phase("discover_accounts_seconds"):
+            discovered_accounts = OrganizationResolver.discover_accounts(base_session)
+
+        with sink.phase("discover_enabled_regions_seconds"):
+            enabled_regions = OrganizationResolver.discover_enabled_regions(
+                base_session
+            )
+
         cached_entry = organization_cache.put_if_absent(
             organization_id,
             OrganizationRunCacheEntry(
                 management_account_id=management_account_id,
-                discovered_accounts=OrganizationResolver.discover_accounts(
-                    base_session
-                ),
-                enabled_regions=OrganizationResolver.discover_enabled_regions(
-                    base_session
-                ),
+                discovered_accounts=discovered_accounts,
+                enabled_regions=enabled_regions,
             ),
         )
+        sink.set("organization_cache_hit", False)
+    else:
+        sink.set("organization_cache_hit", True)
 
     return (
         base_session,
@@ -221,49 +237,60 @@ def prepare_target(
     cli_include: list[str] | None,
     cli_exclude: list[str] | None,
     organization_cache: OrganizationRunCache,
+    benchmark_enabled: bool = False,
 ) -> PreparedTarget:
+    recorder = BenchmarkRecorder(enabled=benchmark_enabled)
     session_factory = SessionFactory()
-    auth_result: AuthResult = _run_auth_check_for_target(target)
-    effective_target: TargetDescriptor = _build_effective_target(
-        target=target,
-        cli_dry_run=cli_dry_run,
-        cli_include=cli_include,
-        cli_exclude=cli_exclude,
-    )
 
-    if auth_result.is_error:
-        return PreparedTarget(
-            index=index,
-            effective_target=effective_target,
-            auth_result=auth_result,
-            context=None,
-            session_factory=session_factory,
+    with recorder.phase("prepare_target_seconds"):
+        auth_result: AuthResult = _run_auth_check_for_target(target)
+
+        effective_target: TargetDescriptor = _build_effective_target(
+            target=target,
+            cli_dry_run=cli_dry_run,
+            cli_include=cli_include,
+            cli_exclude=cli_exclude,
         )
 
-    execution: ResolvedExecution = resolve_tasks(task_specs=effective_target.tasks)
-    tasks: list[ResolvedTask] = execution.ordered
-    context: ExecutionContext = _build_execution_context(
-        target=effective_target, tasks=tasks
-    )
+        if auth_result.is_error:
+            return PreparedTarget(
+                index=index,
+                effective_target=effective_target,
+                auth_result=auth_result,
+                context=None,
+                session_factory=session_factory,
+                benchmark=recorder.data,
+            )
 
-    base_session: Session | None = None
-    organization_id: str | None = None
-    management_account_id: str | None = None
-    discovered_accounts: dict[str, dict[str, str]] | None = None
-    enabled_regions: list[str] | None = None
-    if effective_target.is_organization_config:
-        (
-            base_session,
-            organization_id,
-            management_account_id,
-            discovered_accounts,
-            enabled_regions,
-        ) = _preflight_organization(
-            target=effective_target,
-            context=context,
-            session_factory=session_factory,
-            organization_cache=organization_cache,
+        with recorder.phase("resolve_tasks_seconds"):
+            execution: ResolvedExecution = resolve_tasks(
+                task_specs=effective_target.tasks
+            )
+            tasks: list[ResolvedTask] = execution.ordered
+
+        context: ExecutionContext = _build_execution_context(
+            target=effective_target, tasks=tasks, benchmark_enabled=benchmark_enabled
         )
+
+        base_session: Session | None = None
+        organization_id: str | None = None
+        management_account_id: str | None = None
+        discovered_accounts: dict[str, dict[str, str]] | None = None
+        enabled_regions: list[str] | None = None
+        if effective_target.is_organization_config:
+            (
+                base_session,
+                organization_id,
+                management_account_id,
+                discovered_accounts,
+                enabled_regions,
+            ) = _preflight_organization(
+                target=effective_target,
+                context=context,
+                session_factory=session_factory,
+                organization_cache=organization_cache,
+                benchmark=recorder.data,
+            )
 
     return PreparedTarget(
         index=index,
@@ -276,6 +303,7 @@ def prepare_target(
         management_account_id=management_account_id,
         discovered_accounts=discovered_accounts,
         enabled_regions=enabled_regions,
+        benchmark=recorder.data,
     )
 
 
@@ -304,7 +332,26 @@ def run_prepared_target(*, prepared_target: PreparedTarget) -> TargetExecutionOu
         )
 
     try:
-        accounts: list[Account] = resolver.resolve_accounts()
+        benchmark_data = (
+            dict(prepared_target.benchmark)
+            if prepared_target.benchmark is not None
+            else None
+        )
+        sink = BenchmarkRecorder(data=benchmark_data)
+        with sink.phase("resolve_accounts_seconds"):
+            accounts: list[Account] = resolver.resolve_accounts()
+
+        sink.update(
+            {
+                "resolved_account_count": len(accounts),
+                "max_workers": target.max_workers,
+                "max_parallel_regions": context.max_parallel_regions,
+                "account_region_limit": (
+                    target.max_workers * context.max_parallel_regions
+                ),
+            }
+        )
+
         account_region_limit = target.max_workers * context.max_parallel_regions
         __LOGGER__.info(
             f"Target '{target.name}' concurrency: "
@@ -318,6 +365,8 @@ def run_prepared_target(*, prepared_target: PreparedTarget) -> TargetExecutionOu
             max_workers=target.max_workers,
             context=context,
             accounts=accounts,
+            benchmark_enabled=sink.enabled,
+            benchmark=benchmark_data,
         )
     except ValueError as error:
         target_result: TargetResult = TargetResult.create(
@@ -388,6 +437,7 @@ def _run_target_pipeline(
     cli_dry_run: bool | None,
     cli_include: list[str] | None,
     cli_exclude: list[str] | None,
+    benchmark_enabled: bool = False,
 ) -> tuple[list[AuthResult], list[TargetResult], EngineState]:
 
     # Preparation and execution complete out of order, but final EngineResult
@@ -418,6 +468,7 @@ def _run_target_pipeline(
                     cli_include=cli_include,
                     cli_exclude=cli_exclude,
                     organization_cache=organization_cache,
+                    benchmark_enabled=benchmark_enabled,
                 ): index
                 for index, target in enumerate(targets)
             }
@@ -501,16 +552,23 @@ def run_multiple_targets(
     cli_dry_run: bool | None,
     cli_include: list[str] | None,
     cli_exclude: list[str] | None,
+    benchmark_enabled: bool = False,
 ) -> EngineResult:
     config_branch: ConfigBranch = (
         targets[0].config_branch if targets else ConfigBranch.ORGANIZATIONS
     )
-    auth_results, target_results, engine_state = _run_target_pipeline(
-        targets=targets,
-        max_parallel_targets=max_parallel_targets,
-        cli_dry_run=cli_dry_run,
-        cli_include=cli_include,
-        cli_exclude=cli_exclude,
+    recorder = BenchmarkRecorder(enabled=benchmark_enabled)
+    with recorder.phase("run_multiple_targets_seconds"):
+        auth_results, target_results, engine_state = _run_target_pipeline(
+            targets=targets,
+            max_parallel_targets=max_parallel_targets,
+            cli_dry_run=cli_dry_run,
+            cli_include=cli_include,
+            cli_exclude=cli_exclude,
+            benchmark_enabled=benchmark_enabled,
+        )
+    recorder.update(
+        {"max_parallel_targets": max_parallel_targets, "target_count": len(targets)}
     )
 
     return EngineResult.create(
@@ -518,4 +576,5 @@ def run_multiple_targets(
         state=engine_state,
         auth_results=auth_results,
         target_results=target_results,
+        benchmark=recorder.data,
     )

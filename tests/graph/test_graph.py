@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 
@@ -7,11 +9,7 @@ def test_graph_fails_on_unknown_dependency(monkeypatch):
     except PermissionError as error:
         pytest.skip(f"jsonschema package resources unavailable in test env: {error}")
 
-    yaml_dir = pytest.Path("tests") if hasattr(pytest, "Path") else None
-    if yaml_dir is None:
-        from pathlib import Path
-
-        yaml_dir = Path("tests") / "_tmp"
+    yaml_dir = Path("tests") / "_tmp"
     yaml_dir.mkdir(exist_ok=True)
     yaml_file = yaml_dir / "graph-orgs.yaml"
 

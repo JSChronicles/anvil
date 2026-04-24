@@ -17,6 +17,7 @@ from dataclasses import dataclass
 import boto3
 from boto3.session import Session
 
+from anvil.benchmark import BenchmarkRecorder
 from anvil.execution_context import ExecutionContext
 from anvil.results import AccountResult, ExecutionStatus, TaskResult
 from anvil.session import AssumedRoleCredentials, SessionFactory
@@ -31,6 +32,7 @@ class RegionExecutionOutcome:
     task_results: list[TaskResult]
     interrupted: bool
     failed: bool
+    duration_seconds: float
 
 
 class Account:
@@ -85,19 +87,38 @@ class Account:
 
         try:
             assumed_credentials: AssumedRoleCredentials | None = None
+            recorder = BenchmarkRecorder(enabled=self._context.benchmark_enabled)
+            recorder.update(
+                {"assume_role_seconds": 0.0, "direct_access_validation_seconds": 0.0}
+            )
 
             if self._assume_role:
-                assumed_credentials: AssumedRoleCredentials = (
-                    self._get_assumed_role_credentials()
-                )
+                with recorder.phase("assume_role_seconds"):
+                    assumed_credentials: AssumedRoleCredentials = (
+                        self._get_assumed_role_credentials()
+                    )
             else:
-                self._validate_direct_account_access()
+                with recorder.phase("direct_access_validation_seconds"):
+                    self._validate_direct_account_access()
 
             account_cancel_event = threading.Event()
-            region_outcomes = self._execute_regions(
-                assumed_credentials=assumed_credentials,
-                optional_map=optional_map,
-                account_cancel_event=account_cancel_event,
+            with recorder.phase("region_execution_seconds"):
+                region_outcomes = self._execute_regions(
+                    assumed_credentials=assumed_credentials,
+                    optional_map=optional_map,
+                    account_cancel_event=account_cancel_event,
+                )
+            recorder.set(
+                "regions",
+                {
+                    outcome.region: {
+                        "duration_seconds": outcome.duration_seconds,
+                        "task_count": len(outcome.task_results),
+                        "interrupted": outcome.interrupted,
+                        "failed": outcome.failed,
+                    }
+                    for outcome in region_outcomes
+                },
             )
             for outcome in region_outcomes:
                 task_results.extend(outcome.task_results)
@@ -120,6 +141,7 @@ class Account:
                 ended_at=ended_at,
                 duration_seconds=ended_perf - started_perf,
                 tasks=task_results,
+                benchmark=recorder.data,
             )
 
         except Exception as error:
@@ -272,6 +294,9 @@ class Account:
         account_cancel_event: threading.Event,
         actions: ActionRecorder | None = None,
     ) -> RegionExecutionOutcome:
+        region_started = (
+            time.perf_counter() if self._context.benchmark_enabled else None
+        )
         session: Session = self._get_region_session(
             region=region, assumed_credentials=assumed_credentials
         )
@@ -390,6 +415,11 @@ class Account:
             task_results=task_results,
             interrupted=interrupted,
             failed=non_optional_region_failure,
+            duration_seconds=(
+                time.perf_counter() - region_started
+                if region_started is not None
+                else 0.0
+            ),
         )
 
     def _sort_task_results(self, task_results: list[TaskResult]) -> None:
