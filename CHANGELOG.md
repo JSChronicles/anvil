@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 <!-- version list -->
 
+## v0.22.0 (2026-04-25)
+
+### Features
+
+- Cache optimizations ([#24](https://github.com/JSChronicles/anvil/pull/24),
+  [`e1cf92c`](https://github.com/JSChronicles/anvil/commit/e1cf92c85310aa020f32b371ca4637076b26a4f4))
+
+
 ## v0.21.0 (2026-04-24)
 
 ### Features
