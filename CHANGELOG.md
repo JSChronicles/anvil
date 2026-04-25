@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 <!-- version list -->
 
+## v0.21.0 (2026-04-24)
+
+### Features
+
+- Engine phase timings ([#22](https://github.com/JSChronicles/anvil/pull/22),
+  [`56486c1`](https://github.com/JSChronicles/anvil/commit/56486c1cfb8d05b3c9c1a6bf8d5976a0882a7e60))
+
+
 ## v0.20.0 (2026-04-22)
 
 ### Features
