@@ -1,8 +1,16 @@
+import threading
+from concurrent.futures import ThreadPoolExecutor
+
+import pytest
+
+from anvil.auth import AuthSource
 from anvil.descriptors import ConfigBranch, TargetDescriptor
 from anvil.execution_context import ExecutionContext
 from anvil.results import AuthResult, ExecutionStatus
 from anvil.runner import (
+    AuthCheckCache,
     OrganizationRunCache,
+    OrganizationRunCacheEntry,
     PreparedTarget,
     prepare_target,
     run_multiple_targets,
@@ -49,6 +57,87 @@ def test_runner_auth_failure_short_circuits(monkeypatch):
     assert engine_result.has_auth_failures
 
 
+def test_run_multiple_targets_reuses_same_profile_auth_during_preparation(monkeypatch):
+    auth_check_calls: list[str] = []
+
+    monkeypatch.setattr(
+        "anvil.runner.infer_auth_source", lambda profile: AuthSource.PROFILE_STATIC
+    )
+
+    def fake_auth_check(**kwargs):
+        auth_check_calls.append(kwargs["target_name"])
+        return AuthResult(
+            target_name=kwargs["target_name"],
+            status=ExecutionStatus.SUCCESS,
+            source=kwargs["auth_source"].value,
+            started_at="start",
+            ended_at="end",
+            duration_seconds=0.0,
+            message="ok",
+        )
+
+    monkeypatch.setattr("anvil.runner.auth_check", fake_auth_check)
+    monkeypatch.setattr(
+        "anvil.runner.resolve_tasks",
+        lambda task_specs: ResolvedExecution(ordered=[], adjacency={}),
+    )
+    monkeypatch.setattr(
+        "anvil.runner._preflight_organization",
+        lambda **kwargs: (
+            object(),
+            "o-shared",
+            "999999999999",
+            {
+                "999999999999": {
+                    "account_number": "999999999999",
+                    "account_alias": "management",
+                }
+            },
+            ["us-east-1"],
+        ),
+    )
+    monkeypatch.setattr(
+        "anvil.runner.execute_accounts",
+        lambda **kwargs: __import__(
+            "anvil.results", fromlist=["TargetResult"]
+        ).TargetResult.create(
+            config_branch=kwargs["config_branch"],
+            target_name=kwargs["name"],
+            dry_run=kwargs["context"].dry_run,
+            account_results=[],
+        ),
+    )
+
+    targets = [
+        TargetDescriptor(
+            config_branch=ConfigBranch.ORGANIZATIONS,
+            name="org-a",
+            profile="shared",
+            tasks=[],
+        ),
+        TargetDescriptor(
+            config_branch=ConfigBranch.ORGANIZATIONS,
+            name="org-b",
+            profile="shared",
+            tasks=[],
+        ),
+    ]
+
+    engine_result = run_multiple_targets(
+        targets=targets,
+        max_parallel_targets=1,
+        cli_dry_run=None,
+        cli_include=None,
+        cli_exclude=None,
+    )
+
+    assert auth_check_calls == ["org-a"]
+    assert [result.target_name for result in engine_result.auth_results] == [
+        "org-a",
+        "org-b",
+    ]
+
+
 def test_prepare_target_reuses_same_org_discovery_cache(monkeypatch):
     discovered_accounts = {
         "111111111111": {"account_number": "111111111111", "account_alias": "acct-a"}
@@ -57,8 +146,8 @@ def test_prepare_target_reuses_same_org_discovery_cache(monkeypatch):
     call_counts = {"accounts": 0, "regions": 0}
 
     monkeypatch.setattr(
-        "anvil.runner._run_auth_check_for_target",
-        lambda target: AuthResult(
+        "anvil.runner._run_cached_auth_check_for_target",
+        lambda target, auth_cache: AuthResult(
             target_name=target.name,
             status=ExecutionStatus.SUCCESS,
             source="test",
@@ -101,6 +190,7 @@ def test_prepare_target_reuses_same_org_discovery_cache(monkeypatch):
     )
 
     organization_cache = OrganizationRunCache()
+    auth_cache = AuthCheckCache()
     target_a = TargetDescriptor(
         config_branch=ConfigBranch.ORGANIZATIONS,
         name="org-a",
@@ -123,6 +213,7 @@ def test_prepare_target_reuses_same_org_discovery_cache(monkeypatch):
         cli_include=None,
         cli_exclude=None,
         organization_cache=organization_cache,
+        auth_cache=auth_cache,
     )
     prepared_b = prepare_target(
         index=1,
@@ -131,6 +222,7 @@ def test_prepare_target_reuses_same_org_discovery_cache(monkeypatch):
         cli_include=None,
         cli_exclude=None,
         organization_cache=organization_cache,
+        auth_cache=auth_cache,
     )
 
     assert call_counts == {"accounts": 1, "regions": 1}
@@ -140,6 +232,111 @@ def test_prepare_target_reuses_same_org_discovery_cache(monkeypatch):
     assert prepared_b.discovered_accounts == discovered_accounts
     assert prepared_a.enabled_regions == enabled_regions
     assert prepared_b.enabled_regions == enabled_regions
+
+
+def test_organization_run_cache_single_flights_concurrent_discovery():
+    entry = OrganizationRunCacheEntry(
+        management_account_id="999999999999",
+        discovered_accounts={
+            "111111111111": {
+                "account_number": "111111111111",
+                "account_alias": "acct-a",
+            }
+        },
+        enabled_regions=["us-east-1"],
+    )
+    cache = OrganizationRunCache()
+    discovery_started = threading.Event()
+    waiter_started = threading.Event()
+    release_discovery = threading.Event()
+    discover_calls = 0
+    discover_lock = threading.Lock()
+
+    def discover():
+        nonlocal discover_calls
+        with discover_lock:
+            discover_calls += 1
+
+        discovery_started.set()
+        assert waiter_started.wait(timeout=1)
+        assert release_discovery.wait(timeout=1)
+        return entry
+
+    def owner_lookup():
+        return cache.get_or_discover(organization_id="o-shared", discover=discover)
+
+    def waiter_lookup():
+        waiter_started.set()
+        return cache.get_or_discover(organization_id="o-shared", discover=discover)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(owner_lookup)
+        assert discovery_started.wait(timeout=1)
+
+        second = executor.submit(waiter_lookup)
+        assert waiter_started.wait(timeout=1)
+        release_discovery.set()
+
+        first_lookup = first.result(timeout=1)
+        second_lookup = second.result(timeout=1)
+
+    assert discover_calls == 1
+    assert first_lookup.entry is entry
+    assert first_lookup.hit is False
+    assert first_lookup.waited is False
+    assert second_lookup.entry is entry
+    assert second_lookup.hit is True
+    assert second_lookup.waited is True
+
+
+def test_organization_run_cache_releases_waiters_after_discovery_error():
+    cache = OrganizationRunCache()
+    discovery_started = threading.Event()
+    waiter_started = threading.Event()
+    release_discovery = threading.Event()
+
+    def fail_discovery():
+        discovery_started.set()
+        assert waiter_started.wait(timeout=1)
+        assert release_discovery.wait(timeout=1)
+        raise RuntimeError("discovery failed")
+
+    def owner_lookup():
+        return cache.get_or_discover(
+            organization_id="o-shared", discover=fail_discovery
+        )
+
+    def waiter_lookup():
+        waiter_started.set()
+        return cache.get_or_discover(
+            organization_id="o-shared", discover=fail_discovery
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(owner_lookup)
+        assert discovery_started.wait(timeout=1)
+
+        second = executor.submit(waiter_lookup)
+        assert waiter_started.wait(timeout=1)
+        release_discovery.set()
+
+        with pytest.raises(RuntimeError, match="discovery failed"):
+            second.result(timeout=1)
+        with pytest.raises(RuntimeError, match="discovery failed"):
+            first.result(timeout=1)
+
+    entry = OrganizationRunCacheEntry(
+        management_account_id="999999999999",
+        discovered_accounts={},
+        enabled_regions=["us-east-1"],
+    )
+    retry_lookup = cache.get_or_discover(
+        organization_id="o-shared", discover=lambda: entry
+    )
+
+    assert retry_lookup.entry is entry
+    assert retry_lookup.hit is False
+    assert retry_lookup.waited is False
 
 
 def test_run_prepared_target_uses_cached_org_preflight(monkeypatch):
@@ -234,8 +431,8 @@ def test_run_prepared_target_uses_cached_org_preflight(monkeypatch):
 
 def test_prepare_target_carries_max_parallel_regions_into_context(monkeypatch):
     monkeypatch.setattr(
-        "anvil.runner._run_auth_check_for_target",
-        lambda target: AuthResult(
+        "anvil.runner._run_cached_auth_check_for_target",
+        lambda target, auth_cache: AuthResult(
             target_name=target.name,
             status=ExecutionStatus.SUCCESS,
             source="test",
@@ -264,6 +461,7 @@ def test_prepare_target_carries_max_parallel_regions_into_context(monkeypatch):
         cli_include=None,
         cli_exclude=None,
         organization_cache=OrganizationRunCache(),
+        auth_cache=AuthCheckCache(),
     )
 
     assert prepared.context is not None

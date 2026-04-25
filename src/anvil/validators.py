@@ -52,6 +52,7 @@ def _detect_config_branch(config: dict) -> ConfigBranch:
     )
 
 
+@lru_cache(maxsize=2)
 def _load_branch_schema(*, branch: ConfigBranch, schema_version: int) -> dict:
     if schema_version != 1:
         raise ValueError(

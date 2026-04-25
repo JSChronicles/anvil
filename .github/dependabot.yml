@@ -45,3 +45,24 @@ updates:
     labels:
       - "dependencies"
       - "github-actions"
+
+
+  - package-ecosystem: "pre-commit"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+      time: "08:00"
+      timezone: "America/Chicago"
+    cooldown:
+      default-days: 7
+    groups:
+      pre-commit:
+        applies-to: version-updates
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "pre-commit"

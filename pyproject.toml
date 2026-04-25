@@ -1,5 +1,5 @@
 [build-system]
-requires = ["uv_build>=0.11.3,<0.12"]
+requires = ["uv_build>=0.11.7,<0.14"]
 build-backend = "uv_build"
 
 [project]
@@ -9,10 +9,9 @@ description = "Anvil is a multi-org AWS execution runner"
 readme = "README.md"
 requires-python = ">=3.14,<3.15"
 dependencies = [
-  "boto3",
-  "requests",
-  "PyYAML>=6.0.3",
-  "jsonschema>=4.26.0"
+  "boto3>=1.42.96,<1.50.0",
+  "PyYAML>=6.0.3,<7.0.0",
+  "jsonschema>=4.26.0,<4.30.0"
 ]
 
 [project.scripts]
@@ -20,11 +19,11 @@ anvil = "anvil.cli:main"
 
 [dependency-groups]
 dev = [
-  "pytest-cov==7.1.0",
-  "pytest==9.0.3",
-  "prek==0.3.8",
-  "check-jsonschema",
-  "ruff"
+  "pytest-cov>=7.1.0,<8.0.0",
+  "pytest>=9.0.3,<10.0.0",
+  "prek>=0.3.8,<0.4.0",
+  "check-jsonschema>=0.37.1,<0.40.0",
+  "ruff>=0.15.12,<0.20.0",
 ]
 
 [tool.pytest.ini_options]

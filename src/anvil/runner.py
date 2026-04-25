@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import datetime
 import logging
 import threading
 from collections import deque
+from collections.abc import Callable
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field, replace
 
@@ -16,7 +18,13 @@ from anvil.descriptors import ConfigBranch, TargetDescriptor
 from anvil.execution_context import ExecutionContext
 from anvil.executor import execute_accounts
 from anvil.organization import OrganizationResolver
-from anvil.results import AuthResult, EngineResult, EngineState, TargetResult
+from anvil.results import (
+    AuthResult,
+    EngineResult,
+    EngineState,
+    ExecutionStatus,
+    TargetResult,
+)
 from anvil.session import SessionFactory
 from anvil.task_loader import ResolvedExecution, ResolvedTask, resolve_tasks
 
@@ -31,6 +39,64 @@ STATE_PRECEDENCE: dict[EngineState, int] = {
 }
 
 DEFAULT_AUTH_CHECK_MAX_WORKERS = 4
+
+
+@dataclass(slots=True)
+class _SingleFlightEntry:
+    event: threading.Event = field(default_factory=threading.Event)
+    value: object | None = None
+    error: BaseException | None = None
+
+
+class _SingleFlightCache:
+    def __init__(self) -> None:
+        self._values: dict[object, object] = {}
+        self._flights: dict[object, _SingleFlightEntry] = {}
+        self._lock = threading.Lock()
+
+    def get_or_create(
+        self, *, key: object, create: Callable[[], object]
+    ) -> tuple[object, bool, bool]:
+        with self._lock:
+            existing = self._values.get(key)
+            if existing is not None:
+                return existing, True, False
+
+            flight = self._flights.get(key)
+            if flight is None:
+                flight = _SingleFlightEntry()
+                self._flights[key] = flight
+                owns_create = True
+            else:
+                owns_create = False
+
+        if owns_create:
+            try:
+                value = create()
+            except BaseException as error:
+                with self._lock:
+                    flight.error = error
+                    self._flights.pop(key, None)
+                    flight.event.set()
+                raise
+
+            with self._lock:
+                existing = self._values.get(key)
+                cached_value = existing if existing is not None else value
+                self._values[key] = cached_value
+                flight.value = cached_value
+                self._flights.pop(key, None)
+                flight.event.set()
+
+            return cached_value, False, False
+
+        flight.event.wait()
+        if flight.error is not None:
+            raise flight.error
+        if flight.value is None:
+            raise RuntimeError("Single-flight cache entry completed empty")
+
+        return flight.value, True, True
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,31 +126,70 @@ class TargetExecutionOutcome:
 
 
 @dataclass(frozen=True, slots=True)
+class AuthCheckOutcome:
+    status: ExecutionStatus
+    source: str
+    started_at: str
+    ended_at: str
+    duration_seconds: float
+    message: str | None
+    remediation: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class _AuthCheckCacheLookup:
+    outcome: AuthCheckOutcome
+    hit: bool
+    waited: bool
+
+
+class AuthCheckCache:
+    def __init__(self) -> None:
+        self._cache = _SingleFlightCache()
+
+    def get_or_check(
+        self,
+        *,
+        profile: str | None,
+        auth_source: AuthSource,
+        check: Callable[[], AuthCheckOutcome],
+    ) -> _AuthCheckCacheLookup:
+        key = (profile, auth_source.value)
+        outcome, hit, waited = self._cache.get_or_create(key=key, create=check)
+        if not isinstance(outcome, AuthCheckOutcome):
+            raise RuntimeError("Auth check cache returned unexpected value")
+
+        return _AuthCheckCacheLookup(outcome=outcome, hit=hit, waited=waited)
+
+
+@dataclass(frozen=True, slots=True)
 class OrganizationRunCacheEntry:
     management_account_id: str
     discovered_accounts: dict[str, dict[str, str]]
     enabled_regions: list[str]
 
 
+@dataclass(frozen=True, slots=True)
+class _OrganizationRunCacheLookup:
+    entry: OrganizationRunCacheEntry
+    hit: bool
+    waited: bool
+
+
 class OrganizationRunCache:
     def __init__(self) -> None:
-        self._entries: dict[str, OrganizationRunCacheEntry] = {}
-        self._lock = threading.Lock()
+        self._cache = _SingleFlightCache()
 
-    def get(self, organization_id: str) -> OrganizationRunCacheEntry | None:
-        with self._lock:
-            return self._entries.get(organization_id)
+    def get_or_discover(
+        self, *, organization_id: str, discover: Callable[[], OrganizationRunCacheEntry]
+    ) -> _OrganizationRunCacheLookup:
+        entry, hit, waited = self._cache.get_or_create(
+            key=organization_id, create=discover
+        )
+        if not isinstance(entry, OrganizationRunCacheEntry):
+            raise RuntimeError("Organization discovery cache returned unexpected value")
 
-    def put_if_absent(
-        self, organization_id: str, entry: OrganizationRunCacheEntry
-    ) -> OrganizationRunCacheEntry:
-        with self._lock:
-            existing = self._entries.get(organization_id)
-            if existing is not None:
-                return existing
-
-            self._entries[organization_id] = entry
-            return entry
+        return _OrganizationRunCacheLookup(entry=entry, hit=hit, waited=waited)
 
 
 def _elevate_state(current: EngineState, new: EngineState) -> EngineState:
@@ -103,14 +208,59 @@ def _engine_state_from_auth_results(*, auth_results: list[AuthResult]) -> Engine
     return EngineState.COMPLETED_SUCCESS
 
 
-def _run_auth_check_for_target(target: TargetDescriptor) -> AuthResult:
-    """
-    Run an auth check for a single target descriptor.
-    """
+def _auth_outcome_from_result(auth_result: AuthResult) -> AuthCheckOutcome:
+    return AuthCheckOutcome(
+        status=auth_result.status,
+        source=auth_result.source,
+        started_at=auth_result.started_at,
+        ended_at=auth_result.ended_at,
+        duration_seconds=auth_result.duration_seconds,
+        message=auth_result.message,
+        remediation=auth_result.remediation,
+    )
+
+
+def _auth_result_from_outcome(
+    *, target_name: str, outcome: AuthCheckOutcome, cached: bool
+) -> AuthResult:
+    if cached:
+        started_at = datetime.datetime.now(datetime.UTC).isoformat()
+        ended_at = started_at
+        duration_seconds = 0.0
+    else:
+        started_at = outcome.started_at
+        ended_at = outcome.ended_at
+        duration_seconds = outcome.duration_seconds
+
+    return AuthResult(
+        target_name=target_name,
+        status=outcome.status,
+        source=outcome.source,
+        started_at=started_at,
+        ended_at=ended_at,
+        duration_seconds=duration_seconds,
+        message=outcome.message,
+        remediation=outcome.remediation,
+    )
+
+
+def _run_cached_auth_check_for_target(
+    *, target: TargetDescriptor, auth_cache: AuthCheckCache
+) -> AuthResult:
     auth_source: AuthSource = infer_auth_source(target.profile)
 
-    return auth_check(
-        target_name=target.name, profile=target.profile, auth_source=auth_source
+    def check() -> AuthCheckOutcome:
+        return _auth_outcome_from_result(
+            auth_check(
+                target_name=target.name, profile=target.profile, auth_source=auth_source
+            )
+        )
+
+    lookup = auth_cache.get_or_check(
+        profile=target.profile, auth_source=auth_source, check=check
+    )
+    return _auth_result_from_outcome(
+        target_name=target.name, outcome=lookup.outcome, cached=lookup.hit
     )
 
 
@@ -198,8 +348,7 @@ def _preflight_organization(
             OrganizationResolver.describe_organization(base_session)
         )
 
-    cached_entry = organization_cache.get(organization_id)
-    if cached_entry is None:
+    def discover_organization() -> OrganizationRunCacheEntry:
         with sink.phase("discover_accounts_seconds"):
             discovered_accounts = OrganizationResolver.discover_accounts(base_session)
 
@@ -208,24 +357,24 @@ def _preflight_organization(
                 base_session
             )
 
-        cached_entry = organization_cache.put_if_absent(
-            organization_id,
-            OrganizationRunCacheEntry(
-                management_account_id=management_account_id,
-                discovered_accounts=discovered_accounts,
-                enabled_regions=enabled_regions,
-            ),
+        return OrganizationRunCacheEntry(
+            management_account_id=management_account_id,
+            discovered_accounts=discovered_accounts,
+            enabled_regions=enabled_regions,
         )
-        sink.set("organization_cache_hit", False)
-    else:
-        sink.set("organization_cache_hit", True)
+
+    lookup = organization_cache.get_or_discover(
+        organization_id=organization_id, discover=discover_organization
+    )
+    sink.set("organization_cache_hit", lookup.hit)
+    sink.set("organization_cache_waited", lookup.waited)
 
     return (
         base_session,
         organization_id,
-        cached_entry.management_account_id,
-        cached_entry.discovered_accounts,
-        cached_entry.enabled_regions,
+        lookup.entry.management_account_id,
+        lookup.entry.discovered_accounts,
+        lookup.entry.enabled_regions,
     )
 
 
@@ -237,13 +386,16 @@ def prepare_target(
     cli_include: list[str] | None,
     cli_exclude: list[str] | None,
     organization_cache: OrganizationRunCache,
+    auth_cache: AuthCheckCache,
     benchmark_enabled: bool = False,
 ) -> PreparedTarget:
     recorder = BenchmarkRecorder(enabled=benchmark_enabled)
     session_factory = SessionFactory()
 
     with recorder.phase("prepare_target_seconds"):
-        auth_result: AuthResult = _run_auth_check_for_target(target)
+        auth_result: AuthResult = _run_cached_auth_check_for_target(
+            target=target, auth_cache=auth_cache
+        )
 
         effective_target: TargetDescriptor = _build_effective_target(
             target=target,
@@ -410,12 +562,16 @@ def run_auth_checks(*, targets: list[TargetDescriptor]) -> EngineResult:
         targets[0].config_branch if targets else ConfigBranch.ORGANIZATIONS
     )
     auth_results: list[AuthResult] = []
+    auth_cache = AuthCheckCache()
 
     with ThreadPoolExecutor(
         max_workers=max(1, min(DEFAULT_AUTH_CHECK_MAX_WORKERS, len(targets)))
     ) as executor:
         futures: list[Future[AuthResult]] = [
-            executor.submit(_run_auth_check_for_target, target) for target in targets
+            executor.submit(
+                _run_cached_auth_check_for_target, target=target, auth_cache=auth_cache
+            )
+            for target in targets
         ]
 
         for target, future in zip(targets, futures, strict=True):
@@ -451,6 +607,7 @@ def _run_target_pipeline(
     ready_targets: deque[PreparedTarget] = deque()
     active_organization_ids: set[str] = set()
     organization_cache = OrganizationRunCache()
+    auth_cache = AuthCheckCache()
 
     if targets:
         worker_limit = max(1, min(max_parallel_targets, len(targets)))
@@ -468,6 +625,7 @@ def _run_target_pipeline(
                     cli_include=cli_include,
                     cli_exclude=cli_exclude,
                     organization_cache=organization_cache,
+                    auth_cache=auth_cache,
                     benchmark_enabled=benchmark_enabled,
                 ): index
                 for index, target in enumerate(targets)

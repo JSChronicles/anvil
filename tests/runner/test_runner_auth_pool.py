@@ -139,6 +139,200 @@ def test_run_auth_checks_handles_mixed_success_and_failure_in_input_order(monkey
     assert engine_result.state is results.EngineState.AUTH_FAILED
 
 
+def test_run_auth_checks_reuses_same_profile_auth_result(monkeypatch):
+    runner = importlib.import_module("anvil.runner")
+    descriptors = importlib.import_module("anvil.descriptors")
+    results = importlib.import_module("anvil.results")
+
+    targets = [
+        _org_target(descriptors, name="org-a", profile="shared"),
+        _org_target(descriptors, name="org-b", profile="shared"),
+        _org_target(descriptors, name="org-c", profile="shared"),
+    ]
+    auth_check_calls: list[str] = []
+
+    monkeypatch.setattr(
+        runner, "infer_auth_source", lambda profile: runner.AuthSource.PROFILE_STATIC
+    )
+
+    def fake_auth_check(*, target_name: str, profile: str | None, auth_source):
+        auth_check_calls.append(target_name)
+        return results.AuthResult(
+            target_name=target_name,
+            status=results.ExecutionStatus.SUCCESS,
+            source=auth_source.value,
+            started_at="start",
+            ended_at="end",
+            duration_seconds=1.0,
+            message="ok",
+        )
+
+    monkeypatch.setattr(runner, "auth_check", fake_auth_check)
+
+    engine_result = runner.run_auth_checks(targets=targets)
+
+    assert auth_check_calls == ["org-a"]
+    assert [result.target_name for result in engine_result.auth_results] == [
+        "org-a",
+        "org-b",
+        "org-c",
+    ]
+    assert [result.duration_seconds for result in engine_result.auth_results] == [
+        1.0,
+        0.0,
+        0.0,
+    ]
+    assert all(
+        result.status is results.ExecutionStatus.SUCCESS
+        for result in engine_result.auth_results
+    )
+
+
+def test_run_auth_checks_reuses_same_profile_failure_for_each_target(monkeypatch):
+    runner = importlib.import_module("anvil.runner")
+    descriptors = importlib.import_module("anvil.descriptors")
+    results = importlib.import_module("anvil.results")
+
+    targets = [
+        _org_target(descriptors, name="org-a", profile="shared"),
+        _org_target(descriptors, name="org-b", profile="shared"),
+    ]
+    auth_check_calls: list[str] = []
+
+    monkeypatch.setattr(
+        runner, "infer_auth_source", lambda profile: runner.AuthSource.SSO
+    )
+
+    def fake_auth_check(*, target_name: str, profile: str | None, auth_source):
+        auth_check_calls.append(target_name)
+        return results.AuthResult(
+            target_name=target_name,
+            status=results.ExecutionStatus.ERROR,
+            source=auth_source.value,
+            started_at="start",
+            ended_at="end",
+            duration_seconds=1.0,
+            message="AWS SSO session is invalid or expired.",
+            remediation="aws sso login --profile shared",
+        )
+
+    monkeypatch.setattr(runner, "auth_check", fake_auth_check)
+
+    engine_result = runner.run_auth_checks(targets=targets)
+
+    assert auth_check_calls == ["org-a"]
+    assert [result.target_name for result in engine_result.auth_results] == [
+        "org-a",
+        "org-b",
+    ]
+    assert [result.status for result in engine_result.auth_results] == [
+        results.ExecutionStatus.ERROR,
+        results.ExecutionStatus.ERROR,
+    ]
+    assert [result.duration_seconds for result in engine_result.auth_results] == [
+        1.0,
+        0.0,
+    ]
+    assert all(
+        result.message == "AWS SSO session is invalid or expired."
+        for result in engine_result.auth_results
+    )
+    assert engine_result.state is results.EngineState.AUTH_FAILED
+
+
+def test_run_auth_checks_keeps_different_profiles_separate(monkeypatch):
+    runner = importlib.import_module("anvil.runner")
+    descriptors = importlib.import_module("anvil.descriptors")
+    results = importlib.import_module("anvil.results")
+
+    targets = [
+        _org_target(descriptors, name="org-a", profile="a"),
+        _org_target(descriptors, name="org-b", profile="b"),
+        _org_target(descriptors, name="org-c", profile="a"),
+    ]
+    auth_check_calls: list[tuple[str, str | None]] = []
+
+    monkeypatch.setattr(
+        runner, "infer_auth_source", lambda profile: runner.AuthSource.PROFILE_STATIC
+    )
+
+    def fake_auth_check(*, target_name: str, profile: str | None, auth_source):
+        auth_check_calls.append((target_name, profile))
+        return results.AuthResult(
+            target_name=target_name,
+            status=results.ExecutionStatus.SUCCESS,
+            source=auth_source.value,
+            started_at="start",
+            ended_at="end",
+            duration_seconds=1.0,
+            message="ok",
+        )
+
+    monkeypatch.setattr(runner, "auth_check", fake_auth_check)
+
+    engine_result = runner.run_auth_checks(targets=targets)
+
+    assert auth_check_calls == [("org-a", "a"), ("org-b", "b")]
+    assert [result.target_name for result in engine_result.auth_results] == [
+        "org-a",
+        "org-b",
+        "org-c",
+    ]
+
+
+def test_run_auth_checks_single_flights_concurrent_same_profile(monkeypatch):
+    runner = importlib.import_module("anvil.runner")
+    descriptors = importlib.import_module("anvil.descriptors")
+    results = importlib.import_module("anvil.results")
+
+    targets = [
+        _org_target(descriptors, name="org-a", profile="shared"),
+        _org_target(descriptors, name="org-b", profile="shared"),
+    ]
+    auth_check_calls: list[str] = []
+    auth_check_started = threading.Event()
+    release_auth_check = threading.Event()
+
+    monkeypatch.setattr(
+        runner, "infer_auth_source", lambda profile: runner.AuthSource.PROFILE_STATIC
+    )
+
+    def fake_auth_check(*, target_name: str, profile: str | None, auth_source):
+        auth_check_calls.append(target_name)
+        auth_check_started.set()
+        assert release_auth_check.wait(timeout=1.0)
+        return results.AuthResult(
+            target_name=target_name,
+            status=results.ExecutionStatus.SUCCESS,
+            source=auth_source.value,
+            started_at="start",
+            ended_at="end",
+            duration_seconds=1.0,
+            message="ok",
+        )
+
+    monkeypatch.setattr(runner, "auth_check", fake_auth_check)
+
+    result_holder = {}
+    thread = threading.Thread(
+        target=lambda: result_holder.setdefault(
+            "result", runner.run_auth_checks(targets=targets)
+        )
+    )
+    thread.start()
+
+    assert auth_check_started.wait(timeout=1.0)
+    release_auth_check.set()
+    thread.join(timeout=1.0)
+
+    assert not thread.is_alive()
+    assert auth_check_calls == ["org-a"]
+    assert [result.target_name for result in result_holder["result"].auth_results] == [
+        "org-a",
+        "org-b",
+    ]
+
+
 def test_run_multiple_targets_executes_targets_in_parallel_and_preserves_input_order(
     monkeypatch,
 ):

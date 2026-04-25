@@ -53,6 +53,15 @@ Anvil supports defining multiple organizations in a single run. Each organizatio
 
 This allows a single execution to coordinate work across separate AWS environments without forcing them into a shared credential model or shared runtime configuration.
 
+When one YAML contains multiple targets that resolve to the same AWS
+organization, Anvil reuses organization discovery results during that run. The
+first target to discover active accounts and enabled regions populates a
+run-local cache keyed by organization ID. Concurrent preparation for the same
+organization waits for that in-flight discovery instead of issuing duplicate
+`list_accounts` and `list_regions` calls. Target execution is still serialized
+per organization later in the pipeline so two same-organization targets do not
+execute account work at the same time.
+
 ### Multi-region execution
 
 Within each organization, Anvil can execute tasks across multiple configured AWS regions.
@@ -138,6 +147,7 @@ The `SessionFactory` exists to centralize session and credential mechanics that 
   - managing thread-local worker sessions
   - assuming role into member accounts
   - constructing region-scoped sessions from assumed credentials
+  - wrapping account-region sessions with lazy client caching
 
 This also allows Anvil to separate credential acquisition from session construction.
 
@@ -149,6 +159,24 @@ For example, in a run with 50 accounts, 4 regions, and 49 member accounts:
 - current behavior: 49 member accounts × 1 = 49 AssumeRole calls
 
 This reduces avoidable STS churn while still giving each region run its own correctly scoped boto3 session.
+
+### Account-region client caching
+
+For task execution, Anvil wraps each account-region session with a small lazy client cache before passing it to tasks.
+
+The cache scope is intentionally narrow: one account, one region, one ordered task stream. If two tasks in the same account-region both call `session.client("ec2")`, the first call creates the EC2 client and the second call reuses it. If a task calls a different service, or calls the same service with different client arguments such as a different `region_name`, Anvil creates a separate client for that distinct call shape.
+
+This is an engine behavior, not a YAML setting. Task authors should continue to use the normal boto3-style pattern:
+
+```python
+ec2_client = session.client("ec2")
+```
+
+The cache is lazy, so a single task that creates one client pays only a small lookup before normal client creation. The benefit shows up when a workflow has multiple tasks in the same account-region that use the same AWS service, such as separate EC2 inventory tasks.
+
+Client caching reduces repeated boto3 client construction, service model setup, endpoint setup, and connection pool churn. It does not reduce AWS API calls. For example, a workflow that runs one VPC task and one subnet task can reuse the EC2 client, but it still calls both `describe_vpcs` and `describe_subnets`.
+
+Larger inventory optimizations should still happen at the task design level. If several read-only tasks repeatedly scan related EC2 inventory, a combined inventory task may reduce duplicate AWS API calls more than client caching can.
 
 ### Organization-scoped session setup
 
@@ -182,6 +210,28 @@ For member accounts, Anvil assumes the configured role once per account executio
 
 This avoids repeating STS role assumption for every region while still giving each region run its own correctly scoped boto3 session.
 
+Before each member-account region starts, Anvil checks whether the shared
+assumed-role credentials are expired or too close to expiration. The safety
+window starts at five minutes, then expands during the account run based on the
+longest completed region duration plus a small buffer. This prevents Anvil from
+starting a later region with credentials that are technically still valid but
+unlikely to last through a similar region task stream.
+
+If credentials are inside that safety window, Anvil refreshes them before
+constructing the region's session. Parallel region execution coordinates this
+refresh with a per-account lock so multiple region workers do not all re-assume
+the role at the same time. When benchmark output is enabled, account benchmark
+data includes `assume_role_refresh_count` and
+`assume_role_refresh_window_seconds`.
+
+With parallel region execution, the first wave of regions starts before any
+region-duration history exists, so it uses the initial five-minute safety
+window. As regions finish, their observed durations can expand the safety window
+for later scheduled regions in the same account. Regions that have already
+started keep the session they were given; the guard prevents starting new region
+work with near-expired credentials, but it does not refresh credentials in the
+middle of a running task.
+
 ### Management-account execution
 
 Management accounts do not require role assumption. They execute directly with the organization/profile-backed worker session for each region.
@@ -191,6 +241,13 @@ Management accounts do not require role assumption. They execute directly with t
 Anvil includes an authentication check mode that validates AWS access for each configured organization before account-level task execution begins. This helps catch expired credentials, missing profiles, access issues, or invalid SSO sessions early.
 
 Authentication checks run concurrently across organizations through a small bounded worker pool. Anvil currently validates up to **4 organizations at a time**, which reduces startup latency while keeping concurrency controlled.
+
+Within one run, Anvil reuses auth-check outcomes for targets that use the same
+profile and inferred authentication source. The first target performs the STS
+identity check, while concurrent or later targets with the same auth identity
+reuse that outcome. Output remains target-specific: each target still receives
+its own `AuthResult`, and a cached failure is reported for every target that
+uses the failing identity.
 
 ### What auth check does
 
@@ -329,8 +386,9 @@ flowchart TD
     U -->|No| W["Assume role"]
     W --> X["Create region session"]
 
-    V --> Y["Run tasks by region<br/>in dependency order"]
-    X --> Y
+    V --> C1["Wrap account-region session<br/>with lazy client cache"]
+    X --> C1
+    C1 --> Y["Run tasks by region<br/>in dependency order"]
 
     Y --> YA{"More tasks or regions?"}
     YA -->|Yes| Y

@@ -13,6 +13,7 @@ from botocore.exceptions import (
     ClientError,
     NoCredentialsError,
     ProfileNotFound,
+    TokenRetrievalError,
     UnauthorizedSSOTokenError,
 )
 
@@ -73,7 +74,7 @@ def _map_exception(
             )
         return "No AWS credentials available.", None
 
-    if isinstance(exc, UnauthorizedSSOTokenError):
+    if isinstance(exc, UnauthorizedSSOTokenError | TokenRetrievalError):
         return (
             "AWS SSO session is invalid or expired.",
             f"aws sso login --profile {profile}" if profile else None,
