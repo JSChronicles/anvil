@@ -152,9 +152,7 @@ def test_run_auth_checks_reuses_same_profile_auth_result(monkeypatch):
     auth_check_calls: list[str] = []
 
     monkeypatch.setattr(
-        runner,
-        "infer_auth_source",
-        lambda profile: runner.AuthSource.PROFILE_STATIC,
+        runner, "infer_auth_source", lambda profile: runner.AuthSource.PROFILE_STATIC
     )
 
     def fake_auth_check(*, target_name: str, profile: str | None, auth_source):
@@ -202,9 +200,7 @@ def test_run_auth_checks_reuses_same_profile_failure_for_each_target(monkeypatch
     auth_check_calls: list[str] = []
 
     monkeypatch.setattr(
-        runner,
-        "infer_auth_source",
-        lambda profile: runner.AuthSource.SSO,
+        runner, "infer_auth_source", lambda profile: runner.AuthSource.SSO
     )
 
     def fake_auth_check(*, target_name: str, profile: str | None, auth_source):
@@ -257,9 +253,7 @@ def test_run_auth_checks_keeps_different_profiles_separate(monkeypatch):
     auth_check_calls: list[tuple[str, str | None]] = []
 
     monkeypatch.setattr(
-        runner,
-        "infer_auth_source",
-        lambda profile: runner.AuthSource.PROFILE_STATIC,
+        runner, "infer_auth_source", lambda profile: runner.AuthSource.PROFILE_STATIC
     )
 
     def fake_auth_check(*, target_name: str, profile: str | None, auth_source):
@@ -300,9 +294,7 @@ def test_run_auth_checks_single_flights_concurrent_same_profile(monkeypatch):
     release_auth_check = threading.Event()
 
     monkeypatch.setattr(
-        runner,
-        "infer_auth_source",
-        lambda profile: runner.AuthSource.PROFILE_STATIC,
+        runner, "infer_auth_source", lambda profile: runner.AuthSource.PROFILE_STATIC
     )
 
     def fake_auth_check(*, target_name: str, profile: str | None, auth_source):

@@ -181,10 +181,7 @@ class OrganizationRunCache:
         self._cache = _SingleFlightCache()
 
     def get_or_discover(
-        self,
-        *,
-        organization_id: str,
-        discover: Callable[[], OrganizationRunCacheEntry],
+        self, *, organization_id: str, discover: Callable[[], OrganizationRunCacheEntry]
     ) -> _OrganizationRunCacheLookup:
         entry, hit, waited = self._cache.get_or_create(
             key=organization_id, create=discover
@@ -255,9 +252,7 @@ def _run_cached_auth_check_for_target(
     def check() -> AuthCheckOutcome:
         return _auth_outcome_from_result(
             auth_check(
-                target_name=target.name,
-                profile=target.profile,
-                auth_source=auth_source,
+                target_name=target.name, profile=target.profile, auth_source=auth_source
             )
         )
 
@@ -265,9 +260,7 @@ def _run_cached_auth_check_for_target(
         profile=target.profile, auth_source=auth_source, check=check
     )
     return _auth_result_from_outcome(
-        target_name=target.name,
-        outcome=lookup.outcome,
-        cached=lookup.hit,
+        target_name=target.name, outcome=lookup.outcome, cached=lookup.hit
     )
 
 
@@ -576,9 +569,7 @@ def run_auth_checks(*, targets: list[TargetDescriptor]) -> EngineResult:
     ) as executor:
         futures: list[Future[AuthResult]] = [
             executor.submit(
-                _run_cached_auth_check_for_target,
-                target=target,
-                auth_cache=auth_cache,
+                _run_cached_auth_check_for_target, target=target, auth_cache=auth_cache
             )
             for target in targets
         ]

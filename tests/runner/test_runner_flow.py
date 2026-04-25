@@ -61,8 +61,7 @@ def test_run_multiple_targets_reuses_same_profile_auth_during_preparation(monkey
     auth_check_calls: list[str] = []
 
     monkeypatch.setattr(
-        "anvil.runner.infer_auth_source",
-        lambda profile: AuthSource.PROFILE_STATIC,
+        "anvil.runner.infer_auth_source", lambda profile: AuthSource.PROFILE_STATIC
     )
 
     def fake_auth_check(**kwargs):

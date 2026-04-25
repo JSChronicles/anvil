@@ -33,6 +33,7 @@ class WorkerSession:
         self.client_calls.append((service_name, kwargs))
 
         if service_name == "sts":
+
             class STSClient:
                 def __init__(self, *, account_id: str) -> None:
                     self._account_id = account_id
@@ -68,9 +69,7 @@ class RecordingSessionFactory:
     def assume_role_credentials(self, **kwargs):
         self.assume_role_calls.append(kwargs)
         expiration = (
-            self.credential_expirations.pop(0)
-            if self.credential_expirations
-            else None
+            self.credential_expirations.pop(0) if self.credential_expirations else None
         )
         return AssumedRoleCredentials(
             access_key_id=f"access-{len(self.assume_role_calls)}",
@@ -253,8 +252,9 @@ def test_assume_role_path_refreshes_expiring_credentials_before_region():
     assert result.status is ExecutionStatus.SUCCESS
     assert len(session_factory.assume_role_calls) == 2
     assert (
-        session_factory.create_session_from_credentials_calls[0]["credentials"]
-        .access_key_id
+        session_factory.create_session_from_credentials_calls[0][
+            "credentials"
+        ].access_key_id
         == "access-2"
     )
 
@@ -313,9 +313,10 @@ def test_assume_role_parallel_regions_refresh_credentials_once():
 def test_adaptive_assume_role_refresh_window_uses_observed_region_duration():
     region_duration = datetime.timedelta(minutes=15)
 
-    assert Account._refresh_window_for_region_duration(
-        region_duration.total_seconds()
-    ) == region_duration + ASSUMED_CREDENTIAL_REFRESH_BUFFER
+    assert (
+        Account._refresh_window_for_region_duration(region_duration.total_seconds())
+        == region_duration + ASSUMED_CREDENTIAL_REFRESH_BUFFER
+    )
 
 
 def test_adaptive_assume_role_refresh_window_keeps_minimum_for_short_regions():

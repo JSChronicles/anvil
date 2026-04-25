@@ -125,8 +125,7 @@ class Account:
                 )
             if assumed_credential_state is not None:
                 recorder.set(
-                    "assume_role_refresh_count",
-                    assumed_credential_state.refresh_count,
+                    "assume_role_refresh_count", assumed_credential_state.refresh_count
                 )
                 recorder.set(
                     "assume_role_refresh_window_seconds",

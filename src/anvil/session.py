@@ -67,9 +67,7 @@ def _client_cache_key(
         service_name,
         tuple(_cacheable_client_arg(value) for value in args),
         tuple(
-            sorted(
-                (key, _cacheable_client_arg(value)) for key, value in kwargs.items()
-            )
+            sorted((key, _cacheable_client_arg(value)) for key, value in kwargs.items())
         ),
     )
 
