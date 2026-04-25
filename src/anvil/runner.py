@@ -362,6 +362,9 @@ def _preflight_organization(
             discovered_accounts=discovered_accounts,
             enabled_regions=enabled_regions,
         )
+        sink.set("organization_cache_hit", False)
+    else:
+        sink.set("organization_cache_hit", True)
 
     lookup = organization_cache.get_or_discover(
         organization_id=organization_id, discover=discover_organization
