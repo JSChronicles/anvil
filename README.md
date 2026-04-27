@@ -28,51 +28,47 @@
 
 ## Introduction
 
-Anvil is a declarative AWS execution engine for running Python tasks across large account and region fleets. Describe the work in YAML, keep task logic in plain Python modules, and let the engine handle the operational pieces around authentication, role assumption, dependency ordering, concurrency, and structured results.
-
-Use it for inventory, validation, enforcement, cleanup, reporting, and other repeatable AWS workflows that need to run consistently across organizations, explicit account groups, and multiple regions.
+Anvil is a declarative AWS execution engine for running Python tasks across large account and region fleets. Describe the work in YAML, keep task logic in plain Python modules, and let the engine handle authentication, role assumption, dependency ordering, bounded concurrency, and structured results so repeatable AWS work can run faster without turning orchestration into custom scripts.
 
 For a deeper look at the execution flow, see [docs/README.md](docs/README.md).
 
 ## Why Anvil?
 
-Built for teams that need to run AWS work safely, repeatedly, and quickly across many accounts, regions, and organizations.
+For teams that need repeatable AWS workflows, such as inventory, validation, enforcement, cleanup, and reporting, to run consistently across organizations, accounts, and multiple regions.
 
-### Declarative orchestration
+- Declarative orchestration
+  - Define execution in YAML instead of one-off scripts.
+  - Configure organizations, account lists, regions, tasks, dependencies, dry runs, fail-fast behavior, and concurrency in one place.
+- Multi-account and multi-organization by default
+  - Discover active AWS Organizations accounts.
+  - Support explicit account groups and include/exclude filters.
+  - Assume roles into member accounts.
+  - Let account owners, admins, governance teams, and security teams run approved tasks at the scope they control.
+- Bounded parallel execution
+  - Run configured organizations or account groups concurrently with `max_parallel_targets`.
+  - Run accounts inside each target concurrently with `max_workers`.
+  - Run regions inside each account concurrently with `max_parallel_regions`.
+  - Keep concurrency explicit so large runs are faster without accidental API pressure.
+- Shared discovery and session reuse
+  - Preflight organization identity, account discovery, and enabled-region discovery.
+  - Reuse discovery for repeated targets in the same organization.
+  - Reuse sessions and clients while keeping credentials scoped to the correct account and region.
+- Task isolation
+  - Write tasks as plain Python modules.
+  - Keep AWS business logic separate from authentication, role assumption, dependency ordering, result aggregation, and concurrency.
+- Built-in (Stock) and custom tasks
+  - Use built-in tasks for common AWS operations.
+  - Add project-local tasks for team-specific work.
+  - Expect more governance, security, inventory, cleanup, and reporting built-in tasks over time.
+- Structured output and safer operations
+  - Record structured results at task, account, target, and engine levels.
+  - Use auth checks, dry runs, dependency ordering, optional tasks, fail-fast controls, and cancellation handling for safer repeat runs.
 
-Define the execution shape in YAML instead of hardcoding orchestration into one-off scripts. The engine handles organizations, explicit account lists, regions, tasks, dependencies, dry-run behavior, fail-fast behavior, and concurrency limits from configuration.
 
-### Multi-account and multi-organization by default
+### Repository template
 
-It discovers active AWS Organizations accounts, supports explicit account groups, applies include and exclude filters, assumes roles into member accounts, and keeps task code focused on the actual AWS work.
+Create your own dedicated task repository using the [foundry-anvil-template](https://github.com/JSChronicles/foundry-anvil-template). The template provides a ready project layout for custom tasks, YAML examples, validation, and CI outside of the main Anvil repository.
 
-Individuals, developers, admins, governance teams, and security teams can run against the accounts they own or govern. That gives account owners a fast way to run approved tasks, collect consistent results, and troubleshoot AWS issues without rebuilding orchestration each time. Operators with organization-wide access can run the same task set across every account in an organization, or filter execution down to the specific accounts they need with include and exclude controls.
-
-### Bounded parallel execution
-
-Speed comes from parallelizing the parts of AWS work that are naturally independent:
-
-- multiple configured organizations or account groups can run at the same time with `max_parallel_targets`
-- accounts inside each target can run concurrently with `max_workers`
-- regions inside each account can run concurrently with `max_parallel_regions`
-
-Those limits are explicit, so large runs can be faster without turning API pressure into an accident.
-
-### Shared discovery and session reuse
-
-For organization runs, the engine preflights organization identity, account discovery, and enabled-region discovery up front. Repeated targets for the same organization can reuse that discovery instead of making duplicate AWS Organizations calls. During execution, session and client reuse reduce repeated setup while keeping credentials scoped to the correct account and region.
-
-### Task isolation
-
-Tasks are plain Python modules with a small runtime contract. Business logic stays separate from authentication, role assumption, dependency ordering, result aggregation, and concurrency management.
-
-### Stock and custom tasks
-
-The package ships with stock tasks, and more governance, security, inventory, cleanup, and reporting tasks will be added over time. That means it can continue gaining reusable AWS operations while still allowing teams to keep their own project-local tasks separately.
-
-### Structured output and safer operations
-
-Structured results are recorded across task, account, target, and engine levels. Authentication checks, dry-run support, dependency ordering, optional tasks, fail-fast controls, and cancellation handling make large AWS runs easier to inspect and safer to repeat.
 
 ### Standalone Multi-Account Script Template
 
@@ -412,13 +408,6 @@ anvil run --config-file orgs.yaml --exclude 333333333333 444444444444 --dry-run
 ```
 
 
-
-## Custom Tasks (Project-Local)
-
-Anvil supports **project-local tasks** in addition to its stock tasks. This allows you to add custom behavior without forking Anvil.
-
-Maintain your own Anvil tasks in a dedicated task repository using the [foundry-anvil-template](https://github.com/JSChronicles/foundry-anvil-template). The template provides a ready project layout for custom tasks, YAML examples, validation, and CI outside of the main Anvil repository.
-
 ### How task discovery works
 
 Tasks are resolved in the following order:
@@ -430,53 +419,6 @@ Anvil discovers tasks from two sources:
 - Plugin tasks - tasks registered via the anvil.tasks entry-point group
 
 Directories named `tasks/` are conventional only and are not automatically scanned.
-
-
-### Create a project-local tasks directory
-
-Use this manual layout when adding Anvil tasks to an existing project or when you do not want to start from the template.
-
-The minimal recommended project-local task layout:
-
-```text
-my-test-project/
-  pyproject.toml
-  src/
-    my_test_project/
-      __init__.py
-    tasks/
-      __init__.py
-      project_check.py
-  yaml/
-    orgs.yaml
-```
-
-If you are wiring tasks into an existing project manually, put custom task
-modules in an importable package such as `src/tasks/`.
-
-### Register tasks in your project’s pyproject.toml using entry points
-```ini
-[project]
-name = "my-test-project"
-version = "0.0.1"
-requires-python = ">=3.14"
-
-[project.entry-points."anvil.tasks"]
-my_test_project = "tasks"
-
-[build-system]
-requires = ["uv-build"]
-build-backend = "uv_build"
-```
-
-Note you may need to do these steps to activate your test project and anvil into the same venv
-1. Setup your virtual environment
-   1. `uv venv`
-1. From your test project root, install Anvil into that environment too.
-   1. `uv pip install -e path\to\anvil\`
-1. Then also install your plugin project into the same env:
-   1. `uv pip install -e .`
-1. You should see some path output via `uv run python -c "import anvil; print(anvil.__file__)"`
 
 
 ### Implement the Task Contract
