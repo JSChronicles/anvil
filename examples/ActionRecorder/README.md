@@ -45,6 +45,49 @@ action.
 
 ---
 
+### Output Comparison
+
+Without `ActionRecorder`, a task can still log what happened:
+
+```text
+INFO Validated account configuration
+```
+
+The task result only has the normal execution fields:
+
+```json
+{
+  "task": "validate_account",
+  "region": "us-east-1",
+  "status": "success",
+  "started_at": "2026-04-26T20:15:00+00:00",
+  "ended_at": "2026-04-26T20:15:01+00:00",
+  "duration_seconds": 1.0,
+  "result": null,
+  "error": null
+}
+```
+
+With `ActionRecorder`, logs can stay focused on human-readable progress:
+
+```text
+INFO Validated account configuration
+```
+
+The task also records a concise action that can be used by summaries, auditing,
+or reporting:
+
+```json
+{
+  "task": "validate_account",
+  "region": "us-east-1",
+  "status": "success",
+  "actions": [
+    "Validated account configuration"
+  ]
+}
+```
+
 ### Example - Record Actions Directly in `run()`
 This approach works well for small or single-purpose tasks.
 
