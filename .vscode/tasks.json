@@ -1,0 +1,51 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "ty: check",
+      "type": "shell",
+      "command": "ty",
+      "args": [
+        "check"
+      ],
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "prek: run all files",
+      "type": "shell",
+      "command": "prek",
+      "args": [
+        "run",
+        "--all-files"
+      ],
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "pytest: uv run",
+      "type": "shell",
+      "command": "uv",
+      "args": [
+        "run",
+        "pytest"
+      ],
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "full suite",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "ty: check",
+        "prek: run all files",
+        "pytest: uv run"
+      ],
+      "group": "test",
+      "problemMatcher": []
+    }
+  ]
+}

@@ -27,15 +27,52 @@
 </div>
 
 ## Introduction
-Anvil is a declarative, multi-organization, multi-region AWS execution engine for running consistent, repeatable tasks across large numbers of AWS accounts, with explicit guarantees around ordering, isolation, and observability.
 
-It provides a structured way to define what should run (tasks and dependencies) and where it should run (organizations, accounts, and regions), while the engine manages authentication, role assumption, bounded concurrency, fail-fast and cancellation behavior, and structured result aggregation across task, account, organization, and engine levels.
+Anvil is a declarative AWS execution engine for running Python tasks across large account and region fleets. Describe the work in YAML, keep task logic in plain Python modules, and let the engine handle the operational pieces around authentication, role assumption, dependency ordering, concurrency, and structured results.
 
-Anvil is intentionally task-agnostic. Tasks are implemented as simple Python modules with a defined runtime contract, allowing teams to build inventory, validation, enforcement, and reporting workflows without coupling business logic to the execution engine. Within an organization, account execution is parallelized through bounded worker pools, while dependency ordering and execution context are handled centrally by the engine.
+Use it for inventory, validation, enforcement, cleanup, reporting, and other repeatable AWS workflows that need to run consistently across organizations, explicit account groups, and multiple regions.
 
-At the YAML level, `max_parallel_targets` controls how many configured organization or account-group entries may execute at the same time within one config file. Per-target `max_workers` controls account concurrency inside each target, and per-target `max_parallel_regions` controls how many regions may run concurrently within one account.
+For a deeper look at the execution flow, see [docs/README.md](docs/README.md).
 
-If you'd like to check out the flow or have a little more in-depth information about Anvil you can check out this [doc](docs/README.md)
+## Why Anvil?
+
+Built for teams that need to run AWS work safely, repeatedly, and quickly across many accounts, regions, and organizations.
+
+### Declarative orchestration
+
+Define the execution shape in YAML instead of hardcoding orchestration into one-off scripts. The engine handles organizations, explicit account lists, regions, tasks, dependencies, dry-run behavior, fail-fast behavior, and concurrency limits from configuration.
+
+### Multi-account and multi-organization by default
+
+It discovers active AWS Organizations accounts, supports explicit account groups, applies include and exclude filters, assumes roles into member accounts, and keeps task code focused on the actual AWS work.
+
+Individuals, developers, admins, governance teams, and security teams can run against the accounts they own or govern. That gives account owners a fast way to run approved tasks, collect consistent results, and troubleshoot AWS issues without rebuilding orchestration each time. Operators with organization-wide access can run the same task set across every account in an organization, or filter execution down to the specific accounts they need with include and exclude controls.
+
+### Bounded parallel execution
+
+Speed comes from parallelizing the parts of AWS work that are naturally independent:
+
+- multiple configured organizations or account groups can run at the same time with `max_parallel_targets`
+- accounts inside each target can run concurrently with `max_workers`
+- regions inside each account can run concurrently with `max_parallel_regions`
+
+Those limits are explicit, so large runs can be faster without turning API pressure into an accident.
+
+### Shared discovery and session reuse
+
+For organization runs, the engine preflights organization identity, account discovery, and enabled-region discovery up front. Repeated targets for the same organization can reuse that discovery instead of making duplicate AWS Organizations calls. During execution, session and client reuse reduce repeated setup while keeping credentials scoped to the correct account and region.
+
+### Task isolation
+
+Tasks are plain Python modules with a small runtime contract. Business logic stays separate from authentication, role assumption, dependency ordering, result aggregation, and concurrency management.
+
+### Stock and custom tasks
+
+The package ships with stock tasks, and more governance, security, inventory, cleanup, and reporting tasks will be added over time. That means it can continue gaining reusable AWS operations while still allowing teams to keep their own project-local tasks separately.
+
+### Structured output and safer operations
+
+Structured results are recorded across task, account, target, and engine levels. Authentication checks, dry-run support, dependency ordering, optional tasks, fail-fast controls, and cancellation handling make large AWS runs easier to inspect and safer to repeat.
 
 ### Standalone Multi-Account Script Template
 
@@ -44,7 +81,7 @@ If you do not need/want the full Anvil framework and only want a simple starting
 This template provides:
 - AWS Organizations account discovery
 - active-account filtering
-- `--include` / `--exclude` account selection
+  - `--include` / `--exclude` account selection
 - parallel per-account execution
   - multiple regions per account
 - assume-role handling for member accounts
@@ -55,9 +92,10 @@ Replace the innards of the `account_task()` function with your own per-account l
 Replace the `--example-piece` argparse and `example_piece` in other areas or edit as desired
 
 ## Example Benchmarks
-To measure concurrency behavior, Anvil was tested across 3 organizations with a combined 260 accounts.
 
-`max_parallel_targets` controls how many organizations or account groups run at the same time, depending on the config type. `max_workers` controls how many accounts run in parallel inside each organization or account group. `max_parallel_regions` controls how many regions run in parallel within each account, defaults to 1, and is capped at 4.
+To measure concurrency behavior, the engine was tested across 3 organizations with a combined 260 accounts using the `count_vpc` task. The comparison below shows the same kind of work moving from sequential execution to organization-level parallelism and then to account-level parallelism.
+
+The fastest measured run in this benchmark completed 260 accounts in about 1m 35s for 1 region, compared with a 3h 15m manual sequential estimate at 45 seconds per account. With 2 regions, the parallel account run completed in about 2m 48s.
 
 <p align="left">
   <img src="images/count-vpc-grouped-comparison.png" alt="count_vpc runtime comparison" width="1200" height="600">
@@ -379,6 +417,8 @@ anvil run --config-file orgs.yaml --exclude 333333333333 444444444444 --dry-run
 
 Anvil supports **project-local tasks** in addition to its stock tasks. This allows you to add custom behavior without forking Anvil.
 
+Maintain your own Anvil tasks in a dedicated task repository using the [foundry-anvil-template](https://github.com/JSChronicles/foundry-anvil-template). The template provides a ready project layout for custom tasks, YAML examples, validation, and CI outside of the main Anvil repository.
+
 ### How task discovery works
 
 Tasks are resolved in the following order:
@@ -393,7 +433,8 @@ Directories named `tasks/` are conventional only and are not automatically scann
 
 
 ### Create a project-local tasks directory
-These set of steps is because I'm waiting on pypi for a certain issue. After this is fixed this will be much smoother.
+
+Use this manual layout when adding Anvil tasks to an existing project or when you do not want to start from the template.
 
 The minimal recommended project-local task layout:
 

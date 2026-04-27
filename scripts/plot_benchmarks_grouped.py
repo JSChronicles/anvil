@@ -11,8 +11,39 @@ TEXT = "#f8fafc"
 ANVIL = "#7c4dff"
 BASELINE = "#f97316"
 
-rows = "[{'group': 'Sequential orgs\\nSequential accounts', 'region_label': '1 region', 'minutes': 6.966666666666667}, {'group': 'Sequential orgs\\nSequential accounts', 'region_label': '2 regions', 'minutes': 11.133333333333333}, {'group': 'Parallel orgs\\nSequential accounts', 'region_label': '1 region', 'minutes': 4.483333333333333}, {'group': 'Parallel orgs\\nSequential accounts', 'region_label': '2 regions', 'minutes': 7.316666666666666}, {'group': 'Parallel orgs\\nParallel accounts', 'region_label': '1 region', 'minutes': 1.5833333333333335}, {'group': 'Parallel orgs\\nParallel accounts', 'region_label': '2 regions', 'minutes': 2.8}]"
-manual_minutes = "43.333333333333336"
+ROWS: list[dict[str, object]] = [
+    {
+        "group": "Sequential orgs\nSequential accounts",
+        "region_label": "1 region",
+        "minutes": 6.966666666666667,
+    },
+    {
+        "group": "Sequential orgs\nSequential accounts",
+        "region_label": "2 regions",
+        "minutes": 11.133333333333333,
+    },
+    {
+        "group": "Parallel orgs\nSequential accounts",
+        "region_label": "1 region",
+        "minutes": 4.483333333333333,
+    },
+    {
+        "group": "Parallel orgs\nSequential accounts",
+        "region_label": "2 regions",
+        "minutes": 7.316666666666666,
+    },
+    {
+        "group": "Parallel orgs\nParallel accounts",
+        "region_label": "1 region",
+        "minutes": 1.5833333333333335,
+    },
+    {
+        "group": "Parallel orgs\nParallel accounts",
+        "region_label": "2 regions",
+        "minutes": 2.8,
+    },
+]
+MANUAL_MINUTES = 195.0
 
 
 def fmt_minutes(value: float) -> str:
@@ -56,7 +87,7 @@ def plot_grouped(rows: list[dict[str, object]], *, output_path: Path) -> None:
     ax.spines["left"].set_visible(False)
     ax.spines["bottom"].set_color("#64748b")
 
-    max_value = max(max(values), manual_minutes)
+    max_value = max(max(values), MANUAL_MINUTES)
 
     for bar, value in zip(bars, values, strict=True):
         ax.text(
@@ -71,11 +102,11 @@ def plot_grouped(rows: list[dict[str, object]], *, output_path: Path) -> None:
         )
 
     manual_y = -0.95
-    ax.axvline(manual_minutes, color=BASELINE, linestyle="--", linewidth=2, alpha=0.95)
+    ax.axvline(MANUAL_MINUTES, color=BASELINE, linestyle="--", linewidth=2, alpha=0.95)
     ax.text(
-        manual_minutes + (max_value * 0.015),
+        MANUAL_MINUTES + (max_value * 0.015),
         manual_y,
-        f"Manual estimate: {fmt_minutes(manual_minutes)}\n(260 accounts × 10s each, 1 region)",
+        f"Manual estimate: {fmt_minutes(MANUAL_MINUTES)}\n(260 accounts × 45s each, 1 region)",
         color=BASELINE,
         fontsize=10,
         ha="left",
@@ -157,7 +188,7 @@ def plot_grouped(rows: list[dict[str, object]], *, output_path: Path) -> None:
 def main() -> int:
     OUTPUT_DIR.mkdir(exist_ok=True)
     output_path = OUTPUT_DIR / "count-vpc-grouped-comparison.png"
-    plot_grouped(rows, output_path=output_path)
+    plot_grouped(ROWS, output_path=output_path)
     print(f"Wrote {output_path}")
     return 0
 

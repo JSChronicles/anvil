@@ -1,0 +1,48 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "type": "command",
+        "command": "uv run ruff check --fix .",
+        "cwd": ".",
+        "env": {
+          "UV_CACHE_DIR": ".uv-cache"
+        }
+      },
+      {
+        "type": "command",
+        "command": "uv run ruff format .",
+        "cwd": ".",
+        "env": {
+          "UV_CACHE_DIR": ".uv-cache"
+        }
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "ty check",
+        "cwd": ".",
+        "env": {
+          "UV_CACHE_DIR": ".uv-cache"
+        }
+      },
+      {
+        "type": "command",
+        "command": "prek run --all-files",
+        "cwd": ".",
+        "env": {
+          "UV_CACHE_DIR": ".uv-cache"
+        }
+      },
+      {
+        "type": "command",
+        "command": "uv run pytest",
+        "cwd": ".",
+        "env": {
+          "UV_CACHE_DIR": ".uv-cache"
+        }
+      }
+    ]
+  }
+}
