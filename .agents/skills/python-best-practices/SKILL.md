@@ -1,7 +1,8 @@
 ---
 name: python-best-practices
-description: Apply modern Python coding standards when Codex writes, edits, or reviews Python code, especially for project layout, type hints, docstrings, dataclasses, logging, error handling, CLI design, concurrency, caching, and maintainable Python 3.14+ implementations.
+description: Applies modern Python coding standards for maintainable .py files, CLIs, tests, and package structure. Use when user asks to "write Python", "review Python", "refactor this Python", "add type hints", "improve error handling", "add logging", "write tests", "build an argparse CLI", or improve concurrency, caching, dataclasses, or project layout.
 ---
+
 
 # Python Best Practices
 

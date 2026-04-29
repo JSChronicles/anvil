@@ -1,6 +1,6 @@
 ---
 name: anvil-task-builder
-description: Build, edit, and validate Anvil task modules. Use when creating AWS account or region tasks for Anvil, modifying task run() implementations, adding dry-run behavior, recording actions, returning structured task results, or wiring tasks into Anvil YAML and plugin entry points.
+description: Builds and maintains Anvil task modules, workflows, schemas, runner behavior, and plugin templates. Use when user asks to "create an Anvil task", "edit this task", "add dry-run behavior", "record actions", "return task results", "update Anvil YAML", "modify schemas", "change account execution", or "update plugin templates".
 ---
 
 # Anvil Task Builder
