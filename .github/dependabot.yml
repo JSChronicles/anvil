@@ -19,8 +19,7 @@ updates:
         patterns:
           - "*"
     commit-message:
-      prefix: "chore"
-      include: "scope"
+      prefix: "chore(uv)"
     labels:
       - "dependencies"
       - "python"
@@ -40,8 +39,7 @@ updates:
         patterns:
           - "*"
     commit-message:
-      prefix: "chore"
-      include: "scope"
+      prefix: "chore(github-actions)"
     labels:
       - "dependencies"
       - "github-actions"
@@ -61,8 +59,7 @@ updates:
         patterns:
           - "*"
     commit-message:
-      prefix: "chore"
-      include: "scope"
+      prefix: "chore(pre-commit)"
     labels:
       - "dependencies"
       - "pre-commit"
