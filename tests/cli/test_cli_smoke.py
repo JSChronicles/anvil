@@ -74,16 +74,26 @@ def test_write_run_results_prefixes_summary_with_config_stem(monkeypatch):
     from pathlib import Path
     from types import SimpleNamespace
 
+    from anvil.descriptors import ConfigBranch
+
     cli = _import_cli_or_skip()
     scratch_dir = (Path("tests") / "_tmp" / "cli-smoke").resolve()
     results_dir = scratch_dir / "results"
     summary_path = results_dir / "orgs-target-summary.json"
     target_path = results_dir / "org2.json"
+    jsonl_path = results_dir / "orgs-results.jsonl"
 
     engine_result = SimpleNamespace(
         benchmark=None,
         target_results=[
-            SimpleNamespace(target_name="org2", to_dict=lambda: {"name": "org2"})
+            SimpleNamespace(
+                config_branch=ConfigBranch.ORGANIZATIONS,
+                target_name="org2",
+                generated_at="2026-04-30T00:00:00+00:00",
+                dry_run=True,
+                account_results=[],
+                to_dict=lambda: {"name": "org2"},
+            )
         ],
         build_summary=lambda: {"state": "completed_success"},
     )
@@ -99,11 +109,60 @@ def test_write_run_results_prefixes_summary_with_config_stem(monkeypatch):
 
         assert summary_path.exists()
         assert target_path.exists()
+        assert jsonl_path.exists()
     finally:
         monkeypatch.chdir(original_cwd)
         summary_path.unlink(missing_ok=True)
         target_path.unlink(missing_ok=True)
+        jsonl_path.unlink(missing_ok=True)
         if results_dir.exists():
             results_dir.rmdir()
+        if scratch_dir.exists():
+            scratch_dir.rmdir()
+
+
+def test_cmd_results_accounts_filters_status_and_outputs_json(capsys):
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    cli = _import_cli_or_skip()
+    scratch_dir = (Path("tests") / "_tmp" / "cli-results").resolve()
+    jsonl_path = scratch_dir / "orgs-results.jsonl"
+    scratch_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        jsonl_path.write_text(
+            "\n".join(
+                [
+                    (
+                        '{"record_type":"account","target":"org-a","account_id":'
+                        '"111111111111","account_alias":"dev","status":"error"}'
+                    ),
+                    (
+                        '{"record_type":"account","target":"org-a","account_id":'
+                        '"222222222222","account_alias":"prod","status":"success"}'
+                    ),
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        args = SimpleNamespace(
+            results_file=[Path(jsonl_path)],
+            status="failed",
+            organization=None,
+            account=None,
+            region=None,
+            task=None,
+            json=True,
+        )
+
+        assert cli._cmd_results_accounts(args) == 0
+        output = capsys.readouterr().out
+
+        assert '"account_id": "111111111111"' in output
+        assert '"account_id": "222222222222"' not in output
+    finally:
+        jsonl_path.unlink(missing_ok=True)
         if scratch_dir.exists():
             scratch_dir.rmdir()

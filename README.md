@@ -122,6 +122,7 @@ There are multiple global commands
 ```console
 anvil auth …
 anvil graph …
+anvil results …
 anvil tasks …
 anvil run …
 ```
@@ -319,7 +320,7 @@ anvil tasks validate
 anvil run --help
 ```
 
-Execute all configured organizations and accounts from one or more YAML files, write per-target full results to `./results/{target-name}.json`, and produce one summary file per YAML using the config filename stem.
+Execute all configured organizations and accounts from one or more YAML files, write per-target full results to `./results/{target-name}.json`, write a flattened query file to `./results/{config-stem}-results.jsonl`, and produce one summary file per YAML using the config filename stem.
 ```console
 anvil run --config-file ./yaml/noop.yaml
 INFO     [auth.py:auth_check:106] Running auth check for org=root profile=root auth_source=AuthSource.SSO
@@ -375,6 +376,25 @@ account, region, and result-write timing details to result JSON, which can
 dramatically increase output size on large account, region, or task runs. Leave
 it off for normal audit/reporting runs, and enable it when comparing benchmark
 runs or looking for bottlenecks.
+
+### Result Queries
+
+Runs still write the existing full JSON result files. They also write JSONL
+records that flatten account and task results for quick filtering:
+`./results/{config-stem}-results.jsonl`.
+
+Common queries:
+
+```console
+anvil results failures
+anvil results accounts --status failed
+anvil results tasks --task count_vpcs
+anvil results regions --region us-east-1
+```
+
+All result query commands support `--organization`, `--account`, `--region`, `--task`, `--status`, repeated `--results-file` values, and `--json` for
+structured filtered output. Without `--results-file`, Anvil queries every
+`*-results.jsonl` file in `./results`.
 
 To run multiple YAML files in one command, pass them after a single `--config-file` flag. They run sequentially in the order provided. Each YAML remains an isolated run with its own summary file, and the overall command exits non-zero if any YAML run fails.
 ```console
