@@ -8,7 +8,7 @@ from anvil.descriptors import ConfigBranch
 from anvil.results import AccountResult, TargetResult, TaskResult
 
 
-JSONL_SUFFIX = "-results.jsonl"
+JSONL_FILENAME = "results.jsonl"
 DEFAULT_TABLE_FIELDS = [
     "record_type",
     "status",
@@ -53,9 +53,9 @@ class ResultFilters:
     task: str | None = None
 
 
-def jsonl_path_for_config(*, results_dir: Path, config_file: Path) -> Path:
-    """Return the flattened JSONL path for a config file."""
-    return results_dir / f"{config_file.stem}{JSONL_SUFFIX}"
+def jsonl_path_for_run(*, run_dir: Path) -> Path:
+    """Return the flattened JSONL path for a run directory."""
+    return run_dir / JSONL_FILENAME
 
 
 def build_jsonl_records_for_target(
@@ -113,7 +113,7 @@ def load_result_records(
     *, results_dir: Path, files: list[Path] | None
 ) -> list[dict[str, object]]:
     """Load result records from explicit files or the default results directory."""
-    paths = files if files else sorted(results_dir.glob(f"*{JSONL_SUFFIX}"))
+    paths = files if files else sorted(results_dir.glob(f"**/{JSONL_FILENAME}"))
     records: list[dict[str, object]] = []
 
     for path in paths:

@@ -320,7 +320,19 @@ anvil tasks validate
 anvil run --help
 ```
 
-Execute all configured organizations and accounts from one or more YAML files, write per-target full results to `./results/{target-name}.json`, write a flattened query file to `./results/{config-stem}-results.jsonl`, and produce one summary file per YAML using the config filename stem.
+Execute all configured organizations and accounts from one or more YAML files, write per-target full results, write a flattened query file, and produce one summary file per YAML in a run-scoped result directory:
+
+```text
+results/
+  <config-stem>/
+    <run-id>/
+      summary.json
+      results.jsonl
+      organizations/
+        <organization>.json
+```
+
+Account-group configs use `account-groups/` for per-target JSON files instead of `organizations/`.
 ```console
 anvil run --config-file ./yaml/noop.yaml
 INFO     [auth.py:auth_check:106] Running auth check for org=root profile=root auth_source=AuthSource.SSO
@@ -336,7 +348,7 @@ INFO     [noop.py:run:33] No-op task executed for account Audit (444444444444), 
 INFO     [noop.py:run:33] No-op task executed for account Log Archive (333333333333), dry_run=False
 INFO     [noop.py:run:33] No-op task executed for account account2 (222222222222), dry_run=False
 ......
-INFO     [cli.py:_write_run_results:90] Wrote summary to xxxx\xxxx\results\noop-target-summary.json and 1 target result files
+INFO     [cli.py:_write_run_results:132] Wrote run results to xxxx\xxxx\results\noop\2026-05-01T183012Z: summary=xxxx\xxxx\results\noop\2026-05-01T183012Z\summary.json, target_files=1, jsonl_records=50
 
 #Summary below
 {
@@ -381,7 +393,7 @@ runs or looking for bottlenecks.
 
 Runs still write the existing full JSON result files. They also write JSONL
 records that flatten account and task results for quick filtering:
-`./results/{config-stem}-results.jsonl`.
+`./results/{config-stem}/{run-id}/results.jsonl`.
 
 Common queries:
 
@@ -398,7 +410,8 @@ anvil results tasks --status failed --jsonl
 Advanced queries:
 
 ```console
-anvil results failures --results-file ./results/orgs-results.jsonl
+anvil results failures --results-file ./results/orgs/2026-05-01T183012Z/results.jsonl
+anvil results failures --results-file ./results/orgs/run-a/results.jsonl ./results/accounts/run-b/results.jsonl
 anvil results tasks --organization prod --task count_vpcs --fields account_id,region,status,error
 anvil results failures --fields record_type,target,account_id,region,task,error
 anvil results tasks --status failed --fields account_id,region,error --jsonl
@@ -406,9 +419,9 @@ anvil results failures --fields target_type,target,account_id,task,error --limit
 ```
 
 All result query commands support `--organization`, `--account`, `--region`,
-`--task`, `--status`, `--fields`, `--limit`, repeated `--results-file` values,
-and `--json` or `--jsonl` for structured filtered output. Without
-`--results-file`, Anvil queries every `*-results.jsonl` file in `./results`.
+`--task`, `--status`, `--fields`, `--limit`, `--results-file` with one or more
+JSONL paths, and `--json` or `--jsonl` for structured filtered output. Without
+`--results-file`, Anvil queries every `results.jsonl` file under `./results`.
 
 To run multiple YAML files in one command, pass them after a single `--config-file` flag. They run sequentially in the order provided. Each YAML remains an isolated run with its own summary file, and the overall command exits non-zero if any YAML run fails.
 ```console

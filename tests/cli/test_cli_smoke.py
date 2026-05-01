@@ -70,7 +70,7 @@ def test_cmd_run_returns_failure_if_any_config_file_fails(monkeypatch):
     assert seen_paths == [Path("orgs.yaml"), Path("orgs2.yaml"), Path("orgs3.yaml")]
 
 
-def test_write_run_results_prefixes_summary_with_config_stem(monkeypatch):
+def test_write_run_results_uses_config_stem_and_run_id_directories(monkeypatch):
     from pathlib import Path
     from types import SimpleNamespace
 
@@ -78,12 +78,14 @@ def test_write_run_results_prefixes_summary_with_config_stem(monkeypatch):
 
     cli = _import_cli_or_skip()
     scratch_dir = (Path("tests") / "_tmp" / "cli-smoke").resolve()
-    results_dir = scratch_dir / "results"
-    summary_path = results_dir / "orgs-target-summary.json"
-    target_path = results_dir / "org2.json"
-    jsonl_path = results_dir / "orgs-results.jsonl"
+    run_dir = scratch_dir / "results" / "orgs" / "2026-05-01T120000Z"
+    target_dir = run_dir / "organizations"
+    summary_path = run_dir / "summary.json"
+    target_path = target_dir / "org2.json"
+    jsonl_path = run_dir / "results.jsonl"
 
     engine_result = SimpleNamespace(
+        config_branch=ConfigBranch.ORGANIZATIONS,
         benchmark=None,
         target_results=[
             SimpleNamespace(
@@ -101,6 +103,7 @@ def test_write_run_results_prefixes_summary_with_config_stem(monkeypatch):
     original_cwd = Path.cwd()
     scratch_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.chdir(scratch_dir)
+    monkeypatch.setattr(cli, "_build_run_id", lambda: "2026-05-01T120000Z")
 
     try:
         cli._write_run_results(
@@ -115,8 +118,40 @@ def test_write_run_results_prefixes_summary_with_config_stem(monkeypatch):
         summary_path.unlink(missing_ok=True)
         target_path.unlink(missing_ok=True)
         jsonl_path.unlink(missing_ok=True)
+        if target_dir.exists():
+            target_dir.rmdir()
+        if run_dir.exists():
+            run_dir.rmdir()
+        config_dir = scratch_dir / "results" / "orgs"
+        if config_dir.exists():
+            config_dir.rmdir()
+        results_dir = scratch_dir / "results"
         if results_dir.exists():
             results_dir.rmdir()
+        if scratch_dir.exists():
+            scratch_dir.rmdir()
+
+
+def test_target_result_file_path_avoids_sanitized_name_collisions():
+    from pathlib import Path
+
+    cli = _import_cli_or_skip()
+    scratch_dir = (Path("tests") / "_tmp" / "cli-target-files").resolve()
+
+    try:
+        scratch_dir.mkdir(parents=True)
+        existing_path = scratch_dir / "org_a.json"
+        existing_path.write_text("{}", encoding="utf-8")
+
+        result_path = cli._target_result_file_path(
+            target_results_dir=scratch_dir,
+            target_name="org/a",
+        )
+
+        assert result_path == scratch_dir / "org_a-1.json"
+    finally:
+        for path in scratch_dir.glob("*.json"):
+            path.unlink()
         if scratch_dir.exists():
             scratch_dir.rmdir()
 
@@ -127,7 +162,7 @@ def test_cmd_results_accounts_filters_status_and_outputs_json(capsys):
 
     cli = _import_cli_or_skip()
     scratch_dir = (Path("tests") / "_tmp" / "cli-results").resolve()
-    jsonl_path = scratch_dir / "orgs-results.jsonl"
+    jsonl_path = scratch_dir / "results.jsonl"
     scratch_dir.mkdir(parents=True, exist_ok=True)
 
     try:
@@ -177,7 +212,7 @@ def test_cmd_results_tasks_outputs_jsonl_with_fields_and_limit(capsys):
 
     cli = _import_cli_or_skip()
     scratch_dir = (Path("tests") / "_tmp" / "cli-results-jsonl").resolve()
-    jsonl_path = scratch_dir / "orgs-results.jsonl"
+    jsonl_path = scratch_dir / "results.jsonl"
     scratch_dir.mkdir(parents=True, exist_ok=True)
 
     try:

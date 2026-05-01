@@ -11,6 +11,7 @@ from anvil.result_query import (
     format_records_jsonl,
     format_records_table,
     limit_records,
+    load_result_records,
     parse_fields,
     project_records,
 )
@@ -177,3 +178,31 @@ def test_format_records_jsonl_outputs_one_json_object_per_line():
         "account_id": "111111111111",
         "task": "count_vpcs",
     }
+
+
+def test_load_result_records_discovers_nested_results_jsonl():
+    from pathlib import Path
+
+    scratch_dir = (Path("tests") / "_tmp" / "result-query").resolve()
+    results_dir = scratch_dir / "results"
+    config_dir = results_dir / "orgs"
+    run_dir = config_dir / "2026-05-01T120000Z"
+    results_file = run_dir / "results.jsonl"
+
+    try:
+        run_dir.mkdir(parents=True)
+        results_file.write_text('{"record_type":"account","status":"success"}\n')
+
+        records = load_result_records(results_dir=results_dir, files=None)
+
+        assert records == [{"record_type": "account", "status": "success"}]
+    finally:
+        results_file.unlink(missing_ok=True)
+        if run_dir.exists():
+            run_dir.rmdir()
+        if config_dir.exists():
+            config_dir.rmdir()
+        if results_dir.exists():
+            results_dir.rmdir()
+        if scratch_dir.exists():
+            scratch_dir.rmdir()

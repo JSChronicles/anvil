@@ -5,20 +5,21 @@ CLI entrypoint for Anvil config-driven AWS account processing.
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import logging
 from pathlib import Path
 from anvil.graph import render_graph
 import yaml
 from anvil.benchmark import BenchmarkRecorder
-from anvil.descriptors import LoadedConfig
+from anvil.descriptors import ConfigBranch, LoadedConfig
 from anvil.result_query import (
     ResultFilters,
     failure_records,
     filter_records,
     format_records_jsonl,
     format_records_table,
-    jsonl_path_for_config,
+    jsonl_path_for_run,
     limit_records,
     load_result_records,
     parse_fields,
@@ -91,16 +92,56 @@ def _add_common_config_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _build_run_id() -> str:
+    return datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H%M%SZ")
+
+
+def _create_results_run_dir(*, config_file: Path) -> Path:
+    run_dir = Path.cwd() / "results" / config_file.stem / _build_run_id()
+    run_dir.mkdir(parents=True)
+    return run_dir
+
+
+def _target_results_dir_name(config_branch: ConfigBranch) -> str:
+    if config_branch is ConfigBranch.ACCOUNTS:
+        return "account-groups"
+
+    return "organizations"
+
+
+def _safe_result_filename(name: str) -> str:
+    safe_name = "".join(
+        character if character.isalnum() or character in {".", "-", "_"} else "_"
+        for character in name
+    )
+    return safe_name.strip("._") or "target"
+
+
+def _target_result_file_path(*, target_results_dir: Path, target_name: str) -> Path:
+    safe_name = _safe_result_filename(target_name)
+    result_file = target_results_dir / f"{safe_name}.json"
+    suffix = 1
+
+    while result_file.exists():
+        result_file = target_results_dir / f"{safe_name}-{suffix}.json"
+        suffix += 1
+
+    return result_file
+
+
 def _write_run_results(*, config_file: Path, engine_result) -> None:
-    results_dir = Path.cwd() / "results"
-    results_dir.mkdir(exist_ok=True)
+    run_dir = _create_results_run_dir(config_file=config_file)
+    target_results_dir = run_dir / _target_results_dir_name(engine_result.config_branch)
+    target_results_dir.mkdir()
 
     recorder = BenchmarkRecorder(enabled=engine_result.benchmark is not None)
     target_files: list[dict[str, object]] = []
 
     for target_result in engine_result.target_results:
-        safe_name = target_result.target_name.replace("/", "_").replace(" ", "_")
-        result_file = results_dir / f"{safe_name}.json"
+        result_file = _target_result_file_path(
+            target_results_dir=target_results_dir,
+            target_name=target_result.target_name,
+        )
 
         with recorder.phase("serialization_seconds"):
             target_json = json.dumps(target_result.to_dict(), indent=2)
@@ -123,22 +164,22 @@ def _write_run_results(*, config_file: Path, engine_result) -> None:
     if engine_result.benchmark is not None:
         engine_result.benchmark["result_write"] = {"target_files": target_files}
 
-    jsonl_path = jsonl_path_for_config(results_dir=results_dir, config_file=config_file)
+    jsonl_path = jsonl_path_for_run(run_dir=run_dir)
     jsonl_record_count = write_jsonl_records(
         path=jsonl_path, target_results=engine_result.target_results
     )
 
     summary = engine_result.build_summary()
-    summary_path = results_dir / f"{config_file.stem}-target-summary.json"
+    summary_path = run_dir / "summary.json"
 
     summary_json = json.dumps(summary, indent=2)
     with summary_path.open("w", encoding="utf-8") as handle:
         handle.write(summary_json)
 
     __LOGGER__.info(
-        f"Wrote summary to {summary_path}, "
-        f"{len(engine_result.target_results)} target result files, and "
-        f"{jsonl_record_count} JSONL records to {jsonl_path}"
+        f"Wrote run results to {run_dir}: summary={summary_path}, "
+        f"target_files={len(engine_result.target_results)}, "
+        f"jsonl_records={jsonl_record_count}"
     )
 
 
@@ -347,13 +388,13 @@ def _positive_int(value: str) -> int:
 def _add_results_query_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--results-file",
-        action="append",
         type=Path,
         dest="results_file",
         help=(
-            "Result JSONL file to query. Defaults to every *-results.jsonl file "
-            "in ./results. May be repeated."
+            "Result JSONL file(s) to query. Defaults to every results.jsonl file "
+            "under ./results."
         ),
+        nargs="+",
     )
     parser.add_argument(
         "--status",
