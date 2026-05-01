@@ -16,9 +16,13 @@ from anvil.result_query import (
     ResultFilters,
     failure_records,
     filter_records,
+    format_records_jsonl,
     format_records_table,
     jsonl_path_for_config,
+    limit_records,
     load_result_records,
+    parse_fields,
+    project_records,
     write_jsonl_records,
 )
 from anvil.results import EngineResult, EngineState
@@ -268,38 +272,76 @@ def _load_filtered_result_records(
 
 
 def _print_query_payload(
-    payload: list[dict[str, object]], *, output_json: bool
+    payload: list[dict[str, object]],
+    *,
+    fields: list[str] | None,
+    output_json: bool,
+    output_jsonl: bool,
 ) -> None:
+    projected_payload = project_records(payload, fields=fields)
+
     if output_json:
-        print(json.dumps(payload, indent=2))
+        print(json.dumps(projected_payload, indent=2))
         return
 
-    print(format_records_table(payload))
+    if output_jsonl:
+        jsonl_payload = format_records_jsonl(projected_payload)
+        if jsonl_payload:
+            print(jsonl_payload)
+        return
+
+    print(format_records_table(payload, fields=fields))
+
+
+def _apply_result_output_options(
+    args, records: list[dict[str, object]]
+) -> list[dict[str, object]]:
+    return limit_records(records, limit=args.limit)
+
+
+def _emit_result_records(args, records: list[dict[str, object]]) -> None:
+    fields = parse_fields(args.fields)
+    records = _apply_result_output_options(args, records)
+    _print_query_payload(
+        records, fields=fields, output_json=args.json, output_jsonl=args.jsonl
+    )
 
 
 def _cmd_results_failures(args) -> int:
     records = _load_filtered_result_records(args)
     failures = failure_records(records)
-    _print_query_payload(failures, output_json=args.json)
+    _emit_result_records(args, failures)
     return 0
 
 
 def _cmd_results_accounts(args) -> int:
     records = _load_filtered_result_records(args, record_type="account")
-    _print_query_payload(records, output_json=args.json)
+    _emit_result_records(args, records)
     return 0
 
 
 def _cmd_results_tasks(args) -> int:
     records = _load_filtered_result_records(args, record_type="task")
-    _print_query_payload(records, output_json=args.json)
+    _emit_result_records(args, records)
     return 0
 
 
 def _cmd_results_regions(args) -> int:
     records = _load_filtered_result_records(args, record_type="task")
-    _print_query_payload(records, output_json=args.json)
+    _emit_result_records(args, records)
     return 0
+
+
+def _positive_int(value: str) -> int:
+    try:
+        parsed_value = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("must be an integer") from error
+
+    if parsed_value < 1:
+        raise argparse.ArgumentTypeError("must be greater than or equal to 1")
+
+    return parsed_value
 
 
 def _add_results_query_args(parser: argparse.ArgumentParser) -> None:
@@ -321,7 +363,18 @@ def _add_results_query_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--account", help="Filter by account ID or account alias")
     parser.add_argument("--region", help="Filter by AWS region")
     parser.add_argument("--task", help="Filter by task name")
-    parser.add_argument("--json", action="store_true", help="Output JSON")
+    parser.add_argument(
+        "--fields",
+        help="Comma-separated result fields to include in output",
+    )
+    parser.add_argument(
+        "--limit",
+        type=_positive_int,
+        help="Maximum number of records to print after filtering",
+    )
+    output_group = parser.add_mutually_exclusive_group()
+    output_group.add_argument("--json", action="store_true", help="Output JSON")
+    output_group.add_argument("--jsonl", action="store_true", help="Output JSONL")
 
 
 def _add_log_level_arg(parser: argparse.ArgumentParser) -> None:

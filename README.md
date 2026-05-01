@@ -390,11 +390,14 @@ anvil results failures
 anvil results accounts --status failed
 anvil results tasks --task count_vpcs
 anvil results regions --region us-east-1
+anvil results failures --fields account_id,region,task,error --limit 20
+anvil results tasks --status failed --jsonl
 ```
 
-All result query commands support `--organization`, `--account`, `--region`, `--task`, `--status`, repeated `--results-file` values, and `--json` for
-structured filtered output. Without `--results-file`, Anvil queries every
-`*-results.jsonl` file in `./results`.
+All result query commands support `--organization`, `--account`, `--region`,
+`--task`, `--status`, `--fields`, `--limit`, repeated `--results-file` values,
+and `--json` or `--jsonl` for structured filtered output. Without
+`--results-file`, Anvil queries every `*-results.jsonl` file in `./results`.
 
 To run multiple YAML files in one command, pass them after a single `--config-file` flag. They run sequentially in the order provided. Each YAML remains an isolated run with its own summary file, and the overall command exits non-zero if any YAML run fails.
 ```console

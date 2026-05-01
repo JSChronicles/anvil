@@ -154,7 +154,10 @@ def test_cmd_results_accounts_filters_status_and_outputs_json(capsys):
             account=None,
             region=None,
             task=None,
+            fields=None,
+            limit=None,
             json=True,
+            jsonl=False,
         )
 
         assert cli._cmd_results_accounts(args) == 0
@@ -162,6 +165,61 @@ def test_cmd_results_accounts_filters_status_and_outputs_json(capsys):
 
         assert '"account_id": "111111111111"' in output
         assert '"account_id": "222222222222"' not in output
+    finally:
+        jsonl_path.unlink(missing_ok=True)
+        if scratch_dir.exists():
+            scratch_dir.rmdir()
+
+
+def test_cmd_results_tasks_outputs_jsonl_with_fields_and_limit(capsys):
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    cli = _import_cli_or_skip()
+    scratch_dir = (Path("tests") / "_tmp" / "cli-results-jsonl").resolve()
+    jsonl_path = scratch_dir / "orgs-results.jsonl"
+    scratch_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        jsonl_path.write_text(
+            "\n".join(
+                [
+                    (
+                        '{"record_type":"task","target":"org-a","account_id":'
+                        '"111111111111","account_alias":"dev","region":"us-east-1",'
+                        '"task":"count_vpcs","status":"error","error":"boom"}'
+                    ),
+                    (
+                        '{"record_type":"task","target":"org-a","account_id":'
+                        '"222222222222","account_alias":"prod","region":"us-west-2",'
+                        '"task":"count_vpcs","status":"error","error":"nope"}'
+                    ),
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        args = SimpleNamespace(
+            results_file=[Path(jsonl_path)],
+            status="failed",
+            organization=None,
+            account=None,
+            region=None,
+            task="count_vpcs",
+            fields="account_id,region,error",
+            limit=1,
+            json=False,
+            jsonl=True,
+        )
+
+        assert cli._cmd_results_tasks(args) == 0
+        output = capsys.readouterr().out
+
+        assert output.count("\n") == 1
+        assert '"account_id":"111111111111"' in output
+        assert '"region":"us-east-1"' in output
+        assert '"task"' not in output
+        assert "222222222222" not in output
     finally:
         jsonl_path.unlink(missing_ok=True)
         if scratch_dir.exists():

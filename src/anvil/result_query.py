@@ -9,15 +9,38 @@ from anvil.results import AccountResult, TargetResult, TaskResult
 
 
 JSONL_SUFFIX = "-results.jsonl"
-TABLE_HEADERS = [
-    "type",
+DEFAULT_TABLE_FIELDS = [
+    "record_type",
     "status",
     "target",
     "account_id",
-    "alias",
+    "account_alias",
     "region",
     "task",
     "error",
+]
+FIELD_HEADERS = {
+    "record_type": "type",
+    "account_alias": "alias",
+}
+AVAILABLE_FIELDS = [
+    "account_alias",
+    "account_group",
+    "account_id",
+    "dry_run",
+    "duration_seconds",
+    "ended_at",
+    "error",
+    "generated_at",
+    "organization",
+    "record_type",
+    "region",
+    "result",
+    "started_at",
+    "status",
+    "target",
+    "target_type",
+    "task",
 ]
 
 
@@ -145,23 +168,65 @@ def failure_records(records: list[dict[str, object]]) -> list[dict[str, object]]
     ]
 
 
-def format_records_table(records: list[dict[str, object]]) -> str:
+def parse_fields(fields: str | None) -> list[str] | None:
+    """Parse and validate a comma-separated field projection."""
+    if fields is None:
+        return None
+
+    parsed_fields = [field.strip() for field in fields.split(",")]
+    parsed_fields = [field for field in parsed_fields if field]
+
+    if not parsed_fields:
+        raise ValueError("--fields must include at least one field name")
+
+    unknown_fields = [
+        field for field in parsed_fields if field not in AVAILABLE_FIELDS
+    ]
+    if unknown_fields:
+        available = ", ".join(AVAILABLE_FIELDS)
+        unknown = ", ".join(unknown_fields)
+        message = f"Unknown result field: {unknown}. Available fields: {available}"
+        raise ValueError(message)
+
+    return parsed_fields
+
+
+def limit_records(
+    records: list[dict[str, object]], *, limit: int | None
+) -> list[dict[str, object]]:
+    """Limit records after filtering and before output formatting."""
+    if limit is None:
+        return records
+
+    return records[:limit]
+
+
+def project_records(
+    records: list[dict[str, object]], *, fields: list[str] | None
+) -> list[dict[str, object]]:
+    """Project records to selected fields."""
+    if fields is None:
+        return records
+
+    return [{field: record.get(field) for field in fields} for record in records]
+
+
+def format_records_jsonl(records: list[dict[str, object]]) -> str:
+    """Format result records as newline-delimited JSON."""
+    return "\n".join(json.dumps(record, separators=(",", ":")) for record in records)
+
+
+def format_records_table(
+    records: list[dict[str, object]], *, fields: list[str] | None = None
+) -> str:
     """Format result records as a compact table."""
+    table_fields = fields or DEFAULT_TABLE_FIELDS
     rows = [
-        [
-            str(record.get("record_type", "")),
-            str(record.get("status", "")),
-            str(record.get("target", "")),
-            str(record.get("account_id", "")),
-            str(record.get("account_alias", "")),
-            str(record.get("region", "")),
-            str(record.get("task", "")),
-            str(record.get("error") or ""),
-        ]
+        [_format_cell(record.get(field)) for field in table_fields]
         for record in records
     ]
     return _format_table(
-        headers=TABLE_HEADERS,
+        headers=[FIELD_HEADERS.get(field, field) for field in table_fields],
         rows=rows,
     )
 
@@ -246,3 +311,16 @@ def _format_table(*, headers: list[str], rows: list[list[str]]) -> str:
         for row in rows
     ]
     return "\n".join([header_line, divider, *row_lines])
+
+
+def _format_cell(value: object) -> str:
+    if value is None:
+        return ""
+
+    if isinstance(value, str):
+        return value
+
+    if isinstance(value, bool | int | float):
+        return str(value)
+
+    return json.dumps(value, separators=(",", ":"))

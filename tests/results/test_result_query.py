@@ -8,6 +8,11 @@ from anvil.result_query import (
     build_jsonl_records_for_target,
     failure_records,
     filter_records,
+    format_records_jsonl,
+    format_records_table,
+    limit_records,
+    parse_fields,
+    project_records,
 )
 from anvil.results import AccountResult, ExecutionStatus, TargetResult, TaskResult
 
@@ -99,3 +104,76 @@ def test_failure_records_include_account_and_task_failures():
     failures = failure_records(records)
 
     assert [record["record_type"] for record in failures] == ["account", "task"]
+
+
+def test_parse_fields_validates_known_fields():
+    assert parse_fields("account_id, region,task") == [
+        "account_id",
+        "region",
+        "task",
+    ]
+
+
+def test_parse_fields_rejects_unknown_fields():
+    try:
+        parse_fields("account_id,nope")
+    except ValueError as error:
+        assert "Unknown result field: nope" in str(error)
+        assert "account_id" in str(error)
+    else:
+        raise AssertionError("parse_fields should reject unknown fields")
+
+
+def test_limit_records_applies_after_filtering():
+    records = build_jsonl_records_for_target(_target_result())
+
+    assert limit_records(records, limit=2) == records[:2]
+    assert limit_records(records, limit=None) == records
+
+
+def test_project_records_keeps_requested_fields_in_order():
+    records = build_jsonl_records_for_target(_target_result())
+
+    projected = project_records(records, fields=["account_id", "region", "task"])
+
+    assert list(projected[0]) == ["account_id", "region", "task"]
+    assert projected[0] == {
+        "account_id": "111111111111",
+        "region": None,
+        "task": None,
+    }
+    assert projected[1] == {
+        "account_id": "111111111111",
+        "region": "us-east-1",
+        "task": "count_vpcs",
+    }
+
+
+def test_format_records_table_uses_default_and_selected_fields():
+    records = build_jsonl_records_for_target(_target_result())
+
+    default_table = format_records_table(records)
+    selected_table = format_records_table(records, fields=["account_id", "task"])
+
+    assert "type" in default_table
+    assert "alias" in default_table
+    assert "account_id" in selected_table
+    assert "count_vpcs" in selected_table
+    assert "alias" not in selected_table
+
+
+def test_format_records_jsonl_outputs_one_json_object_per_line():
+    records = project_records(
+        build_jsonl_records_for_target(_target_result())[:2],
+        fields=["account_id", "task"],
+    )
+
+    output = format_records_jsonl(records)
+    lines = output.splitlines()
+
+    assert len(lines) == 2
+    assert json.loads(lines[0]) == {"account_id": "111111111111", "task": None}
+    assert json.loads(lines[1]) == {
+        "account_id": "111111111111",
+        "task": "count_vpcs",
+    }
