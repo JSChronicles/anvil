@@ -387,11 +387,22 @@ Common queries:
 
 ```console
 anvil results failures
+anvil results failures --organization prod
 anvil results accounts --status failed
 anvil results tasks --task count_vpcs
 anvil results regions --region us-east-1
 anvil results failures --fields account_id,region,task,error --limit 20
 anvil results tasks --status failed --jsonl
+```
+
+Advanced queries:
+
+```console
+anvil results failures --results-file ./results/orgs-results.jsonl
+anvil results tasks --organization prod --task count_vpcs --fields account_id,region,status,error
+anvil results failures --fields record_type,target,account_id,region,task,error
+anvil results tasks --status failed --fields account_id,region,error --jsonl
+anvil results failures --fields target_type,target,account_id,task,error --limit 50
 ```
 
 All result query commands support `--organization`, `--account`, `--region`,
