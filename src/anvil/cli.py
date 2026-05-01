@@ -334,15 +334,9 @@ def _print_query_payload(
     print(format_records_table(payload, fields=fields))
 
 
-def _apply_result_output_options(
-    args, records: list[dict[str, object]]
-) -> list[dict[str, object]]:
-    return limit_records(records, limit=args.limit)
-
-
 def _emit_result_records(args, records: list[dict[str, object]]) -> None:
     fields = parse_fields(args.fields)
-    records = _apply_result_output_options(args, records)
+    records = limit_records(records, limit=args.limit)
     _print_query_payload(
         records, fields=fields, output_json=args.json, output_jsonl=args.jsonl
     )
