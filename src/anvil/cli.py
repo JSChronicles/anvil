@@ -5,13 +5,27 @@ CLI entrypoint for Anvil config-driven AWS account processing.
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import logging
 from pathlib import Path
 from anvil.graph import render_graph
 import yaml
 from anvil.benchmark import BenchmarkRecorder
-from anvil.descriptors import LoadedConfig
+from anvil.descriptors import ConfigBranch, LoadedConfig
+from anvil.result_query import (
+    ResultFilters,
+    failure_records,
+    filter_records,
+    format_records_jsonl,
+    format_records_table,
+    jsonl_path_for_run,
+    limit_records,
+    load_result_records,
+    parse_fields,
+    project_records,
+    write_jsonl_records,
+)
 from anvil.results import EngineResult, EngineState
 from anvil.runner import run_auth_checks, run_multiple_targets
 from anvil.task_loader import (
@@ -78,16 +92,55 @@ def _add_common_config_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _build_run_id() -> str:
+    return datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H%M%SZ")
+
+
+def _create_results_run_dir(*, config_file: Path) -> Path:
+    run_dir = Path.cwd() / "results" / config_file.stem / _build_run_id()
+    run_dir.mkdir(parents=True)
+    return run_dir
+
+
+def _target_results_dir_name(config_branch: ConfigBranch) -> str:
+    if config_branch is ConfigBranch.ACCOUNTS:
+        return "account-groups"
+
+    return "organizations"
+
+
+def _safe_result_filename(name: str) -> str:
+    safe_name = "".join(
+        character if character.isalnum() or character in {".", "-", "_"} else "_"
+        for character in name
+    )
+    return safe_name.strip("._") or "target"
+
+
+def _target_result_file_path(*, target_results_dir: Path, target_name: str) -> Path:
+    safe_name = _safe_result_filename(target_name)
+    result_file = target_results_dir / f"{safe_name}.json"
+    suffix = 1
+
+    while result_file.exists():
+        result_file = target_results_dir / f"{safe_name}-{suffix}.json"
+        suffix += 1
+
+    return result_file
+
+
 def _write_run_results(*, config_file: Path, engine_result) -> None:
-    results_dir = Path.cwd() / "results"
-    results_dir.mkdir(exist_ok=True)
+    run_dir = _create_results_run_dir(config_file=config_file)
+    target_results_dir = run_dir / _target_results_dir_name(engine_result.config_branch)
+    target_results_dir.mkdir()
 
     recorder = BenchmarkRecorder(enabled=engine_result.benchmark is not None)
     target_files: list[dict[str, object]] = []
 
     for target_result in engine_result.target_results:
-        safe_name = target_result.target_name.replace("/", "_").replace(" ", "_")
-        result_file = results_dir / f"{safe_name}.json"
+        result_file = _target_result_file_path(
+            target_results_dir=target_results_dir, target_name=target_result.target_name
+        )
 
         with recorder.phase("serialization_seconds"):
             target_json = json.dumps(target_result.to_dict(), indent=2)
@@ -110,16 +163,22 @@ def _write_run_results(*, config_file: Path, engine_result) -> None:
     if engine_result.benchmark is not None:
         engine_result.benchmark["result_write"] = {"target_files": target_files}
 
+    jsonl_path = jsonl_path_for_run(run_dir=run_dir)
+    jsonl_record_count = write_jsonl_records(
+        path=jsonl_path, target_results=engine_result.target_results
+    )
+
     summary = engine_result.build_summary()
-    summary_path = results_dir / f"{config_file.stem}-target-summary.json"
+    summary_path = run_dir / "summary.json"
 
     summary_json = json.dumps(summary, indent=2)
     with summary_path.open("w", encoding="utf-8") as handle:
         handle.write(summary_json)
 
     __LOGGER__.info(
-        f"Wrote summary to {summary_path} and "
-        f"{len(engine_result.target_results)} target result files"
+        f"Wrote run results to {run_dir}: summary={summary_path}, "
+        f"target_files={len(engine_result.target_results)}, "
+        f"jsonl_records={jsonl_record_count}"
     )
 
 
@@ -229,6 +288,127 @@ def _cmd_graph(args) -> int:
     return 0
 
 
+def _load_filtered_result_records(
+    args, *, record_type: str | None = None
+) -> list[dict[str, object]]:
+    records = load_result_records(
+        results_dir=Path.cwd() / "results", files=args.results_file
+    )
+    if record_type is not None:
+        records = [
+            record for record in records if record.get("record_type") == record_type
+        ]
+
+    return filter_records(
+        records,
+        filters=ResultFilters(
+            status=args.status,
+            organization=args.organization,
+            account=args.account,
+            region=args.region,
+            task=args.task,
+        ),
+    )
+
+
+def _print_query_payload(
+    payload: list[dict[str, object]],
+    *,
+    fields: list[str] | None,
+    output_json: bool,
+    output_jsonl: bool,
+) -> None:
+    projected_payload = project_records(payload, fields=fields)
+
+    if output_json:
+        print(json.dumps(projected_payload, indent=2))
+        return
+
+    if output_jsonl:
+        jsonl_payload = format_records_jsonl(projected_payload)
+        if jsonl_payload:
+            print(jsonl_payload)
+        return
+
+    print(format_records_table(payload, fields=fields))
+
+
+def _emit_result_records(args, records: list[dict[str, object]]) -> None:
+    fields = parse_fields(args.fields)
+    records = limit_records(records, limit=args.limit)
+    _print_query_payload(
+        records, fields=fields, output_json=args.json, output_jsonl=args.jsonl
+    )
+
+
+def _cmd_results_failures(args) -> int:
+    records = _load_filtered_result_records(args)
+    failures = failure_records(records)
+    _emit_result_records(args, failures)
+    return 0
+
+
+def _cmd_results_accounts(args) -> int:
+    records = _load_filtered_result_records(args, record_type="account")
+    _emit_result_records(args, records)
+    return 0
+
+
+def _cmd_results_tasks(args) -> int:
+    records = _load_filtered_result_records(args, record_type="task")
+    _emit_result_records(args, records)
+    return 0
+
+
+def _cmd_results_regions(args) -> int:
+    records = _load_filtered_result_records(args, record_type="task")
+    _emit_result_records(args, records)
+    return 0
+
+
+def _positive_int(value: str) -> int:
+    try:
+        parsed_value = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("must be an integer") from error
+
+    if parsed_value < 1:
+        raise argparse.ArgumentTypeError("must be greater than or equal to 1")
+
+    return parsed_value
+
+
+def _add_results_query_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--results-file",
+        type=Path,
+        dest="results_file",
+        help=(
+            "Result JSONL file(s) to query. Defaults to every results.jsonl file "
+            "under ./results."
+        ),
+        nargs="+",
+    )
+    parser.add_argument(
+        "--status", help="Filter by status: success, error, interrupted, or failed"
+    )
+    parser.add_argument("--organization", help="Filter by organization or target name")
+    parser.add_argument("--account", help="Filter by account ID or account alias")
+    parser.add_argument("--region", help="Filter by AWS region")
+    parser.add_argument("--task", help="Filter by task name")
+    parser.add_argument(
+        "--fields", help="Comma-separated result fields to include in output"
+    )
+    parser.add_argument(
+        "--limit",
+        type=_positive_int,
+        help="Maximum number of records to print after filtering",
+    )
+    output_group = parser.add_mutually_exclusive_group()
+    output_group.add_argument("--json", action="store_true", help="Output JSON")
+    output_group.add_argument("--jsonl", action="store_true", help="Output JSONL")
+
+
 def _add_log_level_arg(parser: argparse.ArgumentParser) -> None:
     """
     Add a standard log-level option to a parser.
@@ -306,6 +486,38 @@ def main() -> None:
         "--json", action="store_true", help="Output graph as JSON"
     )
     graph_parser.set_defaults(func=_cmd_graph)
+
+    results_parser = subparsers.add_parser(
+        "results", help="Query flattened run results"
+    )
+    _add_log_level_arg(results_parser)
+    results_subparsers = results_parser.add_subparsers(
+        dest="results_command", required=True
+    )
+
+    results_failures_parser = results_subparsers.add_parser(
+        "failures", help="Show unsuccessful account and task records"
+    )
+    _add_results_query_args(results_failures_parser)
+    results_failures_parser.set_defaults(func=_cmd_results_failures)
+
+    results_accounts_parser = results_subparsers.add_parser(
+        "accounts", help="Show account result records"
+    )
+    _add_results_query_args(results_accounts_parser)
+    results_accounts_parser.set_defaults(func=_cmd_results_accounts)
+
+    results_tasks_parser = results_subparsers.add_parser(
+        "tasks", help="Show task result records"
+    )
+    _add_results_query_args(results_tasks_parser)
+    results_tasks_parser.set_defaults(func=_cmd_results_tasks)
+
+    results_regions_parser = results_subparsers.add_parser(
+        "regions", help="Show task result records filtered by region"
+    )
+    _add_results_query_args(results_regions_parser)
+    results_regions_parser.set_defaults(func=_cmd_results_regions)
 
     args = parser.parse_args()
 
