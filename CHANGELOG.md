@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 <!-- version list -->
 
+## v0.23.0 (2026-05-01)
+
+### Chores
+
+- **deps**: Bump the github-actions group with 4 updates
+  ([#26](https://github.com/JSChronicles/anvil/pull/26),
+  [`b8233f7`](https://github.com/JSChronicles/anvil/commit/b8233f7a9744289580d1609a4ed5f897c17d64d5))
+
+- **deps-dev**: Bump prek in the uv-dependencies group
+  ([#25](https://github.com/JSChronicles/anvil/pull/25),
+  [`bf178f5`](https://github.com/JSChronicles/anvil/commit/bf178f530b02f745a6025d9d534616030094223e))
+
+- **uv**: Bump prek from 0.3.9 to 0.3.10 in the uv-dependencies group
+  ([#33](https://github.com/JSChronicles/anvil/pull/33),
+  [`99303de`](https://github.com/JSChronicles/anvil/commit/99303de9faf0b4ab43399051adcaca68fd82f15d))
+
+### Features
+
+- (results) add JSONL result queries ([#34](https://github.com/JSChronicles/anvil/pull/34),
+  [`f0f6a42`](https://github.com/JSChronicles/anvil/commit/f0f6a42796a859a4bf1a80acb324a4caa7b26aca))
+
+
 ## v0.22.0 (2026-04-25)
 
 ### Features
