@@ -144,8 +144,7 @@ def test_target_result_file_path_avoids_sanitized_name_collisions():
         existing_path.write_text("{}", encoding="utf-8")
 
         result_path = cli._target_result_file_path(
-            target_results_dir=scratch_dir,
-            target_name="org/a",
+            target_results_dir=scratch_dir, target_name="org/a"
         )
 
         assert result_path == scratch_dir / "org_a-1.json"

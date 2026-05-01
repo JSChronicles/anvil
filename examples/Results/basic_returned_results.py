@@ -45,8 +45,5 @@ def run(
         "dry_run": dry_run,
         "groups": groups,
         "access_key_ids": access_key_ids,
-        "summary": {
-            "groups": len(groups),
-            "access_keys": len(access_key_ids),
-        },
+        "summary": {"groups": len(groups), "access_keys": len(access_key_ids)},
     }

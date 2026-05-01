@@ -10,9 +10,7 @@ __LOGGER__ = logging.getLogger(__name__)
 
 
 def cleanup_user_resources(
-    iam_client,
-    user_name: str,
-    dry_run: bool,
+    iam_client, user_name: str, dry_run: bool
 ) -> dict[str, object]:
     """
     Return JSON-serializable cleanup details instead of recording actions.
@@ -33,11 +31,7 @@ def cleanup_user_resources(
 
         __LOGGER__.debug(message)
         group_results.append(
-            {
-                "group_name": group_name,
-                "status": status,
-                "message": message,
-            }
+            {"group_name": group_name, "status": status, "message": message}
         )
 
     # access keys
@@ -53,11 +47,7 @@ def cleanup_user_resources(
 
         __LOGGER__.debug(message)
         access_key_results.append(
-            {
-                "access_key_id": key_id,
-                "status": status,
-                "message": message,
-            }
+            {"access_key_id": key_id, "status": status, "message": message}
         )
 
     return {
@@ -89,8 +79,4 @@ def run(
         raise RuntimeError("example_cleanup requires metadata.user_name to be a string")
 
     iam = session.client("iam")
-    return cleanup_user_resources(
-        iam_client=iam,
-        user_name=user_name,
-        dry_run=dry_run,
-    )
+    return cleanup_user_resources(iam_client=iam, user_name=user_name, dry_run=dry_run)

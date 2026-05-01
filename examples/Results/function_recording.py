@@ -6,10 +6,7 @@ __LOGGER__ = logging.getLogger(__name__)
 
 
 def cleanup_user_resources(
-    iam_client,
-    user_name: str,
-    dry_run: bool,
-    actions: ActionRecorder,
+    iam_client, user_name: str, dry_run: bool, actions: ActionRecorder
 ) -> None:
     # groups
     for group in iam_client.list_groups_for_user(UserName=user_name)["Groups"]:
@@ -53,8 +50,5 @@ def run(
 
     iam = session.client("iam")
     cleanup_user_resources(
-        iam_client=iam,
-        user_name=user_name,
-        dry_run=dry_run,
-        actions=actions,
+        iam_client=iam, user_name=user_name, dry_run=dry_run, actions=actions
     )

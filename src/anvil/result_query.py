@@ -19,10 +19,7 @@ DEFAULT_TABLE_FIELDS = [
     "task",
     "error",
 ]
-FIELD_HEADERS = {
-    "record_type": "type",
-    "account_alias": "alias",
-}
+FIELD_HEADERS = {"record_type": "type", "account_alias": "alias"}
 AVAILABLE_FIELDS = [
     "account_alias",
     "account_group",
@@ -179,9 +176,7 @@ def parse_fields(fields: str | None) -> list[str] | None:
     if not parsed_fields:
         raise ValueError("--fields must include at least one field name")
 
-    unknown_fields = [
-        field for field in parsed_fields if field not in AVAILABLE_FIELDS
-    ]
+    unknown_fields = [field for field in parsed_fields if field not in AVAILABLE_FIELDS]
     if unknown_fields:
         available = ", ".join(AVAILABLE_FIELDS)
         unknown = ", ".join(unknown_fields)
@@ -226,8 +221,7 @@ def format_records_table(
         for record in records
     ]
     return _format_table(
-        headers=[FIELD_HEADERS.get(field, field) for field in table_fields],
-        rows=rows,
+        headers=[FIELD_HEADERS.get(field, field) for field in table_fields], rows=rows
     )
 
 
@@ -248,10 +242,7 @@ def _timed_status_record(result: AccountResult | TaskResult) -> dict[str, object
 
 
 def _base_account_record(
-    *,
-    target_result: TargetResult,
-    target_type: str,
-    account_result: AccountResult,
+    *, target_result: TargetResult, target_type: str, account_result: AccountResult
 ) -> dict[str, object]:
     return {
         "target_type": target_type,

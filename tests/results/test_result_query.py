@@ -19,11 +19,7 @@ from anvil.results import AccountResult, ExecutionStatus, TargetResult, TaskResu
 
 
 def _task_result(
-    *,
-    task_name: str,
-    region: str,
-    status: ExecutionStatus,
-    error: str | None = None,
+    *, task_name: str, region: str, status: ExecutionStatus, error: str | None = None
 ) -> TaskResult:
     return TaskResult(
         task_name=task_name,
@@ -108,11 +104,7 @@ def test_failure_records_include_account_and_task_failures():
 
 
 def test_parse_fields_validates_known_fields():
-    assert parse_fields("account_id, region,task") == [
-        "account_id",
-        "region",
-        "task",
-    ]
+    assert parse_fields("account_id, region,task") == ["account_id", "region", "task"]
 
 
 def test_parse_fields_rejects_unknown_fields():
@@ -138,11 +130,7 @@ def test_project_records_keeps_requested_fields_in_order():
     projected = project_records(records, fields=["account_id", "region", "task"])
 
     assert list(projected[0]) == ["account_id", "region", "task"]
-    assert projected[0] == {
-        "account_id": "111111111111",
-        "region": None,
-        "task": None,
-    }
+    assert projected[0] == {"account_id": "111111111111", "region": None, "task": None}
     assert projected[1] == {
         "account_id": "111111111111",
         "region": "us-east-1",
@@ -174,10 +162,7 @@ def test_format_records_jsonl_outputs_one_json_object_per_line():
 
     assert len(lines) == 2
     assert json.loads(lines[0]) == {"account_id": "111111111111", "task": None}
-    assert json.loads(lines[1]) == {
-        "account_id": "111111111111",
-        "task": "count_vpcs",
-    }
+    assert json.loads(lines[1]) == {"account_id": "111111111111", "task": "count_vpcs"}
 
 
 def test_load_result_records_discovers_nested_results_jsonl():

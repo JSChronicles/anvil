@@ -139,8 +139,7 @@ def _write_run_results(*, config_file: Path, engine_result) -> None:
 
     for target_result in engine_result.target_results:
         result_file = _target_result_file_path(
-            target_results_dir=target_results_dir,
-            target_name=target_result.target_name,
+            target_results_dir=target_results_dir, target_name=target_result.target_name
         )
 
         with recorder.phase("serialization_seconds"):
@@ -391,16 +390,14 @@ def _add_results_query_args(parser: argparse.ArgumentParser) -> None:
         nargs="+",
     )
     parser.add_argument(
-        "--status",
-        help="Filter by status: success, error, interrupted, or failed",
+        "--status", help="Filter by status: success, error, interrupted, or failed"
     )
     parser.add_argument("--organization", help="Filter by organization or target name")
     parser.add_argument("--account", help="Filter by account ID or account alias")
     parser.add_argument("--region", help="Filter by AWS region")
     parser.add_argument("--task", help="Filter by task name")
     parser.add_argument(
-        "--fields",
-        help="Comma-separated result fields to include in output",
+        "--fields", help="Comma-separated result fields to include in output"
     )
     parser.add_argument(
         "--limit",
