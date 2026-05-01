@@ -516,7 +516,8 @@ This helper allow tasks to:
 - produce structured output for reporting
 - integrate with Anvil’s execution summaries
 
-You can view examples of this here [ActionRecorder](./examples/ActionRecorder/README.md)
+You can view returned-result and ActionRecorder examples here:
+[Results](./examples/Results/README.md)
 
 Using these utilities is **not required**, but recommended for tasks that modify infrastructure or need richer audit output.
 
