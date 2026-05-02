@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 <!-- version list -->
 
+## v0.23.2 (2026-05-02)
+
+### Bug Fixes
+
+- **release**: Keep uv.lock synced during releases
+  ([`8ec2791`](https://github.com/JSChronicles/anvil/commit/8ec2791a3b8c399b194defef6a0b55997a605eba))
+
+
 ## v0.23.1 (2026-05-02)
 
 ### Bug Fixes
