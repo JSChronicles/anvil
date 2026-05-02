@@ -59,6 +59,7 @@ omit = [
     "src/anvil/tasks/*",
 ]
 
+# Keep release assets empty; GitHub already provides source archives.
 [tool.semantic_release]
 allow_zero_version = true
 build_command = "uv lock"
