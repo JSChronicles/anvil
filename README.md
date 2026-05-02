@@ -34,13 +34,14 @@ For a deeper look at the execution flow, see [docs/README.md](docs/README.md).
 
 ## Why Anvil?
 
-For teams that need repeatable AWS workflows, such as inventory, validation, enforcement, cleanup, and reporting, to run consistently across organizations, accounts, and multiple regions.
+Anvil is built for teams that need repeatable AWS workflows, such as inventory, validation, enforcement, cleanup, and reporting, to run consistently across organizations, accounts, and regions.
 
 - Declarative orchestration
-  - Define execution in YAML instead of one-off scripts.
-  - Configure organizations, account lists, regions, tasks, dependencies, dry runs, fail-fast behavior, and concurrency in one place.
+  - Define execution in reusable YAML instead of one-off scripts.
+  - Configure organizations, account lists, regions, tasks, task dependencies, dry runs, fail-fast behavior, and concurrency in one place.
 - Multi-account and multi-organization by default
-  - Discover active AWS Organizations accounts.
+  - Automatically discover active accounts and enabled regions for each AWS Organization.
+  - Run only against configured regions that are enabled for that organization.
   - Support explicit account groups and include/exclude filters.
   - Assume roles into member accounts.
   - Let account owners, admins, governance teams, and security teams run approved tasks at the scope they control.
@@ -50,18 +51,19 @@ For teams that need repeatable AWS workflows, such as inventory, validation, enf
   - Run regions inside each account concurrently with `max_parallel_regions`.
   - Keep concurrency explicit so large runs are faster without accidental API pressure.
 - Shared discovery and session reuse
-  - Preflight organization identity, account discovery, and enabled-region discovery.
+  - Check organization identity, account discovery, and enabled-region discovery before execution.
   - Reuse discovery for repeated targets in the same organization.
   - Reuse sessions and clients while keeping credentials scoped to the correct account and region.
 - Task isolation
-  - Write tasks as plain Python modules.
+  - Write tasks as simple Python files with a `run(...)` function.
   - Keep AWS business logic separate from authentication, role assumption, dependency ordering, result aggregation, and concurrency.
-- Built-in (Stock) and custom tasks
-  - Use built-in tasks for common AWS operations.
+- Built-in and custom tasks
+  - Use stock tasks for common AWS operations.
   - Add project-local tasks for team-specific work.
-  - Expect more governance, security, inventory, cleanup, and reporting built-in tasks over time.
+  - Extend the task set without changing the execution engine.
 - Structured output and safer operations
   - Record structured results at task, account, target, and engine levels.
+  - Write flattened JSONL results for quick filtering with `anvil results`.
   - Use auth checks, dry runs, dependency ordering, optional tasks, fail-fast controls, and cancellation handling for safer repeat runs.
 
 
@@ -495,6 +497,7 @@ def run(
 - `session` - A boto3 Session already scoped to the target account.
 - `dry_run` - Indicates whether the task should make changes.
 - `metadata` - Organization metadata defined in the configuration file.
+- `actions` - Action recorder provided by Anvil for planned or completed work.
 
 The return value is optional. Any returned data may be included in execution results.
 
@@ -502,7 +505,7 @@ The return value is optional. Any returned data may be included in execution res
 
 ### Optional Helpers (Advanced Usage)
 
-While only the `run()` function is required, tasks can optionally use Anvil-provided utilities to produce structured results or record actions.
+While only the `run()` function is required, tasks can optionally use Anvil-provided utilities to produce structured results.
 
 For example, tasks may import helpers such as:
 
@@ -510,7 +513,7 @@ For example, tasks may import helpers such as:
 from anvil.actions import ActionRecorder
 ```
 
-This helper allow tasks to:
+This helper allows tasks to:
 
 - record planned or executed actions
 - produce structured output for reporting
