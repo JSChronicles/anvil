@@ -28,6 +28,7 @@ At a high level:
 1. Each organization is defined independently in configuration.
 1. Each organization can declare its own profile, role, regions, worker limits, region concurrency, task graph, include or exclude filters, dry-run behavior, and fail-fast behavior.
 1. Each YAML can optionally declare `max_parallel_targets` to bound how many configured targets are allowed to execute at once.
+1. Anvil validates the YAML against the packaged JSON Schema and semantic target rules before execution starts.
 1. For each organization, Anvil authenticates, creates an organization-scoped base session, discovers eligible accounts, validates configured regions against enabled regions, and builds the effective account execution set.
    1. Selected accounts execute in parallel within that organization, bounded by the configured worker limit.
 1. Within an account, tasks execute in dependency order for each effective configured region, with optional bounded region concurrency.
@@ -217,7 +218,7 @@ This has three practical benefits:
 - Avoids recreating the same worker session repeatedly inside the same worker thread. Once a thread has a worker session for a given `(profile, region)` scope, it can reuse it.
 - Keeps the threading concern in the session layer rather than spreading it across organization and account execution code.
 
-Bounded parallel account execution means multiple threads are active. Thread-local worker sessions keep reuse efficient without letting one thread's AWS session state bleed into another thread's execution path.
+Because account execution can run across multiple worker threads, Anvil keeps worker sessions thread-local. This preserves session reuse while preventing one thread's AWS session state from bleeding into another thread's execution path.
 
 ### Member-account role assumption
 
