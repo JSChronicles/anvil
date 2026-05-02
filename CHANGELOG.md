@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 <!-- version list -->
 
+## v0.23.1 (2026-05-02)
+
+### Bug Fixes
+
+- **release**: Remove uv.lock release asset upload
+  ([`a18f4ed`](https://github.com/JSChronicles/anvil/commit/a18f4ed20d8c4ff33fbc42d39f8c4f35cfbc58c3))
+
+
 ## v0.23.0 (2026-05-01)
 
 ### Chores
