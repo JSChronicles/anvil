@@ -11,10 +11,10 @@
   <h3 align="center">README</h3>
 
   <p align="center">
-    <a href="https://github.com/JSChronicles/anvil"><strong>Explore the docs »</strong></a>
+    <a href="https://github.com/JSChronicles/anvil"><strong>Explore the docs</strong></a>
     <br />
     <a href="https://github.com/JSChronicles/anvil/issues/new?labels=Bug%2CNeeds+Triage&projects=&template=bug.yaml&title=%5BBUG%5D+%3Ctitle%3E">Report Bug</a>
-    ·
+    &middot;
     <a href="https://github.com/JSChronicles/anvil/issues/new?labels=enhancement%2Cfeature+request&projects=&template=feature.yaml&title=%5BFEATURE%5D%3A+">Request Feature</a>
   </p>
 </div>
@@ -34,6 +34,91 @@ At a high level:
 1. Results are captured at task, account, organization, and engine scope.
 
 This makes Anvil suitable for workflows that need consistent execution across multiple AWS organizations while still respecting account boundaries, region-specific service presence, and per-organization execution settings.
+
+## Flow
+
+```mermaid
+flowchart TD
+    A["Run command"] --> B["Load YAML"]
+    B --> C["Start target pipeline"]
+
+    C --> D["Prepare targets in parallel<br/>bounded by<br/>max parallel targets"]
+    D --> E{"Target prepared"}
+    E --> F["Auth check"]
+    F --> G{"Auth OK?"}
+
+    G -->|No| H["Record auth result<br/>skip execution"]
+    G -->|Yes| I["Apply run-time overrides"]
+    I --> J["Resolve task graph"]
+    J --> K["Build execution context"]
+    K --> L["Ready queue"]
+
+    L --> M{"Execution slot open<br/>and org not already active?"}
+    M -->|No| N["Wait in ready queue"]
+    M -->|Yes| O{"Target type?"}
+
+    O -->|Organization| P1
+    O -->|Accounts| Q1
+
+    subgraph LEFT["Organization target"]
+        direction TD
+        P1["Create base session"]
+        P1 --> P2["Read org identity"]
+        P2 --> P3["Discover active accounts"]
+        P3 --> P4["Discover enabled regions"]
+        P4 --> P5["Validate configured regions"]
+        P5 --> P6["Apply include/exclude filters"]
+        P6 --> P7["Build account list"]
+    end
+
+    subgraph RIGHT["Explicit accounts target"]
+        direction TD
+        Q1["Create base session"]
+        Q1 --> Q2["Read explicit account list"]
+        Q2 --> Q3["Build account list"]
+    end
+
+    P7 --> R["Create account worker pool"]
+    Q3 --> R
+
+    R --> S["Dispatch accounts in parallel<br/>bounded by per-target max workers"]
+    S --> T["Worker executes one account"]
+
+    T --> U{"Management account?"}
+    U -->|Yes| V["Reuse worker session<br/>for region"]
+    U -->|No| W["Assume role once<br/>for account"]
+    W --> X["Create region session<br/>from assumed credentials"]
+
+    V --> C1["Wrap account-region session<br/>with lazy client cache"]
+    X --> C1
+    C1 --> Y["Run tasks by region<br/>in dependency order"]
+
+    Y --> YA{"More tasks or regions?"}
+    YA -->|Yes| Y
+    YA -->|No| Z{"Failure with fail-fast?"}
+
+    Z -->|No| AA["Continue account work"]
+    Z -->|Yes| AB["Set cancellation signal"]
+    AB --> AC["Stop pending account work"]
+
+    AA --> AD["Account result"]
+    AC --> AD
+
+    AD --> AE["Target result"]
+    AE --> AF["Release org slot if needed"]
+    AF --> AG["Record target result<br/>in input order"]
+
+    H --> AH{"More prep or<br/>execution work?"}
+    N --> AH
+    AG --> AH
+    AH -->|Yes| E
+    AH -->|No| AI["Build ordered auth results"]
+    AI --> AJ["Build ordered target results"]
+    AJ --> AK["Compute engine state"]
+    AK --> AL["Return engine result"]
+```
+
+## Runtime execution
 
 ### Multi-organization execution
 
@@ -105,7 +190,7 @@ This means fail-fast does not just stop scheduling new work. It also allows in-f
 For example, in a run with 50 accounts, 3 regions, and 5 tasks per account:
 
 - Full run without fail-fast:
-  - 50 account executions × 3 regions × 5 tasks = 750 task runs
+  - 50 account executions x 3 regions x 5 tasks = 750 task runs
 - Fail-fast enabled:
   - Anvil signals cancellation across the organization, and each running account checks that signal before starting the next task
   - If an account sees the cancellation signal, it stops early instead of continuing through the remaining tasks and regions
@@ -132,51 +217,9 @@ audit/reporting runs because it adds engine, target, account, region, and
 result-write timings that can dramatically increase result JSON size on large
 runs.
 
-### Session and credential model
+## Session and credential model
 
 Anvil separates organization-level session creation, worker-session reuse, and member-account role assumption.
-
-### Why the session factory exists
-
-The `SessionFactory` exists to centralize session and credential mechanics that would otherwise be duplicated or coupled awkwardly across organization and account execution code.
-
-- `Organization` is responsible for organization orchestration and building accounts.
-- `Account` is responsible for account execution and task flow.
-- `SessionFactory` is responsible for:
-  - creating the organization-scoped base session
-  - managing thread-local worker sessions
-  - assuming role into member accounts
-  - constructing region-scoped sessions from assumed credentials
-  - wrapping account-region sessions with lazy client caching
-
-This also allows Anvil to separate credential acquisition from session construction.
-
-That separation matters for multi-region execution. Instead of assuming role once for every account-region combination, Anvil can assume role once per member account and reuse those temporary credentials to build region-scoped sessions for each configured region.
-
-For example, in a run with 50 accounts, 4 regions, and 49 member accounts:
-
-- previous behavior: 49 member accounts × 4 regions = 196 AssumeRole calls
-- current behavior: 49 member accounts × 1 = 49 AssumeRole calls
-
-This reduces avoidable STS churn while still giving each region run its own correctly scoped boto3 session.
-
-### Account-region client caching
-
-For task execution, Anvil wraps each account-region session with a small lazy client cache before passing it to tasks.
-
-The cache scope is intentionally narrow: one account, one region, one ordered task stream. If two tasks in the same account-region both call `session.client("ec2")`, the first call creates the EC2 client and the second call reuses it. If a task calls a different service, or calls the same service with different client arguments such as a different `region_name`, Anvil creates a separate client for that distinct call shape.
-
-This is an engine behavior, not a YAML setting. Task authors should continue to use the normal boto3-style pattern:
-
-```python
-ec2_client = session.client("ec2")
-```
-
-The cache is lazy, so a single task that creates one client pays only a small lookup before normal client creation. The benefit shows up when a workflow has multiple tasks in the same account-region that use the same AWS service, such as separate EC2 inventory tasks.
-
-Client caching reduces repeated boto3 client construction, service model setup, endpoint setup, and connection pool churn. It does not reduce AWS API calls. For example, a workflow that runs one VPC task and one subnet task can reuse the EC2 client, but it still calls both `describe_vpcs` and `describe_subnets`.
-
-Larger inventory optimizations should still happen at the task design level. If several read-only tasks repeatedly scan related EC2 inventory, a combined inventory task may reduce duplicate AWS API calls more than client caching can.
 
 ### Organization-scoped session setup
 
@@ -191,8 +234,6 @@ For worker execution, Anvil uses thread-local boto3 sessions keyed by profile an
 This allows worker threads to reuse appropriately scoped sessions without sharing session objects across threads and without mixing profile or region context between organizations.
 
 #### Why thread-local worker sessions exist
-
-The important thing is not just "cache sessions", but cache the right sessions at the right boundary.
 
 Account execution is concurrent within an organization through a bounded worker pool, and each account execution can touch one or more AWS regions. To support that safely, Anvil keeps a per-thread cache of worker boto3 sessions keyed by `(profile, region)`.
 
@@ -235,6 +276,46 @@ middle of a running task.
 ### Management-account execution
 
 Management accounts do not require role assumption. They execute directly with the organization/profile-backed worker session for each region.
+
+### Account-region client caching
+
+For task execution, Anvil wraps each account-region session with a small lazy client cache before passing it to tasks.
+
+The cache scope is intentionally narrow: one account, one region, one ordered task stream. If two tasks in the same account-region both call `session.client("ec2")`, the first call creates the EC2 client and the second call reuses it. If a task calls a different service, or calls the same service with different client arguments such as a different `region_name`, Anvil creates a separate client for that distinct call shape.
+
+This is an engine behavior, not a YAML setting. Task authors should continue to use the normal boto3-style pattern:
+
+```python
+ec2_client = session.client("ec2")
+```
+
+The cache is lazy, so a single task that creates one client pays only a small lookup before normal client creation. The benefit shows up when a workflow has multiple tasks in the same account-region that use the same AWS service, such as separate EC2 inventory tasks.
+
+Client caching reduces repeated boto3 client construction, service model setup, endpoint setup, and connection pool churn. It does not reduce AWS API calls. For example, a workflow that runs one VPC task and one subnet task can reuse the EC2 client, but it still calls both `describe_vpcs` and `describe_subnets`.
+
+Larger inventory optimizations should still happen at the task design level. If several read-only tasks repeatedly scan related EC2 inventory, a combined inventory task may reduce duplicate AWS API calls more than client caching can.
+
+### Why the session factory exists
+
+The `SessionFactory` centralizes session and credential mechanics that would otherwise be duplicated across organization and account execution code.
+
+- `Organization` is responsible for organization orchestration and building accounts.
+- `Account` is responsible for account execution and task flow.
+- `SessionFactory` is responsible for:
+  - creating the organization-scoped base session
+  - managing thread-local worker sessions
+  - assuming role into member accounts
+  - constructing region-scoped sessions from assumed credentials
+  - wrapping account-region sessions with lazy client caching
+
+This separates credential acquisition from session construction. That matters for multi-region execution: Anvil can assume role once per member account and reuse those temporary credentials to build region-scoped sessions for each configured region.
+
+For example, in a run with 50 accounts, 4 regions, and 49 member accounts:
+
+- previous behavior: 49 member accounts x 4 regions = 196 AssumeRole calls
+- current behavior: 49 member accounts x 1 = 49 AssumeRole calls
+
+This reduces avoidable STS churn while still giving each region run its own correctly scoped boto3 session.
 
 ## Authentication validation
 
@@ -313,8 +394,9 @@ Structural validation currently requires support for these parameters:
 - `session`
 - `dry_run`
 - `metadata`
+- `actions`
 
-At runtime, Anvil also passes an `actions` recorder so tasks can record meaningful work performed during execution.
+The `actions` parameter receives an action recorder that tasks can use to record meaningful work performed during execution.
 
 ### Dependency-aware execution
 
@@ -331,87 +413,9 @@ Anvil currently exposes these primary command groups:
 - `tasks list`
 - `tasks validate`
 - `graph`
+- `results failures`
+- `results accounts`
+- `results tasks`
+- `results regions`
 
-Organization targeting can also be narrowed at invocation time with `--include` or `--exclude` account filters.
-
-## Flow
-```mermaid
-flowchart TD
-    A["Run command"] --> B["Load YAML"]
-    B --> C["Start target pipeline"]
-
-    C --> D["Prepare targets in parallel<br/>bounded by<br/>max parallel targets"]
-    D --> E{"Target prepared"}
-    E --> F["Auth check"]
-    F --> G{"Auth OK?"}
-
-    G -->|No| H["Record auth result<br/>skip execution"]
-    G -->|Yes| I["Apply run-time overrides"]
-    I --> J["Resolve task graph"]
-    J --> K["Build execution context"]
-    K --> L["Ready queue"]
-
-    L --> M{"Execution slot open<br/>and org not already active?"}
-    M -->|No| N["Wait in ready queue"]
-    M -->|Yes| O{"Target type?"}
-
-    O -->|Organization| P1
-    O -->|Accounts| Q1
-
-    subgraph LEFT["Organization target"]
-        direction TD
-        P1["Create base session"]
-        P1 --> P2["Read org identity"]
-        P2 --> P3["Validate enabled regions"]
-        P3 --> P4["Discover active accounts"]
-        P4 --> P5["Apply include/exclude filters"]
-        P5 --> P6["Build account list"]
-    end
-
-    subgraph RIGHT["Explicit accounts target"]
-        direction TD
-        Q1["Create base session"]
-        Q1 --> Q2["Read explicit account list"]
-        Q2 --> Q3["Build account list"]
-    end
-
-    P6 --> R["Create account worker pool"]
-    Q3 --> R
-
-    R --> S["Dispatch accounts in parallel<br/>bounded by per-target max workers"]
-    S --> T["Worker executes one account"]
-
-    T --> U{"Management account?"}
-    U -->|Yes| V["Reuse worker session<br/>for region"]
-    U -->|No| W["Assume role"]
-    W --> X["Create region session"]
-
-    V --> C1["Wrap account-region session<br/>with lazy client cache"]
-    X --> C1
-    C1 --> Y["Run tasks by region<br/>in dependency order"]
-
-    Y --> YA{"More tasks or regions?"}
-    YA -->|Yes| Y
-    YA -->|No| Z{"Failure with fail-fast?"}
-
-    Z -->|No| AA["Continue account work"]
-    Z -->|Yes| AB["Set cancellation signal"]
-    AB --> AC["Stop pending account work"]
-
-    AA --> AD["Account result"]
-    AC --> AD
-
-    AD --> AE["Target result"]
-    AE --> AF["Release org slot if needed"]
-    AF --> AG["Record target result<br/>in input order"]
-
-    H --> AH{"More prep or<br/>execution work?"}
-    N --> AH
-    AG --> AH
-    AH -->|Yes| E
-    AH -->|No| AI["Build ordered auth results"]
-    AI --> AJ["Build ordered target results"]
-    AJ --> AK["Compute engine state"]
-    AK --> AL["Return engine result"]
-
-```
+Configured targets can also be narrowed at invocation time with `--include`. Organization configs additionally support `--exclude` to remove discovered account IDs from the execution set.

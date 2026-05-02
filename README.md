@@ -40,7 +40,8 @@ For teams that need repeatable AWS workflows, such as inventory, validation, enf
   - Define execution in YAML instead of one-off scripts.
   - Configure organizations, account lists, regions, tasks, dependencies, dry runs, fail-fast behavior, and concurrency in one place.
 - Multi-account and multi-organization by default
-  - Discover active AWS Organizations accounts.
+  - Automatically discover active accounts and enabled regions for each AWS Organization.
+  - Run only against configured regions that are enabled for that organization.
   - Support explicit account groups and include/exclude filters.
   - Assume roles into member accounts.
   - Let account owners, admins, governance teams, and security teams run approved tasks at the scope they control.
@@ -495,6 +496,7 @@ def run(
 - `session` - A boto3 Session already scoped to the target account.
 - `dry_run` - Indicates whether the task should make changes.
 - `metadata` - Organization metadata defined in the configuration file.
+- `actions` - Action recorder provided by Anvil for planned or completed work.
 
 The return value is optional. Any returned data may be included in execution results.
 
@@ -502,7 +504,7 @@ The return value is optional. Any returned data may be included in execution res
 
 ### Optional Helpers (Advanced Usage)
 
-While only the `run()` function is required, tasks can optionally use Anvil-provided utilities to produce structured results or record actions.
+While only the `run()` function is required, tasks can optionally use Anvil-provided utilities to produce structured results.
 
 For example, tasks may import helpers such as:
 
@@ -510,7 +512,7 @@ For example, tasks may import helpers such as:
 from anvil.actions import ActionRecorder
 ```
 
-This helper allow tasks to:
+This helper allows tasks to:
 
 - record planned or executed actions
 - produce structured output for reporting
