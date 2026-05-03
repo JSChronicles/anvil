@@ -106,13 +106,19 @@ def test_write_run_results_uses_config_stem_and_run_id_directories(monkeypatch):
     monkeypatch.setattr(cli, "_build_run_id", lambda: "2026-05-01T120000Z")
 
     try:
-        cli._write_run_results(
+        written_results = cli._write_run_results(
             config_file=Path("yaml/orgs.yaml"), engine_result=engine_result
         )
 
         assert summary_path.exists()
         assert target_path.exists()
         assert jsonl_path.exists()
+        assert written_results.run_dir == run_dir
+        assert written_results.summary_path == summary_path
+        assert written_results.jsonl_path == jsonl_path
+        assert written_results.summary == {"state": "completed_success"}
+        assert written_results.target_file_count == 1
+        assert written_results.jsonl_record_count == 0
     finally:
         monkeypatch.chdir(original_cwd)
         summary_path.unlink(missing_ok=True)
@@ -155,7 +161,116 @@ def test_target_result_file_path_avoids_sanitized_name_collisions():
             scratch_dir.rmdir()
 
 
-def test_cmd_results_accounts_filters_status_and_outputs_json(capsys):
+def test_print_failure_followups_uses_results_file_command(capsys, monkeypatch):
+    from pathlib import Path
+
+    cli = _import_cli_or_skip()
+    scratch_dir = (Path("tests") / "_tmp" / "cli-followups").resolve()
+    results_file = scratch_dir / "results" / "orgs" / "run-a" / "results.jsonl"
+    original_cwd = Path.cwd()
+
+    try:
+        results_file.parent.mkdir(parents=True)
+        monkeypatch.chdir(scratch_dir)
+
+        cli._print_failure_followups(results_file=results_file)
+
+        output = capsys.readouterr().out
+        assert (
+            "anvil results --status failed --results-file "
+            "./results/orgs/run-a/results.jsonl"
+            in output
+        )
+        assert (
+            "anvil results --status failed --results-file "
+            "./results/orgs/run-a/results.jsonl --rerun"
+        ) in output
+    finally:
+        monkeypatch.chdir(original_cwd)
+        if results_file.parent.exists():
+            results_file.parent.rmdir()
+        run_parent = scratch_dir / "results" / "orgs"
+        if run_parent.exists():
+            run_parent.rmdir()
+        results_dir = scratch_dir / "results"
+        if results_dir.exists():
+            results_dir.rmdir()
+        if scratch_dir.exists():
+            scratch_dir.rmdir()
+
+
+def test_build_rerun_targets_narrows_accounts_regions_and_task_dependencies():
+    from anvil.descriptors import ConfigBranch, LoadedConfig, TargetDescriptor
+    from anvil.result_query import build_rerun_targets
+
+    loaded_config = LoadedConfig(
+        branch=ConfigBranch.ORGANIZATIONS,
+        targets=[
+            TargetDescriptor(
+                config_branch=ConfigBranch.ORGANIZATIONS,
+                name="org-a",
+                regions=["us-east-1", "us-west-2"],
+                include=["111111111111", "222222222222"],
+                tasks=[
+                    {"name": "inventory"},
+                    {"name": "cleanup", "depends_on": ["inventory"]},
+                    {"name": "notify"},
+                ],
+            ),
+            TargetDescriptor(
+                config_branch=ConfigBranch.ORGANIZATIONS,
+                name="org-b",
+                regions=["us-east-1"],
+                tasks=[{"name": "inventory"}],
+            ),
+        ],
+    )
+
+    targets = build_rerun_targets(
+        loaded_config=loaded_config,
+        failures=[
+            {
+                "record_type": "account",
+                "target": "org-a",
+                "account_id": "111111111111",
+                "status": "error",
+            },
+            {
+                "record_type": "task",
+                "target": "org-a",
+                "account_id": "111111111111",
+                "region": "us-west-2",
+                "task": "cleanup",
+                "status": "error",
+            },
+            {
+                "record_type": "account",
+                "target": "org-a",
+                "account_id": "222222222222",
+                "status": "interrupted",
+            },
+        ],
+    )
+
+    assert len(targets) == 2
+    assert targets[0].name == "org-a"
+    assert targets[0].include == ["111111111111"]
+    assert targets[0].exclude is None
+    assert targets[0].regions == ["us-west-2"]
+    assert targets[0].tasks == [
+        {"name": "inventory"},
+        {"name": "cleanup", "depends_on": ["inventory"]},
+    ]
+    assert targets[1].include == ["222222222222"]
+    assert targets[1].regions == ["us-east-1", "us-west-2"]
+    assert targets[1].tasks == [
+        {"name": "inventory"},
+        {"name": "cleanup", "depends_on": ["inventory"]},
+        {"name": "notify"},
+    ]
+
+
+def test_cmd_results_filters_account_type_status_and_outputs_json(capsys):
     from pathlib import Path
     from types import SimpleNamespace
 
@@ -176,6 +291,14 @@ def test_cmd_results_accounts_filters_status_and_outputs_json(capsys):
                         '{"record_type":"account","target":"org-a","account_id":'
                         '"222222222222","account_alias":"prod","status":"success"}'
                     ),
+                    (
+                        '{"record_type":"account","target":"org-a","account_id":'
+                        '"333333333333","account_alias":"qa","status":"interrupted"}'
+                    ),
+                    (
+                        '{"record_type":"task","target":"org-a","account_id":'
+                        '"444444444444","account_alias":"ops","status":"error"}'
+                    ),
                 ]
             ),
             encoding="utf-8",
@@ -183,8 +306,9 @@ def test_cmd_results_accounts_filters_status_and_outputs_json(capsys):
 
         args = SimpleNamespace(
             results_file=[Path(jsonl_path)],
+            type="account",
             status="failed",
-            organization=None,
+            target=None,
             account=None,
             region=None,
             task=None,
@@ -192,20 +316,23 @@ def test_cmd_results_accounts_filters_status_and_outputs_json(capsys):
             limit=None,
             json=True,
             jsonl=False,
+            rerun=False,
         )
 
-        assert cli._cmd_results_accounts(args) == 0
+        assert cli._cmd_results(args) == 0
         output = capsys.readouterr().out
 
         assert '"account_id": "111111111111"' in output
         assert '"account_id": "222222222222"' not in output
+        assert '"account_id": "333333333333"' in output
+        assert '"account_id": "444444444444"' not in output
     finally:
         jsonl_path.unlink(missing_ok=True)
         if scratch_dir.exists():
             scratch_dir.rmdir()
 
 
-def test_cmd_results_tasks_outputs_jsonl_with_fields_and_limit(capsys):
+def test_cmd_results_outputs_jsonl_with_fields_and_limit(capsys):
     from pathlib import Path
     from types import SimpleNamespace
 
@@ -235,8 +362,9 @@ def test_cmd_results_tasks_outputs_jsonl_with_fields_and_limit(capsys):
 
         args = SimpleNamespace(
             results_file=[Path(jsonl_path)],
+            type="task",
             status="failed",
-            organization=None,
+            target=None,
             account=None,
             region=None,
             task="count_vpcs",
@@ -244,9 +372,10 @@ def test_cmd_results_tasks_outputs_jsonl_with_fields_and_limit(capsys):
             limit=1,
             json=False,
             jsonl=True,
+            rerun=False,
         )
 
-        assert cli._cmd_results_tasks(args) == 0
+        assert cli._cmd_results(args) == 0
         output = capsys.readouterr().out
 
         assert output.count("\n") == 1
@@ -258,3 +387,20 @@ def test_cmd_results_tasks_outputs_jsonl_with_fields_and_limit(capsys):
         jsonl_path.unlink(missing_ok=True)
         if scratch_dir.exists():
             scratch_dir.rmdir()
+
+
+def test_cmd_results_rerun_rejects_report_only_flags():
+    from types import SimpleNamespace
+
+    cli = _import_cli_or_skip()
+    args = SimpleNamespace(
+        rerun=True,
+        type="account",
+        fields="account_id",
+        limit=1,
+        json=True,
+        jsonl=False,
+    )
+
+    with pytest.raises(ValueError, match="--type, --fields, --limit, --json"):
+        cli._cmd_results(args)

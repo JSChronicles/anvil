@@ -249,29 +249,66 @@ Runs still write the existing full JSON result files. They also write JSONL reco
 Common queries:
 
 ```console
-anvil results failures
-anvil results failures --organization prod
-anvil results accounts --status failed
-anvil results tasks --task count_vpcs
-anvil results regions --region us-east-1
-anvil results failures --fields account_id,region,task,error --limit 20
-anvil results tasks --status failed --jsonl
+# Show every failure under ./results.
+anvil results --status failed
+
+# Show failures for one organization or account-group target.
+anvil results --target prod --status failed
+
+# Show failed account records only.
+anvil results --type account --status failed
+
+# Show task records for one task name.
+anvil results --type task --task count_vpcs
+
+# Show task records for one AWS region.
+anvil results --type task --region us-east-1
+
+# Show a compact failure view with selected fields and a row limit.
+anvil results --status failed --fields account_id,region,task,error --limit 20
+
+# Emit failed task records as JSONL.
+anvil results --type task --status failed --jsonl
 ```
 
 Advanced queries:
 
 ```console
-anvil results failures --results-file ./results/orgs/2026-05-01T183012Z/results.jsonl
-anvil results failures --results-file ./results/orgs/run-a/results.jsonl ./results/accounts/run-b/results.jsonl
-anvil results tasks --organization prod --task count_vpcs --fields account_id,region,status,error
-anvil results failures --fields record_type,target,account_id,region,task,error
-anvil results tasks --status failed --fields account_id,region,error --jsonl
-anvil results failures --fields target_type,target,account_id,task,error --limit 50
+# Query one explicit run results file.
+anvil results --status failed --results-file ./results/orgs/2026-05-01T183012Z/results.jsonl
+
+# Query multiple explicit run results files in one command.
+anvil results --status failed --results-file ./results/orgs/run-a/results.jsonl ./results/accounts/run-b/results.jsonl
+
+# Filter one task in one target and print selected fields.
+anvil results --type task --target prod --task count_vpcs --fields account_id,region,status,error
+
+# Show failure rows with target, account, region, task, and error context.
+anvil results --status failed --fields record_type,target,account_id,region,task,error
+
+# Emit failed task rows as JSONL with only the selected fields.
+anvil results --type task --status failed --fields account_id,region,error --jsonl
+
+# Show the first 50 failure rows with target type context.
+anvil results --status failed --fields target_type,target,account_id,task,error --limit 50
 ```
 
-All result query commands support `--organization`, `--account`, `--region`,
-`--task`, `--status`, `--fields`, `--limit`, `--results-file` with one or more
-JSONL paths, and `--json` or `--jsonl` for structured filtered output. Without
+Rerun failures:
+> [!NOTE]
+> `--rerun` infers the rerun scope from result records. It reloads the original config, reruns only matching failed accounts, narrows to failed regions and tasks when task-level failures are available, and includes required task dependencies automatically.
+
+```console
+# Rerun failures from one explicit run results file.
+anvil results --status failed --results-file ./results/orgs/2026-05-01T183012Z/results.jsonl --rerun
+
+# Rerun failures from multiple explicit run results files in one command.
+anvil results --status failed --results-file ./results/orgs/run-a/results.jsonl ./results/accounts/run-b/results.jsonl --rerun
+```
+
+The result query command supports `--type`, `--target`, `--account`,
+`--region`, `--task`, `--status`, `--fields`, `--limit`, `--results-file` with
+one or more JSONL paths, and `--json` or `--jsonl` for structured filtered
+output. `--status failed` matches any non-success status. Without
 `--results-file`, Anvil queries every `results.jsonl` file under `./results`.
 
 To run multiple YAML files in one command, pass them after a single `--config-file` flag. They run sequentially in the order provided. Each YAML remains an isolated run with its own summary file, and the overall command exits non-zero if any YAML run fails.

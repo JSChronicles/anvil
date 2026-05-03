@@ -563,9 +563,6 @@ Anvil currently exposes these primary command groups:
 - `tasks list`
 - `tasks validate`
 - `graph`
-- `results failures`
-- `results accounts`
-- `results tasks`
-- `results regions`
+- `results`
 
 Configured targets can also be narrowed at invocation time with `--include`. Organization configs additionally support `--exclude` to remove discovered account IDs from the execution set.

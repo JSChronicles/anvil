@@ -8,6 +8,8 @@ import argparse
 import datetime
 import json
 import logging
+import shlex
+from dataclasses import dataclass
 from pathlib import Path
 from anvil.graph import render_graph
 import yaml
@@ -15,6 +17,8 @@ from anvil.benchmark import BenchmarkRecorder
 from anvil.descriptors import ConfigBranch, LoadedConfig
 from anvil.result_query import (
     ResultFilters,
+    build_rerun_targets,
+    config_file_for_failure_records,
     failure_records,
     filter_records,
     format_records_jsonl,
@@ -39,6 +43,18 @@ from anvil.task_validation import validate_tasks
 from anvil.validators import load_config_descriptors, validate_config_schema
 
 __LOGGER__ = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class WrittenRunResults:
+    """Paths and summary metadata written for one Anvil run."""
+
+    run_dir: Path
+    summary_path: Path
+    jsonl_path: Path
+    summary: dict[str, object]
+    target_file_count: int
+    jsonl_record_count: int
 
 
 def _load_targets_from_config_file(path: Path) -> LoadedConfig:
@@ -129,7 +145,7 @@ def _target_result_file_path(*, target_results_dir: Path, target_name: str) -> P
     return result_file
 
 
-def _write_run_results(*, config_file: Path, engine_result) -> None:
+def _write_run_results(*, config_file: Path, engine_result) -> WrittenRunResults:
     run_dir = _create_results_run_dir(config_file=config_file)
     target_results_dir = run_dir / _target_results_dir_name(engine_result.config_branch)
     target_results_dir.mkdir()
@@ -165,7 +181,9 @@ def _write_run_results(*, config_file: Path, engine_result) -> None:
 
     jsonl_path = jsonl_path_for_run(run_dir=run_dir)
     jsonl_record_count = write_jsonl_records(
-        path=jsonl_path, target_results=engine_result.target_results
+        path=jsonl_path,
+        target_results=engine_result.target_results,
+        config_file=config_file,
     )
 
     summary = engine_result.build_summary()
@@ -181,6 +199,48 @@ def _write_run_results(*, config_file: Path, engine_result) -> None:
         f"jsonl_records={jsonl_record_count}"
     )
 
+    return WrittenRunResults(
+        run_dir=run_dir,
+        summary_path=summary_path,
+        jsonl_path=jsonl_path,
+        summary=summary,
+        target_file_count=len(engine_result.target_results),
+        jsonl_record_count=jsonl_record_count,
+    )
+
+
+def _summary_has_queryable_failures(summary: dict[str, object]) -> bool:
+    for key in (
+        "total_failed_accounts",
+        "total_interrupted_accounts",
+        "total_failed_tasks",
+    ):
+        value = summary.get(key)
+        if isinstance(value, int) and value > 0:
+            return True
+
+    return False
+
+
+def _display_command_path(path: Path) -> str:
+    try:
+        display_path = f"./{path.resolve().relative_to(Path.cwd().resolve())}"
+    except ValueError:
+        display_path = str(path)
+
+    display_path = display_path.replace("\\", "/")
+    return shlex.quote(display_path)
+
+
+def _print_failure_followups(*, results_file: Path) -> None:
+    results_path = _display_command_path(results_file)
+    print()
+    print("View failures:")
+    print(f"  anvil results --status failed --results-file {results_path}")
+    print()
+    print("Rerun failed accounts:")
+    print(f"  anvil results --status failed --results-file {results_path} --rerun")
+
 
 def _run_single_config_file(*, config_file: Path, args) -> int:
     loaded_config: LoadedConfig = _load_targets_from_config_file(config_file)
@@ -194,7 +254,11 @@ def _run_single_config_file(*, config_file: Path, args) -> int:
         cli_exclude=args.exclude,
         benchmark_enabled=getattr(args, "benchmark", False),
     )
-    _write_run_results(config_file=config_file, engine_result=engine_result)
+    written_results = _write_run_results(
+        config_file=config_file, engine_result=engine_result
+    )
+    if _summary_has_queryable_failures(written_results.summary):
+        _print_failure_followups(results_file=written_results.jsonl_path)
 
     return 0 if engine_result.state is EngineState.COMPLETED_SUCCESS else 1
 
@@ -288,22 +352,17 @@ def _cmd_graph(args) -> int:
     return 0
 
 
-def _load_filtered_result_records(
-    args, *, record_type: str | None = None
-) -> list[dict[str, object]]:
+def _load_filtered_result_records(args) -> list[dict[str, object]]:
     records = load_result_records(
         results_dir=Path.cwd() / "results", files=args.results_file
     )
-    if record_type is not None:
-        records = [
-            record for record in records if record.get("record_type") == record_type
-        ]
 
     return filter_records(
         records,
         filters=ResultFilters(
+            record_type=args.type,
             status=args.status,
-            organization=args.organization,
+            target=args.target,
             account=args.account,
             region=args.region,
             task=args.task,
@@ -341,29 +400,70 @@ def _emit_result_records(args, records: list[dict[str, object]]) -> None:
     )
 
 
-def _cmd_results_failures(args) -> int:
+def _validate_results_rerun_args(args) -> None:
+    rejected_flags: list[str] = []
+    if args.type is not None:
+        rejected_flags.append("--type")
+    if args.fields is not None:
+        rejected_flags.append("--fields")
+    if args.limit is not None:
+        rejected_flags.append("--limit")
+    if args.json:
+        rejected_flags.append("--json")
+    if args.jsonl:
+        rejected_flags.append("--jsonl")
+
+    if rejected_flags:
+        rejected = ", ".join(rejected_flags)
+        raise ValueError(f"{rejected} cannot be used with --rerun")
+
+
+def _cmd_results(args) -> int:
+    if args.rerun:
+        _validate_results_rerun_args(args)
+        return _cmd_results_rerun(args)
+
+    records = _load_filtered_result_records(args)
+    _emit_result_records(args, records)
+    return 0
+
+
+def _cmd_results_rerun(args) -> int:
     records = _load_filtered_result_records(args)
     failures = failure_records(records)
-    _emit_result_records(args, failures)
-    return 0
+    if not failures:
+        print("No matching failures to rerun.")
+        return 0
 
+    records_by_config = config_file_for_failure_records(failures=failures)
 
-def _cmd_results_accounts(args) -> int:
-    records = _load_filtered_result_records(args, record_type="account")
-    _emit_result_records(args, records)
-    return 0
+    exit_code = 0
+    for config_file, config_failures in records_by_config.items():
+        loaded_config = _load_targets_from_config_file(config_file)
+        rerun_targets = build_rerun_targets(
+            loaded_config=loaded_config, failures=config_failures
+        )
+        if not rerun_targets:
+            print(f"No configured targets matched failures for {config_file}.")
+            continue
 
+        engine_result: EngineResult = run_multiple_targets(
+            targets=rerun_targets,
+            max_parallel_targets=loaded_config.max_parallel_targets,
+            cli_dry_run=args.dry_run,
+            cli_include=None,
+            cli_exclude=None,
+            benchmark_enabled=getattr(args, "benchmark", False),
+        )
+        written_results = _write_run_results(
+            config_file=config_file, engine_result=engine_result
+        )
+        if _summary_has_queryable_failures(written_results.summary):
+            _print_failure_followups(results_file=written_results.jsonl_path)
+        if engine_result.state is not EngineState.COMPLETED_SUCCESS:
+            exit_code = 1
 
-def _cmd_results_tasks(args) -> int:
-    records = _load_filtered_result_records(args, record_type="task")
-    _emit_result_records(args, records)
-    return 0
-
-
-def _cmd_results_regions(args) -> int:
-    records = _load_filtered_result_records(args, record_type="task")
-    _emit_result_records(args, records)
-    return 0
+    return exit_code
 
 
 def _positive_int(value: str) -> int:
@@ -392,7 +492,12 @@ def _add_results_query_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--status", help="Filter by status: success, error, interrupted, or failed"
     )
-    parser.add_argument("--organization", help="Filter by organization or target name")
+    parser.add_argument(
+        "--type",
+        choices=["account", "task"],
+        help="Filter by result record type",
+    )
+    parser.add_argument("--target", help="Filter by organization or account-group name")
     parser.add_argument("--account", help="Filter by account ID or account alias")
     parser.add_argument("--region", help="Filter by AWS region")
     parser.add_argument("--task", help="Filter by task name")
@@ -491,33 +596,28 @@ def main() -> None:
         "results", help="Query flattened run results"
     )
     _add_log_level_arg(results_parser)
-    results_subparsers = results_parser.add_subparsers(
-        dest="results_command", required=True
+    _add_results_query_args(results_parser)
+    results_parser.add_argument(
+        "--rerun",
+        action="store_true",
+        help="Rerun failed targets narrowed to failed accounts, regions, and tasks",
     )
-
-    results_failures_parser = results_subparsers.add_parser(
-        "failures", help="Show unsuccessful account and task records"
+    results_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=None,
+        help="With --rerun, run without making changes",
     )
-    _add_results_query_args(results_failures_parser)
-    results_failures_parser.set_defaults(func=_cmd_results_failures)
-
-    results_accounts_parser = results_subparsers.add_parser(
-        "accounts", help="Show account result records"
+    results_parser.add_argument(
+        "--benchmark",
+        action="store_true",
+        help=(
+            "With --rerun, "
+            "Include diagnostic phase timings in result JSON. "
+            "This can significantly increase output size."
+        ),
     )
-    _add_results_query_args(results_accounts_parser)
-    results_accounts_parser.set_defaults(func=_cmd_results_accounts)
-
-    results_tasks_parser = results_subparsers.add_parser(
-        "tasks", help="Show task result records"
-    )
-    _add_results_query_args(results_tasks_parser)
-    results_tasks_parser.set_defaults(func=_cmd_results_tasks)
-
-    results_regions_parser = results_subparsers.add_parser(
-        "regions", help="Show task result records filtered by region"
-    )
-    _add_results_query_args(results_regions_parser)
-    results_regions_parser.set_defaults(func=_cmd_results_regions)
+    results_parser.set_defaults(func=_cmd_results)
 
     args = parser.parse_args()
 
