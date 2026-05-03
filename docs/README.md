@@ -29,7 +29,7 @@ At a high level:
 1. Each organization can declare its own profile, role, regions, worker limits, region concurrency, task graph, include or exclude filters, dry-run behavior, and fail-fast behavior.
 1. Each YAML can optionally declare `max_parallel_targets` to bound how many configured targets are allowed to execute at once.
 1. Anvil validates the YAML against the packaged JSON Schema and semantic target rules before execution starts.
-1. For each organization, Anvil authenticates, creates an organization-scoped base session, discovers eligible accounts, validates configured regions against enabled regions, and builds the effective account execution set.
+1. For each organization, Anvil authenticates, creates an organization-scoped base session, discovers eligible accounts, discovers region statuses, validates configured regions against enabled regions, and builds the effective account execution set.
    1. Selected accounts execute in parallel within that organization, bounded by the configured worker limit.
 1. Within an account, tasks execute in dependency order for each effective configured region, with optional bounded region concurrency.
 1. Results are captured at task, account, organization, and engine scope.
@@ -66,7 +66,7 @@ flowchart TD
         P1["Create base session"]
         P1 --> P2["Read org identity"]
         P2 --> P3["Discover active accounts"]
-        P3 --> P4["Discover enabled regions"]
+        P3 --> P4["Discover region statuses"]
         P4 --> P5["Validate configured regions"]
         P5 --> P6["Apply include/exclude filters"]
         P6 --> P7["Build account list"]
@@ -139,7 +139,7 @@ Anvil supports defining multiple organizations in a single run. Each organizatio
 
 This allows a single execution to coordinate work across separate AWS environments without forcing them into a shared credential model or shared runtime configuration.
 
-When one YAML contains multiple targets that resolve to the same AWS organization, Anvil reuses organization discovery results during that run. The first target to discover active accounts and enabled regions populates a run-local cache keyed by organization ID. Concurrent preparation for the same organization waits for that in-flight discovery instead of issuing duplicate `list_accounts` and `list_regions` calls. Target execution is still serialized per organization later in the pipeline so two same-organization targets do not execute account work at the same time.
+When one YAML contains multiple targets that resolve to the same AWS organization, Anvil reuses organization discovery results during that run. The first target to discover active accounts and region statuses populates a run-local cache keyed by organization ID. Concurrent preparation for the same organization waits for that in-flight discovery instead of issuing duplicate `list_accounts` and `list_regions` calls. Target execution is still serialized per organization later in the pipeline so two same-organization targets do not execute account work at the same time.
 
 ### Multi-region execution
 
@@ -314,6 +314,208 @@ Auth check normalizes several common authentication problems into clearer messag
 - **Unexpected error during authentication**
 
 Where possible, Anvil also includes remediation guidance such as re-running SSO login for the affected profile.
+
+## Detailed CLI examples
+
+### Authentication output
+
+Authenticate credentials from an organization file:
+
+```console
+anvil auth check --config-file ./yaml/orgs.yaml
+
+INFO     [auth.py:auth_check:106] Running auth check for org=root profile=root auth_source=AuthSource.SSO
+INFO     [auth.py:auth_check:106] Running auth check for org=other-root profile=other-root auth_source=AuthSource.SSO
+INFO     [auth.py:auth_check:106] Running auth check for org=random-root profile=random-root auth_source=AuthSource.UNKNOWN
+WARNING  [credentials.py:_protected_refresh:603] Refreshing temporary credentials failed during mandatory refresh period.
+botocore.exceptions.UnauthorizedSSOTokenError: The SSO session associated with this profile has expired or is otherwise invalid. To refresh this SSO session run aws sso login with the corresponding profile.
+{
+  "generated_at": "2026-03-31T15:30:15.075014+00:00",
+  "auth": [
+    {
+      "org_name": "root",
+      "status": "error",
+      "source": "sso",
+      "started_at": "2026-03-31T15:30:14.836545+00:00",
+      "ended_at": "2026-03-31T15:30:15.074440+00:00",
+      "duration_seconds": 0.23789780004881322,
+      "message": "AWS SSO session is invalid or expired.",
+      "remediation": "aws sso login --profile root"
+    },
+    {
+      "org_name": "other-root",
+      "status": "error",
+      "source": "sso",
+      "started_at": "2026-03-31T15:30:14.841167+00:00",
+      "ended_at": "2026-03-31T15:30:15.072661+00:00",
+      "duration_seconds": 0.23149509984068573,
+      "message": "AWS SSO session is invalid or expired.",
+      "remediation": "aws sso login --profile other-root"
+    },
+    {
+      "org_name": "random-root",
+      "status": "error",
+      "source": "unknown",
+      "started_at": "2026-03-31T15:30:14.849622+00:00",
+      "ended_at": "2026-03-31T15:30:14.904089+00:00",
+      "duration_seconds": 0.054468399845063686,
+      "message": "AWS profile not found.",
+      "remediation": "Fix your AWS profile configuration."
+    }
+  ]
+}
+```
+
+A successful authentication check returns success records for each configured target:
+
+```console
+INFO [auth.py:auth_check:106] Running auth check for org=root profile=root auth_source=AuthSource.SSO
+{
+  "generated_at": "2026-03-31T15:34:56.998631+00:00",
+  "auth": [
+    {
+      "org_name": "root",
+      "status": "success",
+      "source": "sso",
+      "started_at": "2026-03-31T15:34:54.844004+00:00",
+      "ended_at": "2026-03-31T15:34:56.971776+00:00",
+      "duration_seconds": 2.1277707000263035,
+      "message": "Authenticated successfully.",
+      "remediation": null
+    },
+    {
+      "org_name": "other-root",
+      "status": "success",
+      "source": "sso",
+      "started_at": "2026-03-31T15:34:54.848072+00:00",
+      "ended_at": "2026-03-31T15:34:56.998306+00:00",
+      "duration_seconds": 2.1502324000466615,
+      "message": "Authenticated successfully.",
+      "remediation": null
+    }
+  ]
+}
+```
+
+### Graph output
+
+Generate a dependency graph from an organization file:
+
+```console
+anvil graph --config-file .\examples\07-optional-task-semantics.yaml
+
+Execution Graph (optional-semantics-org)
+----------------------------------------
+inventory
+`-- reporting
+    `-- cleanup
+```
+
+Output graph results as JSON:
+
+```console
+anvil graph --config-file .\examples\07-optional-task-semantics.yaml --json
+
+{
+  "organization": "optional-semantics-org",
+  "tasks": [
+    {
+      "name": "inventory",
+      "depends_on": []
+    },
+    {
+      "name": "reporting",
+      "depends_on": [
+        "inventory"
+      ]
+    },
+    {
+      "name": "cleanup",
+      "depends_on": [
+        "reporting"
+      ]
+    }
+  ]
+}
+```
+
+### Run output and result layout
+
+Organization configs write per-target result files under `organizations/`:
+
+```text
+results/
+  <config-stem>/
+    <run-id>/
+      summary.json
+      results.jsonl
+      organizations/
+        <organization>.json
+```
+
+Account-group configs use `account-groups/` for per-target JSON files instead of `organizations/`:
+
+```text
+results/
+  <config-stem>/
+    <run-id>/
+      summary.json
+      results.jsonl
+      account-groups/
+        <account-group>.json
+```
+
+Example run output:
+
+```console
+anvil run --config-file ./yaml/noop.yaml
+INFO     [auth.py:auth_check:106] Running auth check for org=root profile=root auth_source=AuthSource.SSO
+INFO     [organization.py:execute:39] Starting organization processing (org=root, region=us-east-1)
+INFO     [account.py:execute:48] Processing account root (123456789000)
+INFO     [account.py:execute:48] Processing account account1 (111111111111)
+INFO     [account.py:execute:48] Processing account account2 (222222222222)
+INFO     [noop.py:run:33] No-op task executed for account root (123456789000), dry_run=False
+INFO     [account.py:execute:48] Processing account Log Archive (333333333333)
+INFO     [account.py:execute:48] Processing account Audit (444444444444)
+INFO     [noop.py:run:33] No-op task executed for account account1 (111111111111), dry_run=False
+INFO     [noop.py:run:33] No-op task executed for account Audit (444444444444), dry_run=False
+INFO     [noop.py:run:33] No-op task executed for account Log Archive (333333333333), dry_run=False
+INFO     [noop.py:run:33] No-op task executed for account account2 (222222222222), dry_run=False
+......
+INFO     [cli.py:_write_run_results:132] Wrote run results to xxxx\xxxx\results\noop\2026-05-01T183012Z: summary=xxxx\xxxx\results\noop\2026-05-01T183012Z\summary.json, target_files=1, jsonl_records=50
+
+# Summary below
+{
+  "state": "completed_success",
+  "generated_at": "2026-03-17T18:48:47.392583+00:00",
+  "auth": [
+    {
+      "org_name": "root",
+      "status": "success",
+      "source": "sso",
+      "started_at": "2026-03-17T18:48:36.615369+00:00",
+      "ended_at": "2026-03-17T18:48:38.338430+00:00",
+      "duration_seconds": 1.7230594999855384,
+      "message": "Authenticated successfully.",
+      "remediation": null
+    }
+  ],
+  "organizations": [
+    {
+      "organization": "root",
+      "total_accounts": 50,
+      "failed_accounts": 0,
+      "interrupted_accounts": 0,
+      "failed_tasks": 0,
+      "has_failures": false,
+      "error": null
+    }
+  ],
+  "total_failed_accounts": 0,
+  "total_interrupted_accounts": 0,
+  "total_failed_tasks": 0
+}
+```
 
 ## Task validation
 

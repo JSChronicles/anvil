@@ -36,7 +36,27 @@
             "$ref": "common.schema.v1.json#/$defs/baseTargetProperties/profile"
           },
           "regions": {
-            "$ref": "common.schema.v1.json#/$defs/baseTargetProperties/regions"
+            "$ref": "common.schema.v1.json#/$defs/baseTargetProperties/regions",
+            "description": "Organization regions for task execution. Use explicit regions, 'all' by itself, glob selectors, or mixed glob and explicit selectors.",
+            "examples": [
+              [
+                "us-east-1"
+              ],
+              [
+                "all"
+              ],
+              [
+                "us-*"
+              ],
+              [
+                "us-*",
+                "eu-*"
+              ],
+              [
+                "us-*",
+                "ca-central-1"
+              ]
+            ]
           },
           "role_name": {
             "$ref": "common.schema.v1.json#/$defs/baseTargetProperties/role_name"

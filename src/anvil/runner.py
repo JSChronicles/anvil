@@ -18,6 +18,7 @@ from anvil.descriptors import ConfigBranch, TargetDescriptor
 from anvil.execution_context import ExecutionContext
 from anvil.executor import execute_accounts
 from anvil.organization import OrganizationResolver
+from anvil.regions import get_bootstrap_region
 from anvil.results import (
     AuthResult,
     EngineResult,
@@ -110,7 +111,7 @@ class PreparedTarget:
     organization_id: str | None = None
     management_account_id: str | None = None
     discovered_accounts: dict[str, dict[str, str]] | None = None
-    enabled_regions: list[str] | None = None
+    region_statuses: dict[str, str] | None = None
     benchmark: dict[str, object] | None = None
 
     @property
@@ -166,7 +167,7 @@ class AuthCheckCache:
 class OrganizationRunCacheEntry:
     management_account_id: str
     discovered_accounts: dict[str, dict[str, str]]
-    enabled_regions: list[str]
+    region_statuses: dict[str, str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -335,12 +336,13 @@ def _preflight_organization(
     session_factory: SessionFactory,
     organization_cache: OrganizationRunCache,
     benchmark: dict[str, object] | None = None,
-) -> tuple[Session, str, str, dict[str, dict[str, str]], list[str]]:
+) -> tuple[Session, str, str, dict[str, dict[str, str]], dict[str, str]]:
     sink = BenchmarkRecorder(data=benchmark)
 
     with sink.phase("create_base_session_seconds"):
         base_session: Session = session_factory.create_base_session(
-            profile_name=target.profile, region_name=context.regions[0]
+            profile_name=target.profile,
+            region_name=get_bootstrap_region(context.regions),
         )
 
     with sink.phase("describe_organization_seconds"):
@@ -352,15 +354,15 @@ def _preflight_organization(
         with sink.phase("discover_accounts_seconds"):
             discovered_accounts = OrganizationResolver.discover_accounts(base_session)
 
-        with sink.phase("discover_enabled_regions_seconds"):
-            enabled_regions = OrganizationResolver.discover_enabled_regions(
+        with sink.phase("discover_region_statuses_seconds"):
+            region_statuses = OrganizationResolver.discover_region_statuses(
                 base_session
             )
 
         return OrganizationRunCacheEntry(
             management_account_id=management_account_id,
             discovered_accounts=discovered_accounts,
-            enabled_regions=enabled_regions,
+            region_statuses=region_statuses,
         )
 
     lookup = organization_cache.get_or_discover(
@@ -374,7 +376,7 @@ def _preflight_organization(
         organization_id,
         lookup.entry.management_account_id,
         lookup.entry.discovered_accounts,
-        lookup.entry.enabled_regions,
+        lookup.entry.region_statuses,
     )
 
 
@@ -428,14 +430,14 @@ def prepare_target(
         organization_id: str | None = None
         management_account_id: str | None = None
         discovered_accounts: dict[str, dict[str, str]] | None = None
-        enabled_regions: list[str] | None = None
+        region_statuses: dict[str, str] | None = None
         if effective_target.is_organization_config:
             (
                 base_session,
                 organization_id,
                 management_account_id,
                 discovered_accounts,
-                enabled_regions,
+                region_statuses,
             ) = _preflight_organization(
                 target=effective_target,
                 context=context,
@@ -454,7 +456,7 @@ def prepare_target(
         organization_id=organization_id,
         management_account_id=management_account_id,
         discovered_accounts=discovered_accounts,
-        enabled_regions=enabled_regions,
+        region_statuses=region_statuses,
         benchmark=recorder.data,
     )
 
@@ -474,7 +476,7 @@ def run_prepared_target(*, prepared_target: PreparedTarget) -> TargetExecutionOu
             session_factory=prepared_target.session_factory,
             base_session=prepared_target.base_session,
             discovered_accounts=prepared_target.discovered_accounts,
-            enabled_regions=prepared_target.enabled_regions,
+            region_statuses=prepared_target.region_statuses,
         )
     else:
         resolver = AccountResolver(

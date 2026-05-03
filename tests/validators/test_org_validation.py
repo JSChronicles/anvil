@@ -54,6 +54,44 @@ def test_max_parallel_regions_accepts_maximum_value():
     assert descriptor.max_parallel_regions == 4
 
 
+def test_organization_regions_accepts_all_selector():
+    descriptor = TargetDescriptor(
+        config_branch=ConfigBranch.ORGANIZATIONS, name="org", regions=["all"]
+    )
+
+    assert descriptor.regions == ["all"]
+
+
+def test_organization_regions_accepts_globs_and_explicit_regions():
+    descriptor = TargetDescriptor(
+        config_branch=ConfigBranch.ORGANIZATIONS,
+        name="org",
+        regions=["us-*", "ca-central-1"],
+    )
+
+    assert descriptor.regions == ["us-*", "ca-central-1"]
+
+
+def test_regions_rejects_all_mixed_with_other_regions():
+    with pytest.raises(ValueError, match="'all' must be the only region value"):
+        TargetDescriptor(
+            config_branch=ConfigBranch.ORGANIZATIONS,
+            name="org",
+            regions=["all", "us-east-1"],
+        )
+
+
+@pytest.mark.parametrize("regions", [["all"], ["us-*"]])
+def test_accounts_regions_reject_selectors(regions):
+    with pytest.raises(ValueError, match="selectors are not allowed"):
+        TargetDescriptor(
+            config_branch=ConfigBranch.ACCOUNTS,
+            name="group",
+            include=["111111111111"],
+            regions=regions,
+        )
+
+
 @pytest.mark.parametrize("max_parallel_regions", [0, 5])
 def test_max_parallel_regions_rejects_out_of_range_values(max_parallel_regions):
     with pytest.raises(ValueError, match="max_parallel_regions"):

@@ -4,6 +4,7 @@ max_parallel_targets: 2
 accounts:
   - name: app-team
     profile: team-base
+    # Account configs require explicit region names.
     regions:
       - us-east-1
     role_name: TeamExecutionRole

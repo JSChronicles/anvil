@@ -99,7 +99,7 @@ def test_discover_accounts_keeps_active_accounts_and_defaults_alias():
     }
 
 
-def test_discover_enabled_regions_filters_and_sorts_regions():
+def test_discover_region_statuses_keeps_enabled_and_disabled_statuses():
     session = FakeSession(
         clients={
             "account": FakeClient(
@@ -130,10 +130,11 @@ def test_discover_enabled_regions_filters_and_sorts_regions():
         }
     )
 
-    assert OrganizationResolver.discover_enabled_regions(session) == [
-        "us-east-1",
-        "us-west-2",
-    ]
+    assert OrganizationResolver.discover_region_statuses(session) == {
+        "us-east-1": "ENABLED_BY_DEFAULT",
+        "us-west-2": "ENABLED",
+        "ap-south-1": "DISABLED",
+    }
 
 
 def test_filter_accounts_intersects_include_and_exclude_filters():
@@ -170,7 +171,7 @@ def test_resolve_accounts_uses_preflight_data_and_builds_account_modes():
         session_factory=FailingSessionFactory(),
         base_session=base_session,
         discovered_accounts=discovered_accounts,
-        enabled_regions=["us-east-1"],
+        region_statuses={"us-east-1": "ENABLED_BY_DEFAULT"},
     )
 
     accounts = resolver.resolve_accounts()
@@ -187,6 +188,71 @@ def test_resolve_accounts_uses_preflight_data_and_builds_account_modes():
     assert accounts[1]._regions == ["us-east-1"]
 
 
+def test_resolve_accounts_expands_all_region_selector():
+    resolver = OrganizationResolver(
+        descriptor=_target(regions=["all"]),
+        context=_context(regions=["all"]),
+        management_account_id="111111111111",
+        base_session=object(),
+        discovered_accounts={
+            "111111111111": {
+                "account_number": "111111111111",
+                "account_alias": "management",
+            }
+        },
+        region_statuses={
+            "us-east-1": "ENABLED_BY_DEFAULT",
+            "us-west-1": "DISABLED",
+            "us-west-2": "ENABLED",
+        },
+    )
+
+    accounts = resolver.resolve_accounts()
+
+    assert accounts[0]._regions == ["us-east-1", "us-west-2"]
+
+
+def test_resolve_accounts_expands_glob_and_explicit_region_selectors(caplog):
+    resolver = OrganizationResolver(
+        descriptor=_target(regions=["us-*", "ca-central-1"]),
+        context=_context(regions=["us-*", "ca-central-1"]),
+        management_account_id="111111111111",
+        base_session=object(),
+        discovered_accounts={
+            "111111111111": {
+                "account_number": "111111111111",
+                "account_alias": "management",
+            }
+        },
+        region_statuses={
+            "ca-central-1": "ENABLED",
+            "eu-west-1": "ENABLED",
+            "us-east-1": "ENABLED_BY_DEFAULT",
+            "us-west-1": "DISABLED",
+            "us-west-2": "ENABLED",
+        },
+    )
+
+    accounts = resolver.resolve_accounts()
+
+    assert accounts[0]._regions == ["us-east-1", "us-west-2", "ca-central-1"]
+    assert "configured unavailable regions: us-west-1" in caplog.text
+
+
+def test_resolve_accounts_rejects_glob_matching_no_known_regions():
+    resolver = OrganizationResolver(
+        descriptor=_target(regions=["moon-*"]),
+        context=_context(regions=["moon-*"]),
+        management_account_id="111111111111",
+        base_session=object(),
+        discovered_accounts={},
+        region_statuses={"us-east-1": "ENABLED_BY_DEFAULT"},
+    )
+
+    with pytest.raises(ValueError, match="matched no known regions"):
+        resolver.resolve_accounts()
+
+
 def test_resolve_accounts_raises_when_no_effective_regions_remain():
     resolver = OrganizationResolver(
         descriptor=_target(regions=["us-east-1"]),
@@ -194,8 +260,24 @@ def test_resolve_accounts_raises_when_no_effective_regions_remain():
         management_account_id="111111111111",
         base_session=object(),
         discovered_accounts={},
-        enabled_regions=["us-west-2"],
+        region_statuses={"us-west-2": "ENABLED"},
     )
 
     with pytest.raises(ValueError, match="No effective configured regions"):
         resolver.resolve_accounts()
+
+
+def test_resolve_accounts_raises_when_selector_matches_only_disabled_regions(caplog):
+    resolver = OrganizationResolver(
+        descriptor=_target(regions=["ap-*"]),
+        context=_context(regions=["ap-*"]),
+        management_account_id="111111111111",
+        base_session=object(),
+        discovered_accounts={},
+        region_statuses={"ap-south-1": "DISABLED", "us-east-1": "ENABLED"},
+    )
+
+    with pytest.raises(ValueError, match="No effective configured regions"):
+        resolver.resolve_accounts()
+
+    assert "configured unavailable regions: ap-south-1" in caplog.text

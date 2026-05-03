@@ -51,7 +51,7 @@
       "default": [
         "us-east-1"
       ],
-      "description": "AWS regions for task execution.",
+      "description": "AWS regions or region selectors for task execution.",
       "items": {
         "type": "string",
         "minLength": 1
