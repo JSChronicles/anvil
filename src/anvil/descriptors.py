@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+from anvil.regions import ALL_REGION_SELECTOR, is_region_selector
+
 
 class ConfigBranch(StrEnum):
     ORGANIZATIONS = "organizations"
@@ -61,6 +63,11 @@ class TargetDescriptor:
         if len(set(normalized_regions)) != len(normalized_regions):
             raise ValueError("regions must not contain duplicates")
 
+        if ALL_REGION_SELECTOR in normalized_regions and normalized_regions != [
+            ALL_REGION_SELECTOR
+        ]:
+            raise ValueError("regions selector 'all' must be the only region value")
+
         object.__setattr__(self, "regions", normalized_regions)
 
         normalized_include = self._normalize_account_ids(self.include)
@@ -78,6 +85,15 @@ class TargetDescriptor:
             return
 
         if self.config_branch is ConfigBranch.ACCOUNTS:
+            account_region_selectors = [
+                region for region in self.regions if is_region_selector(region)
+            ]
+            if account_region_selectors:
+                raise ValueError(
+                    "accounts config entries require explicit region names; "
+                    f"selectors are not allowed: {', '.join(account_region_selectors)}"
+                )
+
             if not self.include:
                 raise ValueError("accounts config entries require include")
 

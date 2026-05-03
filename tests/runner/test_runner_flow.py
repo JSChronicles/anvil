@@ -93,7 +93,7 @@ def test_run_multiple_targets_reuses_same_profile_auth_during_preparation(monkey
                     "account_alias": "management",
                 }
             },
-            ["us-east-1"],
+            {"us-east-1": "ENABLED_BY_DEFAULT"},
         ),
     )
     monkeypatch.setattr(
@@ -142,7 +142,7 @@ def test_prepare_target_reuses_same_org_discovery_cache(monkeypatch):
     discovered_accounts = {
         "111111111111": {"account_number": "111111111111", "account_alias": "acct-a"}
     }
-    enabled_regions = ["us-east-1", "us-west-2"]
+    region_statuses = {"us-east-1": "ENABLED_BY_DEFAULT", "us-west-2": "ENABLED"}
     call_counts = {"accounts": 0, "regions": 0}
 
     monkeypatch.setattr(
@@ -178,14 +178,14 @@ def test_prepare_target_reuses_same_org_discovery_cache(monkeypatch):
 
     def fake_discover_regions(session):
         call_counts["regions"] += 1
-        return enabled_regions
+        return region_statuses
 
     monkeypatch.setattr(
         "anvil.runner.OrganizationResolver.discover_accounts",
         staticmethod(fake_discover_accounts),
     )
     monkeypatch.setattr(
-        "anvil.runner.OrganizationResolver.discover_enabled_regions",
+        "anvil.runner.OrganizationResolver.discover_region_statuses",
         staticmethod(fake_discover_regions),
     )
 
@@ -230,8 +230,66 @@ def test_prepare_target_reuses_same_org_discovery_cache(monkeypatch):
     assert prepared_b.base_session is not None
     assert prepared_a.discovered_accounts == discovered_accounts
     assert prepared_b.discovered_accounts == discovered_accounts
-    assert prepared_a.enabled_regions == enabled_regions
-    assert prepared_b.enabled_regions == enabled_regions
+    assert prepared_a.region_statuses == region_statuses
+    assert prepared_b.region_statuses == region_statuses
+
+
+def test_prepare_target_uses_bootstrap_region_for_region_selector(monkeypatch):
+    created_session_regions: list[str] = []
+
+    monkeypatch.setattr(
+        "anvil.runner._run_cached_auth_check_for_target",
+        lambda target, auth_cache: AuthResult(
+            target_name=target.name,
+            status=ExecutionStatus.SUCCESS,
+            source="test",
+            started_at="start",
+            ended_at="end",
+            duration_seconds=0.0,
+            message="ok",
+        ),
+    )
+    monkeypatch.setattr(
+        "anvil.runner.resolve_tasks",
+        lambda task_specs: ResolvedExecution(ordered=[], adjacency={}),
+    )
+
+    class FakeSessionFactory:
+        def create_base_session(self, **kwargs):
+            created_session_regions.append(kwargs["region_name"])
+            return type("_BaseSession", (), {"profile_name": kwargs["profile_name"]})()
+
+    monkeypatch.setattr("anvil.runner.SessionFactory", FakeSessionFactory)
+    monkeypatch.setattr(
+        "anvil.runner.OrganizationResolver.describe_organization",
+        staticmethod(lambda session: ("o-shared", "999999999999")),
+    )
+    monkeypatch.setattr(
+        "anvil.runner.OrganizationResolver.discover_accounts",
+        staticmethod(lambda session: {}),
+    )
+    monkeypatch.setattr(
+        "anvil.runner.OrganizationResolver.discover_region_statuses",
+        staticmethod(lambda session: {"us-east-1": "ENABLED_BY_DEFAULT"}),
+    )
+
+    prepare_target(
+        index=0,
+        target=TargetDescriptor(
+            config_branch=ConfigBranch.ORGANIZATIONS,
+            name="org-a",
+            profile="shared",
+            regions=["all"],
+            tasks=[],
+        ),
+        cli_dry_run=None,
+        cli_include=None,
+        cli_exclude=None,
+        organization_cache=OrganizationRunCache(),
+        auth_cache=AuthCheckCache(),
+    )
+
+    assert created_session_regions == ["us-east-1"]
 
 
 def test_organization_run_cache_single_flights_concurrent_discovery():
@@ -243,7 +301,7 @@ def test_organization_run_cache_single_flights_concurrent_discovery():
                 "account_alias": "acct-a",
             }
         },
-        enabled_regions=["us-east-1"],
+        region_statuses={"us-east-1": "ENABLED_BY_DEFAULT"},
     )
     cache = OrganizationRunCache()
     discovery_started = threading.Event()
@@ -328,7 +386,7 @@ def test_organization_run_cache_releases_waiters_after_discovery_error():
     entry = OrganizationRunCacheEntry(
         management_account_id="999999999999",
         discovered_accounts={},
-        enabled_regions=["us-east-1"],
+        region_statuses={"us-east-1": "ENABLED_BY_DEFAULT"},
     )
     retry_lookup = cache.get_or_discover(
         organization_id="o-shared", discover=lambda: entry
@@ -359,7 +417,7 @@ def test_run_prepared_target_uses_cached_org_preflight(monkeypatch):
     discovered_accounts = {
         "111111111111": {"account_number": "111111111111", "account_alias": "acct-a"}
     }
-    enabled_regions = ["us-east-1"]
+    region_statuses = {"us-east-1": "ENABLED_BY_DEFAULT"}
 
     class FakeSessionFactory:
         def create_base_session(self, **kwargs):
@@ -382,10 +440,10 @@ def test_run_prepared_target_uses_cached_org_preflight(monkeypatch):
         ),
     )
     monkeypatch.setattr(
-        "anvil.organization.OrganizationResolver.discover_enabled_regions",
+        "anvil.organization.OrganizationResolver.discover_region_statuses",
         staticmethod(
             lambda session: (_ for _ in ()).throw(
-                AssertionError("execution should not rediscover enabled regions")
+                AssertionError("execution should not rediscover region statuses")
             )
         ),
     )
@@ -420,7 +478,7 @@ def test_run_prepared_target_uses_cached_org_preflight(monkeypatch):
         organization_id="o-shared",
         management_account_id="999999999999",
         discovered_accounts=discovered_accounts,
-        enabled_regions=enabled_regions,
+        region_statuses=region_statuses,
     )
 
     outcome = run_prepared_target(prepared_target=prepared_target)
