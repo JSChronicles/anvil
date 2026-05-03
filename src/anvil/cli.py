@@ -400,7 +400,9 @@ def _emit_result_records(args, records: list[dict[str, object]]) -> None:
     )
 
 
-def _validate_results_rerun_args(args) -> None:
+def _validate_results_rerun_args(
+    args, *, parser: argparse.ArgumentParser | None = None
+) -> None:
     rejected_flags: list[str] = []
     if args.type is not None:
         rejected_flags.append("--type")
@@ -415,7 +417,10 @@ def _validate_results_rerun_args(args) -> None:
 
     if rejected_flags:
         rejected = ", ".join(rejected_flags)
-        raise ValueError(f"{rejected} cannot be used with --rerun")
+        message = f"{rejected} cannot be used with --rerun"
+        if parser is not None:
+            parser.error(message)
+        raise ValueError(message)
 
 
 def _cmd_results(args) -> int:
@@ -623,6 +628,8 @@ def main() -> None:
 
     if not args.command:
         parser.error("the following arguments are required: command")
+    if args.command == "results" and args.rerun:
+        _validate_results_rerun_args(args, parser=results_parser)
 
     logging.basicConfig(
         level=getattr(logging, args.log_level),

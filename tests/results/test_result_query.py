@@ -88,8 +88,8 @@ def test_build_jsonl_records_includes_config_file_when_supplied():
 
     assert records[0]["config_file"] == "yaml\\orgs.yaml"
     assert records[1]["config_file"] == "yaml\\orgs.yaml"
-    assert records[0]["config_file_resolved"].endswith("yaml\\orgs.yaml")
-    assert records[1]["config_file_resolved"].endswith("yaml\\orgs.yaml")
+    assert Path(records[0]["config_file_resolved"]) == Path("yaml/orgs.yaml").resolve()
+    assert Path(records[1]["config_file_resolved"]) == Path("yaml/orgs.yaml").resolve()
 
 
 def test_filter_records_supports_failed_status_alias_and_common_fields():
