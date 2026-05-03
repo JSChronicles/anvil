@@ -24,6 +24,48 @@ organizations:
 
 Use `depends_on` when task order matters. Use `optional: true` only when failure should not fail the account or block dependent work.
 
+## Region Selection
+
+Use explicit region names for `accounts:` configs:
+
+```yaml
+regions:
+  - us-east-1
+  - us-west-2
+```
+
+`organizations:` configs can also use region selectors. `all` must be the only
+region value:
+
+```yaml
+regions:
+  - all
+```
+
+Organization region globs can be used alone, combined with other globs, or mixed
+with explicit regions:
+
+```yaml
+regions:
+  - us-*
+```
+
+```yaml
+regions:
+  - us-*
+  - eu-*
+```
+
+```yaml
+regions:
+  - us-*
+  - ca-central-1
+```
+
+Region selectors are resolved against discovered AWS regions. Anvil executes only
+enabled matches, warns for matched disabled regions, rejects glob selectors that
+match no known region, and fails when no enabled region remains.
+
 ## Validation
 
 After creating or editing a task, run:

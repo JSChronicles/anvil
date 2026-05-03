@@ -4,6 +4,8 @@ max_parallel_targets: 2
 organizations:
   - name: place
     profile: place-root
+    # Organizations support explicit regions, all by itself, glob selectors,
+    # and mixed glob plus explicit selectors.
     regions:
       - us-east-1
       - us-west-2
@@ -35,6 +37,10 @@ organizations:
 
   - name: audit
     profile: audit-root
+    # Example alternatives:
+    # regions: [all]
+    # regions: [us-*]
+    # regions: [us-*, ca-central-1]
     regions:
       - us-west-2
     role_name: OrganizationAccountAccessRole

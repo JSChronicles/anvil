@@ -41,7 +41,7 @@ Anvil is built for teams that need repeatable AWS workflows, such as inventory, 
   - Configure organizations, account lists, regions, tasks, task dependencies, dry runs, fail-fast behavior, and concurrency in one place.
 - Multi-account and multi-organization by default
   - Automatically discover active accounts and enabled regions for each AWS Organization.
-  - Run only against configured regions that are enabled for that organization.
+  - Run only against configured organization regions that are enabled, including regions selected by `all` or glob patterns.
   - Support explicit account groups and include/exclude filters.
   - Assume roles into member accounts.
   - Let account owners, admins, governance teams, and security teams run approved tasks at the scope they control.
@@ -159,85 +159,17 @@ anvil auth check --help
 Authenticate credentials from an organization file.
 ```console
 anvil auth check --config-file ./yaml/orgs.yaml
-
-INFO     [auth.py:auth_check:106] Running auth check for org=root profile=root auth_source=AuthSource.SSO
-INFO     [auth.py:auth_check:106] Running auth check for org=other-root profile=other-root auth_source=AuthSource.SSO
-INFO     [auth.py:auth_check:106] Running auth check for org=random-root profile=random-root auth_source=AuthSource.UNKNOWN
-WARNING  [credentials.py:_protected_refresh:603] Refreshing temporary credentials failed during mandatory refresh period.
-botocore.exceptions.UnauthorizedSSOTokenError: The SSO session associated with this profile has expired or is otherwise invalid. To refresh this SSO session run aws sso login with the corresponding profile.
-{
-  "generated_at": "2026-03-31T15:30:15.075014+00:00",
-  "auth": [
-    {
-      "org_name": "root",
-      "status": "error",
-      "source": "sso",
-      "started_at": "2026-03-31T15:30:14.836545+00:00",
-      "ended_at": "2026-03-31T15:30:15.074440+00:00",
-      "duration_seconds": 0.23789780004881322,
-      "message": "AWS SSO session is invalid or expired.",
-      "remediation": "aws sso login --profile root"
-    },
-    {
-      "org_name": "other-root",
-      "status": "error",
-      "source": "sso",
-      "started_at": "2026-03-31T15:30:14.841167+00:00",
-      "ended_at": "2026-03-31T15:30:15.072661+00:00",
-      "duration_seconds": 0.23149509984068573,
-      "message": "AWS SSO session is invalid or expired.",
-      "remediation": "aws sso login --profile other-root"
-    },
-    {
-      "org_name": "random-root",
-      "status": "error",
-      "source": "unknown",
-      "started_at": "2026-03-31T15:30:14.849622+00:00",
-      "ended_at": "2026-03-31T15:30:14.904089+00:00",
-      "duration_seconds": 0.054468399845063686,
-      "message": "AWS profile not found.",
-      "remediation": "Fix your AWS profile configuration."
-    }
-  ]
-}
-
-
-INFO [auth.py:auth_check:106] Running auth check for org=root profile=root auth_source=AuthSource.SSO
-{
-  "generated_at": "2026-03-31T15:34:56.998631+00:00",
-  "auth": [
-    {
-      "org_name": "root",
-      "status": "success",
-      "source": "sso",
-      "started_at": "2026-03-31T15:34:54.844004+00:00",
-      "ended_at": "2026-03-31T15:34:56.971776+00:00",
-      "duration_seconds": 2.1277707000263035,
-      "message": "Authenticated successfully.",
-      "remediation": null
-    },
-    {
-      "org_name": "other-root",
-      "status": "success",
-      "source": "sso",
-      "started_at": "2026-03-31T15:34:54.848072+00:00",
-      "ended_at": "2026-03-31T15:34:56.998306+00:00",
-      "duration_seconds": 2.1502324000466615,
-      "message": "Authenticated successfully.",
-      "remediation": null
-    }
-  ]
-}
 ```
 
-Suppress all output and rely on the exit code only (useful for CI)
+Suppress all output and rely on the exit code only (useful for CI). See [Authentication output](docs/README.md#authentication-output) for detailed examples.
 ```console
 anvil auth check --config-file orgs.yaml --quiet
-INFO     [auth.py:auth_check:106] Running auth check for org=root profile=root auth_source=AuthSource.SSO
 ```
 
+
+
 ### Graph
-Display the resolved task dependency graph for an organization configuration.
+Display the resolved task dependency graph for an organization configuration. See [Graph output](docs/README.md#graph-output) for detailed examples.
 
 ```console
 anvil graph --help
@@ -246,42 +178,12 @@ anvil graph --help
 Generate a dependency graph from an organization file.
 ```console
 anvil graph --config-file .\examples\07-optional-task-semantics.yaml
-
-Execution Graph (optional-semantics-org)
-----------------------------------------
-inventory
-└──     reporting
-    └──         cleanup
 ```
 
-Output graph results as JSON
+Output graph results as JSON.
 ```console
 anvil graph --config-file .\examples\07-optional-task-semantics.yaml --json
-
-{
-  "organization": "optional-semantics-org",
-  "tasks": [
-    {
-      "name": "inventory",
-      "depends_on": []
-    },
-    {
-      "name": "reporting",
-      "depends_on": [
-        "inventory"
-      ]
-    },
-    {
-      "name": "cleanup",
-      "depends_on": [
-        "reporting"
-      ]
-    }
-  ]
-}
 ```
-
-
 
 ### Task Management
 List all available stock and user-defined tasks
@@ -318,11 +220,12 @@ anvil tasks validate
 ```
 
 ### Execution
+Execute all configured organizations and accounts from one or more YAML files. See [Run output and result layout](docs/README.md#run-output-and-result-layout) for detailed examples.
 ```console
 anvil run --help
 ```
 
-Execute all configured organizations and accounts from one or more YAML files, write per-target full results, write a flattened query file, and produce one summary file per YAML in a run-scoped result directory:
+Anvil writes per-target full results, write a flattened query file, and produce one summary file per YAML in a run-scoped result directory:
 
 ```text
 results/
@@ -334,67 +237,13 @@ results/
         <organization>.json
 ```
 
-Account-group configs use `account-groups/` for per-target JSON files instead of `organizations/`.
-```console
-anvil run --config-file ./yaml/noop.yaml
-INFO     [auth.py:auth_check:106] Running auth check for org=root profile=root auth_source=AuthSource.SSO
-INFO     [organization.py:execute:39] Starting organization processing (org=root, region=us-east-1)
-INFO     [account.py:execute:48] Processing account root (123456789000)
-INFO     [account.py:execute:48] Processing account account1 (111111111111)
-INFO     [account.py:execute:48] Processing account account2 (222222222222)
-INFO     [noop.py:run:33] No-op task executed for account root (123456789000), dry_run=False
-INFO     [account.py:execute:48] Processing account Log Archive (333333333333)
-INFO     [account.py:execute:48] Processing account Audit (444444444444)
-INFO     [noop.py:run:33] No-op task executed for account account1 (111111111111), dry_run=False
-INFO     [noop.py:run:33] No-op task executed for account Audit (444444444444), dry_run=False
-INFO     [noop.py:run:33] No-op task executed for account Log Archive (333333333333), dry_run=False
-INFO     [noop.py:run:33] No-op task executed for account account2 (222222222222), dry_run=False
-......
-INFO     [cli.py:_write_run_results:132] Wrote run results to xxxx\xxxx\results\noop\2026-05-01T183012Z: summary=xxxx\xxxx\results\noop\2026-05-01T183012Z\summary.json, target_files=1, jsonl_records=50
 
-#Summary below
-{
-  "state": "completed_success",
-  "generated_at": "2026-03-17T18:48:47.392583+00:00",
-  "auth": [
-    {
-      "org_name": "root",
-      "status": "success",
-      "source": "sso",
-      "started_at": "2026-03-17T18:48:36.615369+00:00",
-      "ended_at": "2026-03-17T18:48:38.338430+00:00",
-      "duration_seconds": 1.7230594999855384,
-      "message": "Authenticated successfully.",
-      "remediation": null
-    }
-  ],
-  "organizations": [
-    {
-      "organization": "root",
-      "total_accounts": 50,
-      "failed_accounts": 0,
-      "interrupted_accounts": 0,
-      "failed_tasks": 0,
-      "has_failures": false,
-      "error": null
-    }
-  ],
-  "total_failed_accounts": 0,
-  "total_interrupted_accounts": 0,
-  "total_failed_tasks": 0
-}
-```
-
-Use `--benchmark` only for performance investigations. It adds engine, target,
-account, region, and result-write timing details to result JSON, which can
-dramatically increase output size on large account, region, or task runs. Leave
-it off for normal audit/reporting runs, and enable it when comparing benchmark
-runs or looking for bottlenecks.
+Use `--benchmark` only for performance investigations. It adds engine, target, account, region, and result-write timing details to result JSON, which can dramatically increase output size on large account, region, or task runs.
+Leave it off for normal audit/reporting runs, and enable it when comparing benchmark runs or looking for bottlenecks.
 
 ### Result Queries
 
-Runs still write the existing full JSON result files. They also write JSONL
-records that flatten account and task results for quick filtering:
+Runs still write the existing full JSON result files. They also write JSONL records that flatten account and task results for quick filtering:
 `./results/{config-stem}/{run-id}/results.jsonl`.
 
 Common queries:
@@ -429,6 +278,11 @@ To run multiple YAML files in one command, pass them after a single `--config-fi
 ```console
 anvil run --config-file ./yaml/orgs.yaml ./yaml/orgs2.yaml ./yaml/orgs3.yaml
 ```
+
+### Region Selection
+
+- `organizations:` configs can use explicit regions, `all`, glob selectors, or mixed glob and explicit selectors.
+- `accounts:` configs require explicit region names only. See the YAML examples for complete region selection examples and edge-case behavior.
 
 Within a single YAML, you can bound how many configured targets run in parallel. This is separate from each target's `max_workers` and `max_parallel_regions` settings:
 ```yaml
@@ -469,6 +323,16 @@ Anvil discovers tasks from two sources:
 
 Directories named `tasks/` are conventional only and are not automatically scanned.
 
+#### Reference tasks in YAML
+Once configured, custom tasks behave exactly like stock tasks:
+
+```yaml
+tasks:
+  - name: inventory
+  - name: cleanup
+    depends_on: [inventory]
+```
+
 
 ### Implement the Task Contract
 
@@ -476,17 +340,19 @@ Each task module must define a callable `run` function.
 This is the minimum interface required for Anvil to discover and execute a task.
 
 ```python
+from anvil.actions import ActionRecorder
+
 def run(
     *,
     account_id: str,
     account_alias: str,
     session,
     dry_run: bool,
-    metadata: dict,
-    actions=None,
-):
+    metadata: dict[str, object],
+    actions: ActionRecorder,
+) -> None:
     """
-    Execute the task for a single AWS account.
+    Execute the task for one AWS account-region pair.
     """
 ```
 
@@ -494,7 +360,7 @@ def run(
 
 - `account_id` - AWS account ID currently being processed.
 - `account_alias` - Friendly name of the account.
-- `session` - A boto3 Session already scoped to the target account.
+- `session` - A boto3 Session already scoped to the target account and region.
 - `dry_run` - Indicates whether the task should make changes.
 - `metadata` - Organization metadata defined in the configuration file.
 - `actions` - Action recorder provided by Anvil for planned or completed work.
@@ -505,35 +371,16 @@ The return value is optional. Any returned data may be included in execution res
 
 ### Optional Helpers (Advanced Usage)
 
-While only the `run()` function is required, tasks can optionally use Anvil-provided utilities to produce structured results.
-
-For example, tasks may import helpers such as:
-
-```python
-from anvil.actions import ActionRecorder
-```
-
-This helper allows tasks to:
+Tasks can use Anvil-provided utilities to produce structured results. `ActionRecorder` allows tasks to:
 
 - record planned or executed actions
 - produce structured output for reporting
 - integrate with Anvil’s execution summaries
 
-You can view returned-result and ActionRecorder examples here:
-[Results](./examples/Results/README.md)
+You can view returned-result and ActionRecorder examples here, [Results](./examples/Results/README.md)
+
 
 Using these utilities is **not required**, but recommended for tasks that modify infrastructure or need richer audit output.
-
-### Reference tasks in YAML
-Once configured, custom tasks behave exactly like stock tasks:
-
-```yaml
-tasks:
-  - name: inventory
-  - name: cleanup
-    depends_on: [inventory]
-```
-
 
 <!-- MARKDOWN LINKS & IMAGES -->
 [pytest-badge]:https://github.com/JSChronicles/anvil/actions/workflows/pytest.yaml/badge.svg?branch=main
