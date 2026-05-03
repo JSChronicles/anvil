@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 <!-- version list -->
 
+## v0.24.0 (2026-05-03)
+
+### Features
+
+- Add organization region selectors ([#37](https://github.com/JSChronicles/anvil/pull/37),
+  [`4587dca`](https://github.com/JSChronicles/anvil/commit/4587dca556a00d2b9f64932f8d829c94cab51712))
+
+
 ## v0.23.2 (2026-05-02)
 
 ### Bug Fixes
