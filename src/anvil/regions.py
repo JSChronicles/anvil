@@ -41,10 +41,7 @@ def get_bootstrap_region(configured_regions: list[str]) -> str:
 
 
 def resolve_region_selectors(
-    *,
-    target_name: str,
-    configured_regions: list[str],
-    region_statuses: dict[str, str],
+    *, target_name: str, configured_regions: list[str], region_statuses: dict[str, str]
 ) -> list[str]:
     """Resolve configured region selectors to concrete enabled regions.
 
