@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 <!-- version list -->
 
+## v0.25.0 (2026-05-04)
+
+### Features
+
+- Simplify result queries and add smart reruns
+  ([#38](https://github.com/JSChronicles/anvil/pull/38),
+  [`567ee81`](https://github.com/JSChronicles/anvil/commit/567ee8148e8a8d40cb19cb506989e05e4f3cb76d))
+
+
 ## v0.24.0 (2026-05-03)
 
 ### Features
