@@ -310,8 +310,8 @@ def _base_account_record(
         "account_alias": account_result.account_alias,
     }
     if config_file is not None:
-        record["config_file"] = str(config_file)
-        record["config_file_resolved"] = str(config_file.resolve())
+        record["config_file"] = config_file.as_posix()
+        record["config_file_resolved"] = config_file.resolve().as_posix()
 
     return record
 

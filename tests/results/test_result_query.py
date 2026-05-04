@@ -86,8 +86,8 @@ def test_build_jsonl_records_includes_config_file_when_supplied():
         _target_result(), config_file=Path("yaml/orgs.yaml")
     )
 
-    assert records[0]["config_file"] == "yaml\\orgs.yaml"
-    assert records[1]["config_file"] == "yaml\\orgs.yaml"
+    assert records[0]["config_file"] == "yaml/orgs.yaml"
+    assert records[1]["config_file"] == "yaml/orgs.yaml"
     assert Path(records[0]["config_file_resolved"]) == Path("yaml/orgs.yaml").resolve()
     assert Path(records[1]["config_file_resolved"]) == Path("yaml/orgs.yaml").resolve()
 
