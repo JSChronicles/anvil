@@ -30,7 +30,7 @@
 
 Anvil is a declarative AWS execution engine for running Python tasks across large account and region fleets. Describe the work in YAML, keep task logic in plain Python modules, and let the engine handle authentication, role assumption, dependency ordering, bounded concurrency, and structured results so repeatable AWS work can run faster without turning orchestration into custom scripts.
 
-For a deeper look at the execution flow, see [docs/README.md](docs/README.md).
+For more, see the [documentation](https://opsfoundry.dev/).
 
 ## Why Anvil?
 
@@ -306,7 +306,7 @@ anvil results --status failed --fields target_type,target,account_id,task,error 
 #### Rerun failures:
 > [!NOTE]
 > `--rerun` infers the rerun scope from result records. It reloads the original config, reruns only matching failed accounts, narrows to failed regions and tasks when task-level failures are available, and includes required task dependencies automatically.
-> Use scope filters such as `--target`, `--account`, `--region`, and `--task` to limit a rerun. Report-shaping flags such as `--type`, `--fields`, `--limit`, `--json`, and `--jsonl` are not supported with `--rerun`.
+> Use scope filters such as `--target`, `--account`, `--region`, and `--task` to limit a rerun even further. Report-shaping flags such as `--type`, `--fields`, `--limit`, `--json`, and `--jsonl` are not supported with `--rerun`.
 
 ```console
 # Rerun failures from one explicit run results file.
