@@ -30,7 +30,7 @@
 
 Anvil is a declarative AWS execution engine for running Python tasks across large account and region fleets. Describe the work in YAML, keep task logic in plain Python modules, and let the engine handle authentication, role assumption, dependency ordering, bounded concurrency, and structured results so repeatable AWS work can run faster without turning orchestration into custom scripts.
 
-For a deeper look at the execution flow, see [docs/README.md](docs/README.md).
+For more, see the [documentation](https://opsfoundry.dev/).
 
 ## Why Anvil?
 
@@ -224,6 +224,15 @@ Execute all configured organizations and accounts from one or more YAML files. S
 ```console
 anvil run --help
 ```
+Run a single YAML file
+```console
+anvil run --config-file ./yaml/orgs.yaml
+```
+
+To run multiple YAML files in one command, pass them after a single `--config-file` flag. They run sequentially in the order provided. Each YAML remains an isolated run with its own summary file, and the overall command exits non-zero if any YAML run fails.
+```console
+anvil run --config-file ./yaml/orgs.yaml ./yaml/orgs2.yaml ./yaml/orgs3.yaml
+```
 
 Anvil writes per-target full results, write a flattened query file, and produce one summary file per YAML in a run-scoped result directory:
 
@@ -237,9 +246,10 @@ results/
         <organization>.json
 ```
 
+> [!NOTE]
+> Use `--benchmark` only for performance investigations. It adds engine, target, account, region, and result-write timing details to result JSON, which can dramatically increase output size on large account, region, or task runs.
+> Leave it off for normal audit/reporting runs, and enable it when comparing benchmark runs or looking for bottlenecks.
 
-Use `--benchmark` only for performance investigations. It adds engine, target, account, region, and result-write timing details to result JSON, which can dramatically increase output size on large account, region, or task runs.
-Leave it off for normal audit/reporting runs, and enable it when comparing benchmark runs or looking for bottlenecks.
 
 ### Result Queries
 
@@ -249,66 +259,68 @@ Runs still write the existing full JSON result files. They also write JSONL reco
 Common queries:
 
 ```console
-anvil results failures
-anvil results failures --organization prod
-anvil results accounts --status failed
-anvil results tasks --task count_vpcs
-anvil results regions --region us-east-1
-anvil results failures --fields account_id,region,task,error --limit 20
-anvil results tasks --status failed --jsonl
+# Show every failure under ./results.
+anvil results --status failed
+
+# Show failures for one organization or account-group target.
+anvil results --target prod --status failed
+
+# Show failed account records only.
+anvil results --type account --status failed
+
+# Show task records for one task name.
+anvil results --type task --task count_vpcs
+
+# Show task records for one AWS region.
+anvil results --type task --region us-east-1
+
+# Show a compact failure view with selected fields and a row limit.
+anvil results --status failed --fields account_id,region,task,error --limit 20
+
+# Emit failed task records as JSONL.
+anvil results --type task --status failed --jsonl
 ```
 
 Advanced queries:
 
 ```console
-anvil results failures --results-file ./results/orgs/2026-05-01T183012Z/results.jsonl
-anvil results failures --results-file ./results/orgs/run-a/results.jsonl ./results/accounts/run-b/results.jsonl
-anvil results tasks --organization prod --task count_vpcs --fields account_id,region,status,error
-anvil results failures --fields record_type,target,account_id,region,task,error
-anvil results tasks --status failed --fields account_id,region,error --jsonl
-anvil results failures --fields target_type,target,account_id,task,error --limit 50
+# Query one explicit run results file.
+anvil results --status failed --results-file ./results/orgs/2026-05-01T183012Z/results.jsonl
+
+# Query multiple explicit run results files in one command.
+anvil results --status failed --results-file ./results/orgs/run-a/results.jsonl ./results/accounts/run-b/results.jsonl
+
+# Filter one task in one target and print selected fields.
+anvil results --type task --target prod --task count_vpcs --fields account_id,region,status,error
+
+# Show failure rows with target, account, region, task, and error context.
+anvil results --status failed --fields record_type,target,account_id,region,task,error
+
+# Emit failed task rows as JSONL with only the selected fields.
+anvil results --type task --status failed --fields account_id,region,error --jsonl
+
+# Show the first 50 failure rows with target type context.
+anvil results --status failed --fields target_type,target,account_id,task,error --limit 50
 ```
 
-All result query commands support `--organization`, `--account`, `--region`,
-`--task`, `--status`, `--fields`, `--limit`, `--results-file` with one or more
-JSONL paths, and `--json` or `--jsonl` for structured filtered output. Without
+#### Rerun failures:
+> [!NOTE]
+> `--rerun` infers the rerun scope from result records. It reloads the original config, reruns only matching failed accounts, narrows to failed regions and tasks when task-level failures are available, and includes required task dependencies automatically.
+> Use scope filters such as `--target`, `--account`, `--region`, and `--task` to limit a rerun even further. Report-shaping flags such as `--type`, `--fields`, `--limit`, `--json`, and `--jsonl` are not supported with `--rerun`.
+
+```console
+# Rerun failures from one explicit run results file.
+anvil results --status failed --results-file ./results/orgs/2026-05-01T183012Z/results.jsonl --rerun
+
+# Rerun failures from multiple explicit run results files in one command.
+anvil results --status failed --results-file ./results/orgs/run-a/results.jsonl ./results/accounts/run-b/results.jsonl --rerun
+```
+
+The result query command supports `--type`, `--target`, `--account`,
+`--region`, `--task`, `--status`, `--fields`, `--limit`, `--results-file` with
+one or more JSONL paths, and `--json` or `--jsonl` for structured filtered
+output. `--status failed` matches any non-success status. Without
 `--results-file`, Anvil queries every `results.jsonl` file under `./results`.
-
-To run multiple YAML files in one command, pass them after a single `--config-file` flag. They run sequentially in the order provided. Each YAML remains an isolated run with its own summary file, and the overall command exits non-zero if any YAML run fails.
-```console
-anvil run --config-file ./yaml/orgs.yaml ./yaml/orgs2.yaml ./yaml/orgs3.yaml
-```
-
-### Region Selection
-
-- `organizations:` configs can use explicit regions, `all`, glob selectors, or mixed glob and explicit selectors.
-- `accounts:` configs require explicit region names only. See the YAML examples for complete region selection examples and edge-case behavior.
-
-Within a single YAML, you can bound how many configured targets run in parallel. This is separate from each target's `max_workers` and `max_parallel_regions` settings:
-```yaml
-schema_version: 1
-max_parallel_targets: 4
-organizations:
-  - name: root
-    max_workers: 10
-    max_parallel_regions: 2
-```
-
-`max_parallel_regions` defaults to `1`, which preserves serial region execution within each account. Values from `2` through `4` allow bounded parallel region execution. Approximate account-region task streams per target are `max_workers * max_parallel_regions`, before considering `max_parallel_targets`.
-
-Use `max_parallel_regions` selectively. It is most useful when each region performs heavier, independent work, such as deep inventory, long paginated scans, slow regional service checks, or multiple regional tasks that hit different AWS services. For broad lightweight inventory across many accounts, account-level parallelism is often enough; increasing region parallelism can multiply AWS API pressure and make each regional call slower, especially when several tasks all call the same service. When tuning, start with `max_parallel_regions: 1`, raise it only for tasks with meaningful per-region runtime, and benchmark the full concurrency shape: `max_parallel_targets * max_workers * max_parallel_regions`.
-
-You can run `--include`, `--exclude`, or `--dry-run` to override the YAML file if you want to just test something or run on certain accounts.
-```console
-# Include only specific accounts:
-anvil run --config-file orgs.yaml --include 111111111111 222222222222
-
-# Exclude specific accounts:
-anvil run --config-file orgs.yaml --exclude 333333333333 444444444444
-
-# Exclude specific accounts and perform a dry-run:
-anvil run --config-file orgs.yaml --exclude 333333333333 444444444444 --dry-run
-```
 
 
 ### How task discovery works

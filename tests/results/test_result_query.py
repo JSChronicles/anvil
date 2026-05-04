@@ -6,6 +6,8 @@ from anvil.descriptors import ConfigBranch
 from anvil.result_query import (
     ResultFilters,
     build_jsonl_records_for_target,
+    build_rerun_targets,
+    config_file_for_failure_records,
     failure_records,
     filter_records,
     format_records_jsonl,
@@ -77,6 +79,19 @@ def test_build_jsonl_records_flattens_accounts_and_tasks():
     json.dumps(records)
 
 
+def test_build_jsonl_records_includes_config_file_when_supplied():
+    from pathlib import Path
+
+    records = build_jsonl_records_for_target(
+        _target_result(), config_file=Path("yaml/orgs.yaml")
+    )
+
+    assert records[0]["config_file"] == "yaml/orgs.yaml"
+    assert records[1]["config_file"] == "yaml/orgs.yaml"
+    assert Path(records[0]["config_file_resolved"]) == Path("yaml/orgs.yaml").resolve()
+    assert Path(records[1]["config_file_resolved"]) == Path("yaml/orgs.yaml").resolve()
+
+
 def test_filter_records_supports_failed_status_alias_and_common_fields():
     records = build_jsonl_records_for_target(_target_result())
 
@@ -84,7 +99,7 @@ def test_filter_records_supports_failed_status_alias_and_common_fields():
         records,
         filters=ResultFilters(
             status="failed",
-            organization="engineering",
+            target="engineering",
             account="dev",
             region="us-east-1",
             task="count_vpcs",
@@ -95,12 +110,112 @@ def test_filter_records_supports_failed_status_alias_and_common_fields():
     assert matches[0]["record_type"] == "task"
 
 
+def test_filter_records_failed_status_matches_any_non_success_status():
+    records = [
+        {"record_type": "account", "status": "success", "account_id": "111"},
+        {"record_type": "account", "status": "error", "account_id": "222"},
+        {"record_type": "account", "status": "interrupted", "account_id": "333"},
+    ]
+
+    matches = filter_records(records, filters=ResultFilters(status="failed"))
+
+    assert [record["account_id"] for record in matches] == ["222", "333"]
+
+
+def test_filter_records_supports_record_type_filter():
+    records = build_jsonl_records_for_target(_target_result())
+
+    matches = filter_records(records, filters=ResultFilters(record_type="account"))
+
+    assert [record["record_type"] for record in matches] == ["account"]
+
+
 def test_failure_records_include_account_and_task_failures():
     records = build_jsonl_records_for_target(_target_result())
 
     failures = failure_records(records)
 
     assert [record["record_type"] for record in failures] == ["account", "task"]
+
+
+def test_failure_records_include_any_non_success_status():
+    records = [
+        {"record_type": "account", "status": "success"},
+        {"record_type": "account", "status": "interrupted"},
+        {"record_type": "task", "status": "cancelled"},
+    ]
+
+    failures = failure_records(records)
+
+    assert [record["status"] for record in failures] == ["interrupted", "cancelled"]
+
+
+def test_config_file_for_failure_records_groups_by_config_path():
+    from pathlib import Path
+
+    records = [
+        {
+            "config_file": "orgs.yaml",
+            "config_file_resolved": str(Path.cwd() / "orgs.yaml"),
+            "status": "error",
+        },
+        {
+            "config_file": "accounts.yaml",
+            "config_file_resolved": str(Path.cwd() / "accounts.yaml"),
+            "status": "interrupted",
+        },
+        {
+            "config_file": "orgs.yaml",
+            "config_file_resolved": str(Path.cwd() / "orgs.yaml"),
+            "status": "error",
+        },
+    ]
+
+    grouped = config_file_for_failure_records(failures=records)
+
+    assert list(grouped) == [Path.cwd() / "orgs.yaml", Path.cwd() / "accounts.yaml"]
+    assert len(grouped[Path.cwd() / "orgs.yaml"]) == 2
+
+
+def test_build_rerun_targets_includes_interrupted_task_dependencies():
+    from anvil.descriptors import LoadedConfig, TargetDescriptor
+
+    loaded_config = LoadedConfig(
+        branch=ConfigBranch.ORGANIZATIONS,
+        targets=[
+            TargetDescriptor(
+                config_branch=ConfigBranch.ORGANIZATIONS,
+                name="org-a",
+                regions=["us-east-1", "us-west-2"],
+                tasks=[
+                    {"name": "inventory"},
+                    {"name": "cleanup", "depends_on": ["inventory"]},
+                ],
+            )
+        ],
+    )
+
+    targets = build_rerun_targets(
+        loaded_config=loaded_config,
+        failures=[
+            {
+                "record_type": "task",
+                "target": "org-a",
+                "account_id": "111111111111",
+                "region": "us-west-2",
+                "task": "cleanup",
+                "status": "interrupted",
+            }
+        ],
+    )
+
+    assert len(targets) == 1
+    assert targets[0].include == ["111111111111"]
+    assert targets[0].regions == ["us-west-2"]
+    assert targets[0].tasks == [
+        {"name": "inventory"},
+        {"name": "cleanup", "depends_on": ["inventory"]},
+    ]
 
 
 def test_parse_fields_validates_known_fields():
