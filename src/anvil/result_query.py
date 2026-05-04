@@ -61,9 +61,7 @@ def jsonl_path_for_run(*, run_dir: Path) -> Path:
 
 
 def build_jsonl_records_for_target(
-    target_result: TargetResult,
-    *,
-    config_file: Path | None = None,
+    target_result: TargetResult, *, config_file: Path | None = None
 ) -> list[dict[str, object]]:
     """Build flattened account and task records for a target result."""
     target_type = _target_type(target_result.config_branch)
@@ -334,9 +332,7 @@ def _record_is_unsuccessful(record: dict[str, object]) -> bool:
     return isinstance(status, str) and status.lower() != "success"
 
 
-def _matches_status(
-    record: dict[str, object], expected: str | set[str] | None
-) -> bool:
+def _matches_status(record: dict[str, object], expected: str | set[str] | None) -> bool:
     if expected is None:
         return True
 

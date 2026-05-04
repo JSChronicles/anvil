@@ -498,9 +498,7 @@ def _add_results_query_args(parser: argparse.ArgumentParser) -> None:
         "--status", help="Filter by status: success, error, interrupted, or failed"
     )
     parser.add_argument(
-        "--type",
-        choices=["account", "task"],
-        help="Filter by result record type",
+        "--type", choices=["account", "task"], help="Filter by result record type"
     )
     parser.add_argument("--target", help="Filter by organization or account-group name")
     parser.add_argument("--account", help="Filter by account ID or account alias")

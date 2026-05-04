@@ -178,8 +178,7 @@ def test_print_failure_followups_uses_results_file_command(capsys, monkeypatch):
         output = capsys.readouterr().out
         assert (
             "anvil results --status failed --results-file "
-            "./results/orgs/run-a/results.jsonl"
-            in output
+            "./results/orgs/run-a/results.jsonl" in output
         )
         assert (
             "anvil results --status failed --results-file "
@@ -394,12 +393,7 @@ def test_cmd_results_rerun_rejects_report_only_flags():
 
     cli = _import_cli_or_skip()
     args = SimpleNamespace(
-        rerun=True,
-        type="account",
-        fields="account_id",
-        limit=1,
-        json=True,
-        jsonl=False,
+        rerun=True, type="account", fields="account_id", limit=1, json=True, jsonl=False
     )
 
     with pytest.raises(ValueError, match="--type, --fields, --limit, --json"):

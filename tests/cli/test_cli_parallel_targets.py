@@ -46,7 +46,11 @@ def test_run_single_config_file_passes_run_controls(
         return SimpleNamespace(state=cli.EngineState.COMPLETED_SUCCESS)
 
     monkeypatch.setattr(cli, "run_multiple_targets", fake_run_multiple_targets)
-    monkeypatch.setattr(cli, "_write_run_results", lambda **kwargs: None)
+    monkeypatch.setattr(
+        cli,
+        "_write_run_results",
+        lambda **kwargs: SimpleNamespace(summary={}, jsonl_path=Path("results.jsonl")),
+    )
 
     exit_code = cli._run_single_config_file(config_file=Path("orgs.yaml"), args=args)
 
