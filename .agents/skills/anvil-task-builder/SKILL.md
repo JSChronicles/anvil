@@ -23,6 +23,7 @@ Use this skill to create Anvil tasks that satisfy the runtime contract, behave s
 - YAML task names must match task module filenames.
 - Plugin task packages must be exposed through the `anvil.tasks` entry-point group.
 - Every task module must define a callable keyword-only `run()` function.
+- Place the task module's `run()` entrypoint at the bottom of the file, after helper classes and functions.
 - The provided boto3 `session` is already scoped to the target account and region.
 - Check `dry_run` before every mutating API call.
 - Prefix dry-run log and action messages with `(dry-run)` for planned work.

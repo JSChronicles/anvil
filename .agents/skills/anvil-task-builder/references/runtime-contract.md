@@ -22,7 +22,9 @@ project = "tasks"
 
 Anvil discovers modules inside packages registered in the `anvil.tasks` entry-point group. Directories named `tasks/` are conventional only; they are not automatically scanned unless registered.
 
-Every task module must define a callable keyword-only `run()` function. Use this signature unless nearby code has a stronger local convention:
+Every task module must define a callable keyword-only `run()` function. Place
+`run()` at the bottom of the file, after helper classes and functions. Use this
+signature unless nearby code has a stronger local convention:
 
 ```python
 from anvil.actions import ActionRecorder
