@@ -1,5 +1,5 @@
 [build-system]
-requires = ["uv_build>=0.11.7,<0.14"]
+requires = ["uv_build>=0.11.11,<0.14"]
 build-backend = "uv_build"
 
 [project]
@@ -84,51 +84,15 @@ template_dir = ".semantic_release/changelog_templates"
 changelog_file = "CHANGELOG.md"
 output_format = "md"
 
-
 [tool.ruff]
-# https://docs.astral.sh/ruff/settings/
-exclude = [
-    ".bzr",
-    ".direnv",
-    ".eggs",
-    ".git",
-    ".git-rewrite",
-    ".hg",
-    ".ipynb_checkpoints",
-    ".mypy_cache",
-    ".nox",
-    ".pants.d",
-    ".pyenv",
-    ".pytest_cache",
-    ".pytype",
-    ".ruff_cache",
-    ".svn",
-    ".tox",
-    ".venv",
-    ".vscode",
-    "__pypackages__",
-    "_build",
-    "buck-out",
-    "build",
-    "dist",
-    "node_modules",
-    "site-packages",
-    "venv",
-]
-line-length = 88
-indent-width = 4
 target-version = "py314"
 
 [tool.ruff.lint]
 select = ["N", "E4", "E7", "E9", "F"]
-ignore = []
 task-tags = ["TODO", "FIXME", "HACK"]
-fixable = ["ALL"]
-unfixable = []
-dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 
 [tool.ruff.format]
-quote-style = "double"
-indent-style = "space"
 skip-magic-trailing-comma = true
-line-ending = "auto"
+
+[tool.uv]
+exclude-newer = "1 week"
