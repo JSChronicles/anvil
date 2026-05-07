@@ -424,10 +424,20 @@ def score_recency(timestamp_value: str | None) -> int:
         return NEUTRAL_SCORE
 
     age = datetime.now(UTC) - parsed_timestamp
+    if age >= timedelta(days=90):
+        return 100
+    if age >= timedelta(days=75):
+        return 90
     if age >= timedelta(days=60):
         return 75
+    if age >= timedelta(days=45):
+        return 55
     if age >= timedelta(days=30):
         return 40
+    if age >= timedelta(days=14):
+        return 20
+    if age >= timedelta(days=7):
+        return 10
     return 0
 
 

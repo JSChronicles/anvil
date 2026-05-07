@@ -15,7 +15,8 @@ NEUTRAL_SCORE = 50
 
 def get_cost_signal(session, account_id: str) -> dict[str, object]:
     """Collect Cost Explorer spend signal for the last 3 complete months."""
-    start_date, end_date = get_last_complete_month_range(month_count=3)
+    month_count = 3
+    start_date, end_date = get_last_complete_month_range(month_count=month_count)
 
     try:
         ce_client = session.client("ce")
@@ -55,13 +56,21 @@ def get_cost_signal(session, account_id: str) -> dict[str, object]:
     average_monthly_cost = (
         total_cost / Decimal(len(monthly_costs)) if monthly_costs else Decimal("0")
     )
+    warnings: list[str] = []
+    if len(monthly_costs) < month_count:
+        warning = (
+            f"Cost Explorer returned {len(monthly_costs)} of {month_count} expected "
+            f"monthly periods for account {account_id}; cost telemetry may be partial."
+        )
+        __LOGGER__.warning(warning)
+        warnings.append(warning)
 
     return {
         "avg_monthly_cost_3m": round_decimal(average_monthly_cost),
         "total_cost_3m": round_decimal(total_cost),
         "monthly_costs": monthly_costs,
         "cost_score": score_cost(average_monthly_cost),
-        "warnings": [],
+        "warnings": warnings,
     }
 
 
@@ -85,14 +94,22 @@ def score_cost(avg_monthly_cost: Decimal | float | int | None) -> int:
         return NEUTRAL_SCORE
 
     cost = Decimal(str(avg_monthly_cost))
-    if cost < Decimal("5"):
+    if cost == Decimal("0"):
         return 100
+    if cost < Decimal("5"):
+        return 95
     if cost < Decimal("10"):
         return 85
+    if cost < Decimal("15"):
+        return 75
     if cost < Decimal("25"):
         return 60
+    if cost < Decimal("50"):
+        return 45
     if cost < Decimal("100"):
         return 30
+    if cost < Decimal("250"):
+        return 15
     return 0
 
 
