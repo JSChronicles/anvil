@@ -34,10 +34,13 @@ def get_cost_signal(session, account_id: str) -> dict[str, object]:
             "total_cost_3m": None,
             "monthly_costs": [],
             "cost_score": NEUTRAL_SCORE,
+            "cost_score_adjustment": 0,
+            "cost_trend": "unknown",
             "warnings": [warning],
         }
 
     monthly_costs: list[dict[str, object]] = []
+    monthly_cost_values: list[Decimal] = []
     total_cost = Decimal("0")
 
     for period in response.get("ResultsByTime", []):
@@ -48,6 +51,7 @@ def get_cost_signal(session, account_id: str) -> dict[str, object]:
             monthly_cost = Decimal("0")
 
         total_cost += monthly_cost
+        monthly_cost_values.append(monthly_cost)
         month_label = str(period.get("TimePeriod", {}).get("Start", ""))[:7]
         monthly_costs.append(
             {"month": month_label, "cost": round_decimal(monthly_cost)}
@@ -55,6 +59,9 @@ def get_cost_signal(session, account_id: str) -> dict[str, object]:
 
     average_monthly_cost = (
         total_cost / Decimal(len(monthly_costs)) if monthly_costs else Decimal("0")
+    )
+    cost_score, cost_score_adjustment = score_cost(
+        average_monthly_cost, monthly_costs=monthly_cost_values
     )
     warnings: list[str] = []
     if len(monthly_costs) < month_count:
@@ -69,7 +76,9 @@ def get_cost_signal(session, account_id: str) -> dict[str, object]:
         "avg_monthly_cost_3m": round_decimal(average_monthly_cost),
         "total_cost_3m": round_decimal(total_cost),
         "monthly_costs": monthly_costs,
-        "cost_score": score_cost(average_monthly_cost),
+        "cost_score": cost_score,
+        "cost_score_adjustment": cost_score_adjustment,
+        "cost_trend": describe_cost_trend(monthly_costs=monthly_cost_values),
         "warnings": warnings,
     }
 
@@ -88,29 +97,90 @@ def get_last_complete_month_range(month_count: int) -> tuple[date, date]:
     return date(start_year, start_month, 1), end_date
 
 
-def score_cost(avg_monthly_cost: Decimal | float | int | None) -> int:
+def score_cost(
+    avg_monthly_cost: Decimal | float | int | None,
+    *,
+    monthly_costs: list[Decimal] | None = None,
+) -> tuple[int, int]:
     """Score cost signal where higher means lower spend and more likely inactive."""
     if avg_monthly_cost is None:
-        return NEUTRAL_SCORE
+        return NEUTRAL_SCORE, 0
 
     cost = Decimal(str(avg_monthly_cost))
     if cost == Decimal("0"):
-        return 100
-    if cost < Decimal("5"):
-        return 95
-    if cost < Decimal("10"):
-        return 85
-    if cost < Decimal("15"):
-        return 75
-    if cost < Decimal("25"):
-        return 60
-    if cost < Decimal("50"):
-        return 45
-    if cost < Decimal("100"):
-        return 30
-    if cost < Decimal("250"):
+        base_score = 100
+    elif cost < Decimal("5"):
+        base_score = 95
+    elif cost < Decimal("10"):
+        base_score = 85
+    elif cost < Decimal("15"):
+        base_score = 75
+    elif cost < Decimal("25"):
+        base_score = 60
+    elif cost < Decimal("50"):
+        base_score = 45
+    elif cost < Decimal("100"):
+        base_score = 30
+    elif cost < Decimal("250"):
+        base_score = 15
+    else:
+        base_score = 0
+
+    adjustment = score_cost_trend(average_monthly_cost=cost, monthly_costs=monthly_costs)
+    return min(100, base_score + adjustment), adjustment
+
+
+def score_cost_trend(
+    *,
+    average_monthly_cost: Decimal,
+    monthly_costs: list[Decimal] | None,
+) -> int:
+    """Score downward cost trends as weak inactive-account signals."""
+    if not monthly_costs or average_monthly_cost <= Decimal("0"):
+        return 0
+
+    latest_cost = monthly_costs[-1]
+    if latest_cost >= average_monthly_cost:
+        return 0
+
+    if is_strictly_decreasing(monthly_costs):
+        return 25
+    if latest_cost == Decimal("0"):
+        return 20
+
+    latest_ratio = latest_cost / average_monthly_cost
+    if latest_ratio <= Decimal("0.50"):
         return 15
-    return 0
+    if latest_ratio <= Decimal("0.75"):
+        return 10
+    return 5
+
+
+def is_strictly_decreasing(values: list[Decimal]) -> bool:
+    """Return whether each value is lower than the one before it."""
+    if len(values) < 2:
+        return False
+
+    return all(current < previous for previous, current in zip(values, values[1:]))
+
+
+def describe_cost_trend(*, monthly_costs: list[Decimal]) -> str:
+    """Describe the latest complete month relative to recent cost history."""
+    if not monthly_costs:
+        return "unknown"
+
+    if is_strictly_decreasing(monthly_costs):
+        return "decreasing"
+
+    average_monthly_cost = sum(monthly_costs, Decimal("0")) / Decimal(
+        len(monthly_costs)
+    )
+    latest_month_cost = monthly_costs[-1]
+    if latest_month_cost < average_monthly_cost:
+        return "below_average"
+    if latest_month_cost > average_monthly_cost:
+        return "above_average"
+    return "at_average"
 
 
 def round_decimal(value: Decimal) -> float:
