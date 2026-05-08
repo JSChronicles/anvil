@@ -19,6 +19,17 @@
   </p>
 </div>
 
+## Table of contents
+
+- [Execution model](#execution-model)
+- [Flow](#flow)
+- [Authentication validation](#authentication-validation)
+- [Detailed CLI examples](#detailed-cli-examples)
+- [Result queries](#result-queries)
+- [Task validation](#task-validation)
+- [Task discovery and authoring](#task-discovery-and-authoring)
+- [CLI shape](#cli-shape)
+
 ## Execution model
 
 Anvil executes declarative task workflows across one or more AWS organizations, across many accounts within each organization, and across one or more configured AWS regions.
@@ -119,157 +130,6 @@ flowchart TD
     AK --> AL["Return engine result"]
 ```
 
-## Runtime execution
-
-### Multi-organization execution
-
-Anvil supports defining multiple organizations in a single run. Each organization is treated as an independent execution context with its own:
-
-- AWS profile
-- target regions
-- role name
-- include or exclude account filters
-- target-level YAML concurrency through `max_parallel_targets`
-- worker concurrency
-- region concurrency through `max_parallel_regions`
-- dry-run behavior
-- fail-fast setting
-- task definitions
-- metadata
-
-This allows a single execution to coordinate work across separate AWS environments without forcing them into a shared credential model or shared runtime configuration.
-
-When one YAML contains multiple targets that resolve to the same AWS organization, Anvil reuses organization discovery results during that run. The first target to discover active accounts and region statuses populates a run-local cache keyed by organization ID. Concurrent preparation for the same organization waits for that in-flight discovery instead of issuing duplicate `list_accounts` and `list_regions` calls. Target execution is still serialized per organization later in the pipeline so two same-organization targets do not execute account work at the same time.
-
-### Multi-region execution
-
-Within each organization, Anvil can execute tasks across multiple configured AWS regions. Configured regions are treated as part of the execution scope rather than as a single global default. During organization startup, Anvil validates the configured region list against the regions enabled for that organization and only executes in the effective configured regions that remain after validation.
-
-- Task execution then occurs per account and per region, and task results include the region they ran in. This makes region-specific inventory, validation, enforcement, and reporting workflows easier to reason about and easier to audit later from structured output. By default, regions execute serially within each account. A target can set `max_parallel_regions` from `1` through `4` to run multiple regions for the same account concurrently while preserving task dependency order inside each region.
-
-- Use parallel regions for workloads where each region has enough independent work to benefit from overlap, such as long paginated inventory, deep regional checks, slow service-specific scans, or multiple regional tasks that call different AWS services. For lightweight describe/list tasks across many accounts, region parallelism can increase AWS API pressure enough that each regional call slows down. This is especially likely when several tasks all call the same AWS service, such as multiple EC2 inventory tasks. In those cases, leave `max_parallel_regions` at `1` and rely first on account-level concurrency.
-
-- Region scheduling is intentionally strict. Anvil only starts up to `max_parallel_regions` regions at a time for one account. If a non-optional task fails in one region, regions that have not started are left unstarted, while already-running regions stop cooperatively before their next task. Even when regions finish out of order, task results are returned in configured region order and then task order.
-
-### Account selection
-
-After discovering active accounts in an organization, Anvil applies optional include or exclude filters to determine the final execution set.
-
-- If an include or exclude list references unknown account IDs, Anvil warns but continues with the valid discovered accounts that remain. This helps catch stale configuration without turning harmless selection drift into a hard failure.
-
-### Bounded parallel account execution
-
-Accounts execute concurrently within an organization through a bounded worker pool controlled by the organization configuration. This keeps execution scalable across many accounts while avoiding unbounded concurrency and preserving a clear organization-level execution boundary. The `max_workers` setting controls how many account executions may run at the same time for a target.
-
-- Account work is submitted to the account worker pool up front, and the executor runs up to `max_workers` accounts at a time. If fail-fast is enabled, Anvil signals cancellation and cancels pending account futures where possible. Accounts already running stop cooperatively when they observe the cancellation signal before starting another task.
-
-- When `max_parallel_regions` is greater than `1`, approximate account-region task streams per target are `max_workers * max_parallel_regions`, before considering `max_parallel_targets`. Across multiple targets, the rough upper bound is `max_parallel_targets * max_workers * max_parallel_regions`, so benchmark changes with the same target count and task mix you plan to run in production.
-
-### Fail-fast behavior and cancellation
-
-An organization can enable fail-fast behavior. When enabled, the first unsuccessful account result causes Anvil to signal cancellation to the rest of that organization run and cancel pending work where possible.
-
-- Cancellation is cooperative rather than forceful. Accounts already in progress continue only until they observe the shared cancellation signal, at which point they stop early instead of continuing unnecessary work. This means fail-fast does not just stop scheduling new work. It also allows in-flight account execution to stop due to the cancellation signal, which helps reduce wasted execution while still preserving structured results.
-
-For example, in a run with 50 accounts, 3 regions, and 5 tasks per account:
-
-- Full run without fail-fast:
-  - 50 account executions x 3 regions x 5 tasks = 750 task runs
-- Fail-fast enabled:
-  - Anvil signals cancellation across the organization, and each running account checks that signal before starting the next task
-  - If an account sees the cancellation signal, it stops early instead of continuing through the remaining tasks and regions
-
-### Result model
-
-Anvil records structured results at four layers:
-
-- Task result
-  - Include the region they ran in.
-- Account result
-  - Summarize task outcomes for one account.
-- Organization result
-  - Summarize the selected accounts for one organization.
-- Engine result
-  - Summarize the entire multi-organization run.
-
-This helps humans review and makes downstream machine processing easier.
-
-Benchmark output is diagnostic and intentionally more verbose than normal results. Use `anvil run --benchmark` when comparing performance, tuning concurrency, or looking for bottlenecks. Avoid enabling it for routine audit/reporting runs because it adds engine, target, account, region, and result-write timings that can dramatically increase result JSON size on large runs.
-
-## Session and credential model
-
-Anvil separates organization-level session creation, worker-session reuse, and member-account role assumption.
-
-### Organization-scoped session setup
-
-Each organization creates a base boto3 session for organization-level control-plane work such as account discovery, region validation, and management-account lookup. This base session is not the account execution session. It is the organization-scoped entry point for discovery and orchestration.
-
-### Thread-local worker sessions
-
-For worker execution, Anvil uses thread-local boto3 sessions keyed by profile and region. This allows worker threads to reuse appropriately scoped sessions without sharing session objects across threads and without mixing profile or region context between organizations.
-
-#### Why thread-local worker sessions exist
-
-Account execution is concurrent within an organization through a bounded worker pool, and each account execution can touch one or more AWS regions. To support that safely, Anvil keeps a per-thread cache of worker boto3 sessions keyed by `(profile, region)`.
-
-This has three practical benefits:
-
-- Prevents profile or region context from being mixed together. A session created for one `(profile, region)` combination is not silently reused for another one.
-- Avoids recreating the same worker session repeatedly inside the same worker thread. Once a thread has a worker session for a given `(profile, region)` scope, it can reuse it.
-- Keeps the threading concern in the session layer rather than spreading it across organization and account execution code.
-
-Because account execution can run across multiple worker threads, Anvil keeps worker sessions thread-local. This preserves session reuse while preventing one thread's AWS session state from bleeding into another thread's execution path.
-
-### Member-account role assumption
-
-For member accounts, Anvil assumes the configured role once per account execution and reuses the returned temporary credentials to construct region-scoped sessions for each effective region. This avoids repeating STS role assumption for every region while still giving each region run its own correctly scoped boto3 session.
-
-- Before each member-account region starts, Anvil checks whether the shared assumed-role credentials are expired or too close to expiration. The safety window starts at five minutes, then expands during the account run based on the longest completed region duration plus a small buffer. This prevents Anvil from starting a later region with credentials that are technically still valid but unlikely to last through a similar region task stream.
-
-- If credentials are inside that safety window, Anvil refreshes them before constructing the region's session. Parallel region execution coordinates this refresh with a per-account lock so multiple region workers do not all re-assume the role at the same time. When benchmark output is enabled, account benchmark data includes `assume_role_refresh_count` and `assume_role_refresh_window_seconds`.
-
-- With parallel region execution, the first wave of regions starts before any region-duration history exists, so it uses the initial five-minute safety window. As regions finish, their observed durations can expand the safety window for later scheduled regions in the same account. Regions that have already started keep the session they were given; the guard prevents starting new region work with near-expired credentials, but it does not refresh credentials in the middle of a running task.
-
-### Management-account execution
-
-Management accounts do not require role assumption. They execute directly with the organization/profile-backed worker session for each region.
-
-### Account-region client caching
-
-For task execution, Anvil wraps each account-region session with a small lazy client cache before passing it to tasks.
-
-- The cache scope is intentionally narrow: one account, one region, one ordered task stream. If two tasks in the same account-region both call `session.client("ec2")`, the first call creates the EC2 client and the second call reuses it. If a task calls a different service, or calls the same service with different client arguments such as a different `region_name`, Anvil creates a separate client for that distinct call shape.
-
-- This is an engine behavior, not a YAML setting. Task authors should continue to use the normal boto3-style pattern: `ec2_client = session.client("ec2")`
-
-- The cache is lazy, so a single task that creates one client pays only a small lookup before normal client creation. The benefit shows up when a workflow has multiple tasks in the same account-region that use the same AWS service, such as separate EC2 inventory tasks.
-
-- Client caching reduces repeated boto3 client construction, service model setup, endpoint setup, and connection pool churn. It does not reduce AWS API calls. For example, a workflow that runs one VPC task and one subnet task can reuse the EC2 client, but it still calls both `describe_vpcs` and `describe_subnets`.
-
-- Larger inventory optimizations should still happen at the task design level. If several read-only tasks repeatedly scan related EC2 inventory, a combined inventory task may reduce duplicate AWS API calls more than client caching can.
-
-### Why the session factory exists
-
-The `SessionFactory` centralizes session and credential mechanics that would otherwise be duplicated across organization and account execution code.
-
-- `Organization` is responsible for organization orchestration and building accounts.
-- `Account` is responsible for account execution and task flow.
-- `SessionFactory` is responsible for:
-  - creating the organization-scoped base session
-  - managing thread-local worker sessions
-  - assuming role into member accounts
-  - constructing region-scoped sessions from assumed credentials
-  - wrapping account-region sessions with lazy client caching
-
-This separates credential acquisition from session construction. That matters for multi-region execution: Anvil can assume role once per member account and reuse those temporary credentials to build region-scoped sessions for each configured region.
-
-For example, in a run with 50 accounts, 4 regions, and 49 member accounts:
-
-- previous behavior: 49 member accounts x 4 regions = 196 AssumeRole calls
-- current behavior: 49 member accounts x 1 = 49 AssumeRole calls
-
-This reduces avoidable STS churn while still giving each region run its own correctly scoped boto3 session.
-
 ## Authentication validation
 
 Anvil includes an authentication check mode that validates AWS access for each configured organization before account-level task execution begins. This helps catch expired credentials, missing profiles, access issues, or invalid SSO sessions early.
@@ -314,6 +174,26 @@ Auth check normalizes several common authentication problems into clearer messag
 - **Unexpected error during authentication**
 
 Where possible, Anvil also includes remediation guidance such as re-running SSO login for the affected profile.
+
+### Authentication commands
+
+Authentication checks validate AWS credentials and access without executing any tasks.
+
+```console
+anvil auth check --help
+```
+
+Authenticate credentials from an organization file:
+
+```console
+anvil auth check --config-file ./yaml/orgs.yaml
+```
+
+Suppress all output and rely on the exit code only, which is useful for CI:
+
+```console
+anvil auth check --config-file orgs.yaml --quiet
+```
 
 ## Detailed CLI examples
 
@@ -399,6 +279,12 @@ INFO [auth.py:auth_check:106] Running auth check for org=root profile=root auth_
 
 ### Graph output
 
+Display the resolved task dependency graph for an organization configuration:
+
+```console
+anvil graph --help
+```
+
 Generate a dependency graph from an organization file:
 
 ```console
@@ -441,6 +327,24 @@ anvil graph --config-file .\examples\07-optional-task-semantics.yaml --json
 
 ### Run output and result layout
 
+Execute all configured organizations and accounts from one or more YAML files:
+
+```console
+anvil run --help
+```
+
+Run a single YAML file:
+
+```console
+anvil run --config-file ./yaml/orgs.yaml
+```
+
+To run multiple YAML files in one command, pass them after a single `--config-file` flag. They run sequentially in the order provided. Each YAML remains an isolated run with its own summary file, and the overall command exits non-zero if any YAML run fails.
+
+```console
+anvil run --config-file ./yaml/orgs.yaml ./yaml/orgs2.yaml ./yaml/orgs3.yaml
+```
+
 Organization configs write per-target result files under `organizations/`:
 
 ```text
@@ -482,44 +386,114 @@ INFO     [noop.py:run:33] No-op task executed for account Audit (444444444444), 
 INFO     [noop.py:run:33] No-op task executed for account Log Archive (333333333333), dry_run=False
 INFO     [noop.py:run:33] No-op task executed for account account2 (222222222222), dry_run=False
 ......
-INFO     [cli.py:_write_run_results:132] Wrote run results to xxxx\xxxx\results\noop\2026-05-01T183012Z: summary=xxxx\xxxx\results\noop\2026-05-01T183012Z\summary.json, target_files=1, jsonl_records=50
+INFO     [cli.py:_write_run_results:132] Wrote run results to xxxx\xxxx\results\noop\2026-05-01T183012Z
 
-# Summary below
-{
-  "state": "completed_success",
-  "generated_at": "2026-03-17T18:48:47.392583+00:00",
-  "auth": [
-    {
-      "org_name": "root",
-      "status": "success",
-      "source": "sso",
-      "started_at": "2026-03-17T18:48:36.615369+00:00",
-      "ended_at": "2026-03-17T18:48:38.338430+00:00",
-      "duration_seconds": 1.7230594999855384,
-      "message": "Authenticated successfully.",
-      "remediation": null
-    }
-  ],
-  "organizations": [
-    {
-      "organization": "root",
-      "total_accounts": 50,
-      "failed_accounts": 0,
-      "interrupted_accounts": 0,
-      "failed_tasks": 0,
-      "has_failures": false,
-      "error": null
-    }
-  ],
-  "total_failed_accounts": 0,
-  "total_interrupted_accounts": 0,
-  "total_failed_tasks": 0
-}
 ```
+
+## Result queries
+
+Runs still write the existing full JSON result files. They also write JSONL records that flatten account and task results for quick filtering:
+`./results/{config-stem}/{run-id}/results.jsonl`.
+
+### Common result queries
+
+```console
+# Show every failure under ./results.
+anvil results --status failed
+
+# Query one explicit run results file.
+anvil results --status failed --results-file ./results/orgs/2026-05-01T183012Z/results.jsonl
+
+# Query multiple explicit run results files in one command.
+anvil results --status failed --results-file ./results/orgs/run-a/results.jsonl ./results/accounts/run-b/results.jsonl
+
+# Show failures for one organization or account-group target.
+anvil results --target prod --status failed
+
+# Show failed account records only.
+anvil results --type account --status failed
+
+# Filter records for one account by AWS account ID or friendly account name.
+anvil results --account 111111111111
+anvil results --account dev
+
+# Combine account filtering with other result filters.
+anvil results --account dev --status failed
+anvil results --account 111111111111 --type task --task count_vpcs
+
+# Show task records for one task name.
+anvil results --type task --task count_vpcs
+
+# Show task records for one AWS region.
+anvil results --type task --region us-east-1
+
+# Show a compact failure view with selected fields and a row limit.
+anvil results --status failed --fields account_id,region,task,error --limit 20
+
+# Emit failed task records as JSONL.
+anvil results --type task --status failed --jsonl
+```
+
+### Rerun failures
+
+> [!NOTE]
+> `--rerun` infers the rerun scope from result records. It reloads the original config, reruns only matching failed accounts, narrows to failed regions and tasks when task-level failures are available, and includes required task dependencies automatically.
+> Use scope filters such as `--target`, `--account`, `--region`, and `--task` to limit a rerun even further. Report-shaping flags such as `--type`, `--fields`, `--limit`, `--json`, and `--jsonl` are not supported with `--rerun`.
+
+```console
+# Rerun failures from one explicit run results file.
+anvil results --status failed --results-file ./results/orgs/2026-05-01T183012Z/results.jsonl --rerun
+
+# Rerun failures from multiple explicit run results files in one command.
+anvil results --status failed --results-file ./results/orgs/run-a/results.jsonl ./results/accounts/run-b/results.jsonl --rerun
+```
+
+The result query command supports `--type`, `--target`, `--account`,
+`--region`, `--task`, `--status`, `--fields`, `--limit`, `--results-file` with
+one or more JSONL paths, and `--json` or `--jsonl` for structured filtered
+output. `--status failed` matches any non-success status. Without
+`--results-file`, Anvil queries every `results.jsonl` file under `./results`.
 
 ## Task validation
 
 Anvil includes a task validation mode that checks discovered tasks for structural correctness without executing them. This helps catch task-definition issues before a run begins.
+
+### Task management commands
+
+List all available stock and user-defined tasks:
+
+```console
+anvil tasks list
+
+Available tasks:
+plugin: my-test-project:
+  - hello
+  - test
+
+stock:
+  - compare_asg_to_cluster_instances
+  - get_aws_inline_policies
+  - get_organization_structure
+  - noop
+  - noop_fail
+  - remove_iam_user
+  - remove_missing_group_assignments
+  ...
+```
+
+Validate all available stock and user-defined tasks:
+
+```console
+anvil tasks validate
+[ERROR] task validation failed:
+  - task 'cleanup' is missing required run() parameters: ['account_alias']
+  - task 'inventory' is missing required run() parameters: ['metadata']
+```
+
+```console
+anvil tasks validate
+[OK] all tasks are valid
+```
 
 ### What task validation does
 
@@ -553,6 +527,74 @@ The `actions` parameter receives an action recorder that tasks can use to record
 Tasks execute in dependency order within each account-region pair.
 
 - If a task depends on a failed earlier dependency, Anvil records that task as blocked by dependency failure. Optional tasks can be skipped after dependency failure without failing the entire account, while non-optional task failures stop further execution for that region.
+
+## Task discovery and authoring
+
+### How task discovery works
+
+Tasks are resolved in the following order:
+
+Anvil discovers tasks from two sources:
+
+- Stock tasks - tasks shipped with Anvil (`anvil.tasks`)
+- Plugin tasks - tasks registered via the `anvil.tasks` entry-point group
+
+Directories named `tasks/` are conventional only and are not automatically scanned.
+
+### Reference tasks in YAML
+
+Once configured, custom tasks behave exactly like stock tasks:
+
+```yaml
+tasks:
+  - name: inventory
+  - name: cleanup
+    depends_on: [inventory]
+```
+
+### Implement the task contract
+
+Each task module must define a callable `run` function. This is the minimum interface required for Anvil to discover and execute a task.
+
+```python
+from anvil.actions import ActionRecorder
+
+def run(
+    *,
+    account_id: str,
+    account_alias: str,
+    session,
+    dry_run: bool,
+    metadata: dict[str, object],
+    actions: ActionRecorder,
+) -> None:
+    """
+    Execute the task for one AWS account-region pair.
+    """
+```
+
+#### Arguments
+
+- `account_id` - AWS account ID currently being processed.
+- `account_alias` - Friendly name of the account.
+- `session` - A boto3 Session already scoped to the target account and region.
+- `dry_run` - Indicates whether the task should make changes.
+- `metadata` - Organization metadata defined in the configuration file.
+- `actions` - Action recorder provided by Anvil for planned or completed work.
+
+The return value is optional. Any returned data may be included in execution results.
+
+### Optional helpers
+
+Tasks can use Anvil-provided utilities to produce structured results. `ActionRecorder` allows tasks to:
+
+- record planned or executed actions
+- produce structured output for reporting
+- integrate with Anvil's execution summaries
+
+You can view returned-result and ActionRecorder examples in [Results](../examples/Results/README.md).
+
+Using these utilities is **not required**, but recommended for tasks that modify infrastructure or need richer audit output.
 
 ## CLI shape
 
