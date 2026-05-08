@@ -268,6 +268,14 @@ anvil results --target prod --status failed
 # Show failed account records only.
 anvil results --type account --status failed
 
+# Filter records for one account by AWS account ID or friendly account name.
+anvil results --account 111111111111
+anvil results --account dev
+
+# Combine account filtering with other result filters.
+anvil results --account dev --status failed
+anvil results --account 111111111111 --type task --task count_vpcs
+
 # Show task records for one task name.
 anvil results --type task --task count_vpcs
 
