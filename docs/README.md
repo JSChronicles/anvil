@@ -482,7 +482,7 @@ INFO     [noop.py:run:33] No-op task executed for account Audit (444444444444), 
 INFO     [noop.py:run:33] No-op task executed for account Log Archive (333333333333), dry_run=False
 INFO     [noop.py:run:33] No-op task executed for account account2 (222222222222), dry_run=False
 ......
-INFO     [cli.py:_write_run_results:132] Wrote run results to xxxx\xxxx\results\noop\2026-05-01T183012Z: summary=xxxx\xxxx\results\noop\2026-05-01T183012Z\summary.json, target_files=1, jsonl_records=50
+INFO     [cli.py:_write_run_results:132] Wrote run results to xxxx\xxxx\results\noop\2026-05-01T183012Z
 
 # Summary below
 {

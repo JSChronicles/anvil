@@ -193,11 +193,7 @@ def _write_run_results(*, config_file: Path, engine_result) -> WrittenRunResults
     with summary_path.open("w", encoding="utf-8") as handle:
         handle.write(summary_json)
 
-    __LOGGER__.info(
-        f"Wrote run results to {run_dir}: summary={summary_path}, "
-        f"target_files={len(engine_result.target_results)}, "
-        f"jsonl_records={jsonl_record_count}"
-    )
+    __LOGGER__.info(f"Wrote run results to {run_dir}")
 
     return WrittenRunResults(
         run_dir=run_dir,
