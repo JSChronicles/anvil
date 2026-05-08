@@ -449,3 +449,17 @@ if __name__ == "__main__":
         role_name=args.role_name,
         max_workers=args.max_workers,
     )
+
+
+# This template provides:
+# - AWS Organizations account discovery
+# - active-account filtering
+#   - `--include` / `--exclude` account selection
+# - parallel per-account execution
+#   - multiple regions per account
+# - assume-role handling for member accounts
+# - dry-run support
+# - JSON result output
+
+# Replace the innards of the `account_task()` function with your own per-account logic.
+# Replace the `--example-piece` argparse and `example_piece` in other areas or edit as desired
