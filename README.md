@@ -30,7 +30,7 @@
 
 Anvil is a declarative AWS execution engine for running Python tasks across large account and region fleets. Describe the work in YAML, keep task logic in plain Python modules, and let the engine handle authentication, role assumption, dependency ordering, bounded concurrency, and structured results so repeatable AWS work can run faster without turning orchestration into custom scripts.
 
-For more, see the [documentation](\docs\README.md).
+For more, see the [documentation](.\docs\README.md).
 
 ### Why Anvil?
 
