@@ -16,7 +16,7 @@ Write all Python code for Python 3.14 or newer. Prefer simple, maintainable solu
 - Use native type hints such as `list[str]`, `dict[str, object]`, and `str | None`.
 - Type public functions, methods, dataclass fields, and class attributes.
 - Use Google-style docstrings for functions and classes.
-- Use module-level loggers: `logger = logging.getLogger(__name__)`.
+- Use module-level loggers: `__LOGGER__ = logging.getLogger(__name__)`.
 - Use f-strings for logging messages.
 - Catch specific exceptions whenever possible.
 - Do not silently swallow exceptions.

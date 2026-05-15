@@ -19,13 +19,13 @@ Prefer:
 try:
     load_config(path)
 except FileNotFoundError as error:
-    logger.error(f"Configuration file not found: {path}")
+    __LOGGER__error(f"Configuration file not found: {path}")
     raise
 
 try:
     run_task()
 except Exception as error:
-    logger.exception(f"Unhandled error during task execution: {error}")
+    __LOGGER__exception(f"Unhandled error during task execution: {error}")
     raise
 ```
 
@@ -48,15 +48,15 @@ Logging statements must use f-strings for message formatting.
 Avoid:
 
 ```python
-logger.error("Project failed: %s", project_name)
-logger.info("Account %s processed", account_id)
+__LOGGER__error("Project failed: %s", project_name)
+__LOGGER__info("Account %s processed", account_id)
 ```
 
 Prefer:
 
 ```python
-logger.error(f"Project failed: {project_name}")
-logger.info(f"Account {account_id} processed")
+__LOGGER__error(f"Project failed: {project_name}")
+__LOGGER__info(f"Account {account_id} processed")
 ```
 
 Rules:
