@@ -4,6 +4,31 @@ All notable changes to this project will be documented in this file.
 
 <!-- version list -->
 
+## v0.26.0 (2026-06-03)
+
+### Chores
+
+- **github-actions**: Bump the github-actions group with 4 updates
+  ([#44](https://github.com/JSChronicles/anvil/pull/44),
+  [`0ab837b`](https://github.com/JSChronicles/anvil/commit/0ab837b5ccac2f70ec626f78eea501ca13fa3681))
+
+- **uv**: Bump idna from 3.11 to 3.15 ([#42](https://github.com/JSChronicles/anvil/pull/42),
+  [`f289908`](https://github.com/JSChronicles/anvil/commit/f289908800d7dffa92481e9f68320c45b1a426e1))
+
+- **uv**: Bump the uv-dependencies group with 5 updates
+  ([#43](https://github.com/JSChronicles/anvil/pull/43),
+  [`258157f`](https://github.com/JSChronicles/anvil/commit/258157f9fd15f42c27afef07722dcdb8c0c72cb0))
+
+- **uv**: Bump urllib3 from 2.6.3 to 2.7.0 ([#41](https://github.com/JSChronicles/anvil/pull/41),
+  [`f0a9fca`](https://github.com/JSChronicles/anvil/commit/f0a9fca93508554c084df173e4e497774194439b))
+
+### Features
+
+- **tasks**: Add list_lambdas_by_runtime task and config
+  ([#45](https://github.com/JSChronicles/anvil/pull/45),
+  [`6126f8d`](https://github.com/JSChronicles/anvil/commit/6126f8d35361875c9b0daf020be693f47ea1d3ce))
+
+
 ## v0.25.0 (2026-05-04)
 
 ### Features
