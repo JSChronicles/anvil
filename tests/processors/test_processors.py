@@ -21,7 +21,6 @@ def _context(tmp_path: Path) -> ProcessorRunContext:
         config_branch=ConfigBranch.ORGANIZATIONS,
         run_dir=tmp_path,
         summary_path=tmp_path / "summary.json",
-        jsonl_path=tmp_path / "results.jsonl",
         summary={"state": "completed_success"},
         target_result_paths={},
     )
@@ -91,13 +90,11 @@ def test_load_historical_run_context_reads_complete_results_directory(tmp_path):
     target_dir.mkdir(parents=True)
 
     summary_path = run_dir / "summary.json"
-    jsonl_path = run_dir / "results.jsonl"
     target_path = target_dir / "production.json"
 
     summary_path.write_text(
         json.dumps({"state": "completed_success"}), encoding="utf-8"
     )
-    jsonl_path.write_text('{"record_type":"account","status":"success"}\n')
     target_path.write_text(
         json.dumps({"organization": "production", "account_results": []}),
         encoding="utf-8",
@@ -107,9 +104,6 @@ def test_load_historical_run_context_reads_complete_results_directory(tmp_path):
 
     assert context.config_branch is ConfigBranch.ORGANIZATIONS
     assert context.summary == {"state": "completed_success"}
-    assert context.results_jsonl_records == [
-        {"record_type": "account", "status": "success"}
-    ]
     assert context.target_result_paths == {"production": target_path}
     assert context.target_results == [
         {"organization": "production", "account_results": []}

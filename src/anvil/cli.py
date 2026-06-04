@@ -281,7 +281,6 @@ def _run_single_config_file(*, config_file: Path, args: argparse.Namespace) -> i
         target_results=engine_result.target_results,
         run_dir=written_results.run_dir,
         summary_path=written_results.summary_path,
-        jsonl_path=written_results.jsonl_path,
         summary=written_results.summary,
         target_result_paths=written_results.target_result_paths,
     )

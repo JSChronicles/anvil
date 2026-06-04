@@ -466,7 +466,6 @@ def test_run_configured_post_processors_runs_successful_targets(monkeypatch):
     written_results = SimpleNamespace(
         run_dir=Path("results/orgs/run"),
         summary_path=Path("results/orgs/run/summary.json"),
-        jsonl_path=Path("results/orgs/run/results.jsonl"),
         summary={"state": "completed_success"},
         target_result_paths={
             "org-a": Path("results/orgs/run/organizations/org-a.json")
@@ -485,7 +484,6 @@ def test_run_configured_post_processors_runs_successful_targets(monkeypatch):
         target_results=engine_result.target_results,
         run_dir=written_results.run_dir,
         summary_path=written_results.summary_path,
-        jsonl_path=written_results.jsonl_path,
         summary=written_results.summary,
         target_result_paths=written_results.target_result_paths,
     )
@@ -519,7 +517,6 @@ def test_run_configured_post_processors_skips_failed_targets(monkeypatch):
     written_results = SimpleNamespace(
         run_dir=Path("results/orgs/run"),
         summary_path=Path("results/orgs/run/summary.json"),
-        jsonl_path=Path("results/orgs/run/results.jsonl"),
         summary={"state": "completed_with_failures"},
         target_result_paths={},
     )
@@ -535,7 +532,6 @@ def test_run_configured_post_processors_skips_failed_targets(monkeypatch):
         target_results=engine_result.target_results,
         run_dir=written_results.run_dir,
         summary_path=written_results.summary_path,
-        jsonl_path=written_results.jsonl_path,
         summary=written_results.summary,
         target_result_paths=written_results.target_result_paths,
     )

@@ -11,7 +11,6 @@ from importlib.metadata import entry_points
 from pathlib import Path
 
 from anvil.descriptors import ConfigBranch, TargetDescriptor
-from anvil.result_query import JSONL_FILENAME
 from anvil.results import TargetResult
 
 __LOGGER__ = logging.getLogger(__name__)
@@ -52,14 +51,12 @@ class ProcessorRunContext:
     config_branch: ConfigBranch
     run_dir: Path
     summary_path: Path
-    jsonl_path: Path
     summary: dict[str, object]
     target_result_paths: dict[str, Path]
     target_name: str | None = None
     target_result: TargetResult | dict[str, object] | None = None
     target_result_path: Path | None = None
     target_metadata: dict[str, object] = field(default_factory=dict)
-    results_jsonl_records: list[dict[str, object]] = field(default_factory=list)
     target_results: Sequence[TargetResult | dict[str, object]] = field(
         default_factory=list
     )
@@ -189,7 +186,6 @@ def run_configured_post_processors(
     target_results: list[TargetResult],
     run_dir: Path,
     summary_path: Path,
-    jsonl_path: Path,
     summary: dict[str, object],
     target_result_paths: dict[str, Path],
 ) -> None:
@@ -210,7 +206,6 @@ def run_configured_post_processors(
             config_branch=config_branch,
             run_dir=run_dir,
             summary_path=summary_path,
-            jsonl_path=jsonl_path,
             summary=summary,
             target_result_paths=target_result_paths,
             target_name=target_result.target_name,
@@ -406,17 +401,11 @@ def run_processors(
 def load_historical_run_context(*, results_dir: Path) -> ProcessorRunContext:
     """Build a processor context from a historical results directory."""
     summary_path = results_dir / "summary.json"
-    jsonl_path = results_dir / JSONL_FILENAME
 
     if not summary_path.exists():
         raise FileNotFoundError(f"summary.json not found in results dir: {results_dir}")
-    if not jsonl_path.exists():
-        raise FileNotFoundError(
-            f"{JSONL_FILENAME} not found in results dir: {results_dir}"
-        )
 
     summary = _load_json_object(summary_path)
-    records = _load_jsonl_records(jsonl_path)
     target_results: list[dict[str, object]] = []
     target_result_paths: dict[str, Path] = {}
     config_branch = ConfigBranch.ORGANIZATIONS
@@ -441,10 +430,8 @@ def load_historical_run_context(*, results_dir: Path) -> ProcessorRunContext:
         config_branch=config_branch,
         run_dir=results_dir,
         summary_path=summary_path,
-        jsonl_path=jsonl_path,
         summary=summary,
         target_result_paths=target_result_paths,
-        results_jsonl_records=records,
         target_results=target_results,
     )
 
@@ -463,28 +450,3 @@ def _load_json_object(path: Path) -> dict[str, object]:
         record[key] = value
 
     return record
-
-
-def _load_jsonl_records(path: Path) -> list[dict[str, object]]:
-    records: list[dict[str, object]] = []
-    with path.open("r", encoding="utf-8") as handle:
-        for line_number, line in enumerate(handle, start=1):
-            stripped = line.strip()
-            if not stripped:
-                continue
-            payload = json.loads(stripped)
-            if not isinstance(payload, dict):
-                raise ValueError(
-                    f"Invalid JSONL in {path} on line {line_number}: expected object"
-                )
-            record: dict[str, object] = {}
-            for key, value in payload.items():
-                if not isinstance(key, str):
-                    raise ValueError(
-                        f"Invalid JSONL in {path} on line {line_number}: "
-                        "expected object with string keys"
-                    )
-                record[key] = value
-            records.append(record)
-
-    return records
