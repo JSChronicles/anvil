@@ -72,6 +72,32 @@ def test_organization_regions_accepts_globs_and_explicit_regions():
     assert descriptor.regions == ["us-*", "ca-central-1"]
 
 
+def test_post_run_defaults_to_empty_list():
+    descriptor = TargetDescriptor(config_branch=ConfigBranch.ORGANIZATIONS, name="org")
+
+    assert descriptor.post_run == []
+
+
+def test_post_run_normalizes_processor_and_metadata():
+    descriptor = TargetDescriptor(
+        config_branch=ConfigBranch.ORGANIZATIONS,
+        name="org",
+        post_run=[
+            {
+                "processor": " summary_markdown ",
+                "metadata": {"include_passed": False},
+            }
+        ],
+    )
+
+    assert descriptor.post_run == [
+        {
+            "processor": "summary_markdown",
+            "metadata": {"include_passed": False},
+        }
+    ]
+
+
 def test_regions_rejects_all_mixed_with_other_regions():
     with pytest.raises(ValueError, match="'all' must be the only region value"):
         TargetDescriptor(

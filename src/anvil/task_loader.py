@@ -11,6 +11,8 @@ from importlib.metadata import entry_points
 
 __LOGGER__ = logging.getLogger(__name__)
 
+TASK_ENTRY_POINT_GROUP = "anvil.tasks"
+
 # ============================================================================
 # Models
 # ============================================================================
@@ -75,7 +77,7 @@ def _load_core_task(task_name: str) -> Callable:
 
 
 def _load_plugin_task(task_name: str) -> Callable:
-    eps = entry_points(group="anvil.tasks")
+    eps = entry_points(group=TASK_ENTRY_POINT_GROUP)
 
     discovered_plugins: list[str] = []
     import_failures: list[str] = []
@@ -283,7 +285,7 @@ def discover_tasks() -> list[TaskDescriptor]:
         )
 
     # Plugin tasks (package scan, no imports)
-    for entry_point in entry_points(group="anvil.tasks"):
+    for entry_point in entry_points(group=TASK_ENTRY_POINT_GROUP):
         try:
             pkg = importlib.import_module(entry_point.value)
         except Exception as exc:

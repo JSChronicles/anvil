@@ -79,6 +79,9 @@
           "metadata": {
             "$ref": "common.schema.v1.json#/$defs/baseTargetProperties/metadata"
           },
+          "post_run": {
+            "$ref": "common.schema.v1.json#/$defs/baseTargetProperties/post_run"
+          },
           "include": {
             "allOf": [
               {

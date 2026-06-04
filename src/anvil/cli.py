@@ -15,6 +15,16 @@ from anvil.graph import render_graph
 import yaml
 from anvil.benchmark import BenchmarkRecorder
 from anvil.descriptors import ConfigBranch, LoadedConfig
+from anvil.processor_loader import (
+    ProcessorSpec,
+    discover_processors,
+    list_processors,
+    load_historical_run_context,
+    resolve_processor_output_path,
+    run_configured_post_processors,
+    run_processors,
+)
+from anvil.processor_validation import validate_processors
 from anvil.result_query import (
     ResultFilters,
     build_rerun_targets,
@@ -53,6 +63,7 @@ class WrittenRunResults:
     summary_path: Path
     jsonl_path: Path
     summary: dict[str, object]
+    target_result_paths: dict[str, Path]
     target_file_count: int
     jsonl_record_count: int
 
@@ -152,11 +163,13 @@ def _write_run_results(*, config_file: Path, engine_result) -> WrittenRunResults
 
     recorder = BenchmarkRecorder(enabled=engine_result.benchmark is not None)
     target_files: list[dict[str, object]] = []
+    target_result_paths: dict[str, Path] = {}
 
     for target_result in engine_result.target_results:
         result_file = _target_result_file_path(
             target_results_dir=target_results_dir, target_name=target_result.target_name
         )
+        target_result_paths[target_result.target_name] = result_file
 
         with recorder.phase("serialization_seconds"):
             target_json = json.dumps(target_result.to_dict(), indent=2)
@@ -204,6 +217,7 @@ def _write_run_results(*, config_file: Path, engine_result) -> WrittenRunResults
         summary_path=summary_path,
         jsonl_path=jsonl_path,
         summary=summary,
+        target_result_paths=target_result_paths,
         target_file_count=len(engine_result.target_results),
         jsonl_record_count=jsonl_record_count,
     )
@@ -256,6 +270,16 @@ def _run_single_config_file(*, config_file: Path, args) -> int:
     )
     written_results = _write_run_results(
         config_file=config_file, engine_result=engine_result
+    )
+    run_configured_post_processors(
+        config_branch=loaded_config.branch,
+        targets=loaded_config.targets,
+        target_results=engine_result.target_results,
+        run_dir=written_results.run_dir,
+        summary_path=written_results.summary_path,
+        jsonl_path=written_results.jsonl_path,
+        summary=written_results.summary,
+        target_result_paths=written_results.target_result_paths,
     )
     if _summary_has_queryable_failures(written_results.summary):
         _print_failure_followups(results_file=written_results.jsonl_path)
@@ -342,6 +366,36 @@ def _cmd_tasks_validate() -> int:
     return 0
 
 
+def _cmd_list_processors() -> int:
+    processors = list_processors()
+
+    print("Available processors:")
+
+    current_source: str | None = None
+    for processor in processors:
+        if processor.source != current_source:
+            if current_source is not None:
+                print()
+
+            print(f"{processor.source}:")
+            current_source = processor.source
+
+        print(f"  - {processor.name}")
+
+    return 0
+
+
+def _cmd_processors_validate() -> int:
+    try:
+        validate_processors(discover_processors())
+    except Exception as exc:
+        print(f"[ERROR] processor validation failed: {exc}")
+        return 1
+
+    print("[OK] all processors are valid")
+    return 0
+
+
 def _cmd_graph(args) -> int:
 
     for config_file in args.config_file:
@@ -404,16 +458,22 @@ def _validate_results_rerun_args(
     args, *, parser: argparse.ArgumentParser | None = None
 ) -> None:
     rejected_flags: list[str] = []
-    if args.type is not None:
+    if getattr(args, "type", None) is not None:
         rejected_flags.append("--type")
-    if args.fields is not None:
+    if getattr(args, "fields", None) is not None:
         rejected_flags.append("--fields")
-    if args.limit is not None:
+    if getattr(args, "limit", None) is not None:
         rejected_flags.append("--limit")
-    if args.json:
+    if getattr(args, "json", False):
         rejected_flags.append("--json")
-    if args.jsonl:
+    if getattr(args, "jsonl", False):
         rejected_flags.append("--jsonl")
+    if getattr(args, "results_dir", None) is not None:
+        rejected_flags.append("--results-dir")
+    if getattr(args, "processor", None) is not None:
+        rejected_flags.append("--processor")
+    if getattr(args, "output", None) is not None:
+        rejected_flags.append("--output")
 
     if rejected_flags:
         rejected = ", ".join(rejected_flags)
@@ -423,13 +483,92 @@ def _validate_results_rerun_args(
         raise ValueError(message)
 
 
+def _validate_results_processor_args(
+    args, *, parser: argparse.ArgumentParser | None = None
+) -> None:
+    rejected_flags: list[str] = []
+    if getattr(args, "rerun", False):
+        rejected_flags.append("--rerun")
+    if getattr(args, "results_file", None) is not None:
+        rejected_flags.append("--results-file")
+    if getattr(args, "type", None) is not None:
+        rejected_flags.append("--type")
+    if getattr(args, "status", None) is not None:
+        rejected_flags.append("--status")
+    if getattr(args, "target", None) is not None:
+        rejected_flags.append("--target")
+    if getattr(args, "account", None) is not None:
+        rejected_flags.append("--account")
+    if getattr(args, "region", None) is not None:
+        rejected_flags.append("--region")
+    if getattr(args, "task", None) is not None:
+        rejected_flags.append("--task")
+    if getattr(args, "fields", None) is not None:
+        rejected_flags.append("--fields")
+    if getattr(args, "limit", None) is not None:
+        rejected_flags.append("--limit")
+    if getattr(args, "json", False):
+        rejected_flags.append("--json")
+    if getattr(args, "jsonl", False):
+        rejected_flags.append("--jsonl")
+    if getattr(args, "benchmark", False):
+        rejected_flags.append("--benchmark")
+    if getattr(args, "dry_run", None) is not None:
+        rejected_flags.append("--dry-run")
+
+    if getattr(args, "results_dir", None) is None:
+        message = "--results-dir is required with --processor"
+        if parser is not None:
+            parser.error(message)
+        raise ValueError(message)
+
+    if rejected_flags:
+        rejected = ", ".join(rejected_flags)
+        message = f"{rejected} cannot be used with --processor"
+        if parser is not None:
+            parser.error(message)
+        raise ValueError(message)
+
+
 def _cmd_results(args) -> int:
+    if getattr(args, "processor", None) is not None:
+        _validate_results_processor_args(args)
+        return _cmd_results_processor(args)
+
+    if getattr(args, "results_dir", None) is not None:
+        raise ValueError("--results-dir requires --processor")
+    if getattr(args, "output", None) is not None:
+        raise ValueError("--output requires --processor")
+
     if args.rerun:
         _validate_results_rerun_args(args)
         return _cmd_results_rerun(args)
 
     records = _load_filtered_result_records(args)
     _emit_result_records(args, records)
+    return 0
+
+
+def _cmd_results_processor(args) -> int:
+    context = load_historical_run_context(results_dir=args.results_dir)
+    output = (
+        str(
+            resolve_processor_output_path(
+                run_dir=context.run_dir,
+                output=args.output,
+            )
+        )
+        if args.output is not None
+        else None
+    )
+    specs = [
+        ProcessorSpec(
+            processor=args.processor,
+            output=output,
+            metadata={},
+        )
+    ]
+    run_processors(specs=specs, context=context)
     return 0
 
 
@@ -584,6 +723,25 @@ def main() -> None:
     tasks_validate_parser.set_defaults(func=lambda _: _cmd_tasks_validate())
     _add_log_level_arg(tasks_validate_parser)
 
+    processors_parser = subparsers.add_parser(
+        "processors", help="Processor-related commands"
+    )
+    _add_log_level_arg(processors_parser)
+    processors_subparsers = processors_parser.add_subparsers(
+        dest="processors_command", required=True
+    )
+
+    processors_list_parser = processors_subparsers.add_parser(
+        "list", help="List available processors"
+    )
+    processors_list_parser.set_defaults(func=lambda _: _cmd_list_processors())
+
+    processors_validate_parser = processors_subparsers.add_parser(
+        "validate", help="Validate available processors without executing them"
+    )
+    processors_validate_parser.set_defaults(func=lambda _: _cmd_processors_validate())
+    _add_log_level_arg(processors_validate_parser)
+
     graph_parser = subparsers.add_parser(
         "graph",
         help="Show task dependency graph for configured organizations or account groups",
@@ -620,6 +778,19 @@ def main() -> None:
             "This can significantly increase output size."
         ),
     )
+    results_parser.add_argument(
+        "--results-dir",
+        type=Path,
+        help="Historical results run directory to process with --processor",
+    )
+    results_parser.add_argument(
+        "--processor",
+        help="Run a processor against a historical results directory",
+    )
+    results_parser.add_argument(
+        "--output",
+        help="Optional processor-owned output destination",
+    )
     results_parser.set_defaults(func=_cmd_results)
 
     args = parser.parse_args()
@@ -628,6 +799,12 @@ def main() -> None:
         parser.error("the following arguments are required: command")
     if args.command == "results" and args.rerun:
         _validate_results_rerun_args(args, parser=results_parser)
+    if args.command == "results" and args.processor is not None:
+        _validate_results_processor_args(args, parser=results_parser)
+    if args.command == "results" and args.processor is None and args.results_dir is not None:
+        results_parser.error("--results-dir requires --processor")
+    if args.command == "results" and args.processor is None and args.output is not None:
+        results_parser.error("--output requires --processor")
 
     logging.basicConfig(
         level=getattr(logging, args.log_level),

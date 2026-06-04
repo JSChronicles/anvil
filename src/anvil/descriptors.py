@@ -27,6 +27,7 @@ class TargetDescriptor:
     regions: list[str] = field(default_factory=lambda: ["us-east-1"])
     role_name: str | None = None
     tasks: list[dict[str, object]] = field(default_factory=lambda: [{"name": "noop"}])
+    post_run: list[dict[str, object]] = field(default_factory=list)
 
     max_workers: int = 10
     max_parallel_regions: int = 1
@@ -49,6 +50,9 @@ class TargetDescriptor:
     def __post_init__(self) -> None:
         if self.max_workers < 1:
             raise ValueError("max_workers must be >= 1")
+
+        normalized_post_run = self._normalize_post_run(self.post_run)
+        object.__setattr__(self, "post_run", normalized_post_run)
 
         if not 1 <= self.max_parallel_regions <= 4:
             raise ValueError("max_parallel_regions must be between 1 and 4")
@@ -122,6 +126,43 @@ class TargetDescriptor:
 
         if len(set(normalized)) != len(normalized):
             raise ValueError("account ID lists must not contain duplicates")
+
+        return normalized
+
+    @staticmethod
+    def _normalize_post_run(
+        post_run: list[dict[str, object]] | None,
+    ) -> list[dict[str, object]]:
+        if post_run is None:
+            return []
+
+        normalized: list[dict[str, object]] = []
+        for index, raw_spec in enumerate(post_run, start=1):
+            if not isinstance(raw_spec, dict):
+                raise ValueError(f"post_run entry #{index} must be a mapping")
+
+            processor = raw_spec.get("processor")
+            if not isinstance(processor, str) or not processor.strip():
+                raise ValueError(
+                    f"post_run entry #{index} requires a non-empty processor"
+                )
+
+            output = raw_spec.get("output")
+            if output is not None and not isinstance(output, str):
+                raise ValueError(f"post_run entry #{index} output must be a string")
+
+            metadata = raw_spec.get("metadata", {})
+            if not isinstance(metadata, dict):
+                raise ValueError(f"post_run entry #{index} metadata must be a mapping")
+
+            normalized_spec: dict[str, object] = {
+                "processor": processor.strip(),
+                "metadata": dict(metadata),
+            }
+            if output is not None:
+                normalized_spec["output"] = output
+
+            normalized.append(normalized_spec)
 
         return normalized
 
