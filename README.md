@@ -57,11 +57,15 @@ Anvil is built for teams that need repeatable AWS workflows, such as inventory, 
 
 ## Standalone Multi-Account Script Template
 
-If you do not need/want the full Anvil framework and only want a simple starting point for small AWS Organization tasks, see: [`templates/aws_multi_account_template.py`](./templates/multi_aws_account_task_template.py)
 
 ## Usage
 > [!TIP]
-> It is recommended to use the [foundry-anvil-template](https://github.com/JSChronicles/foundry-anvil-template). The template provides a ready project layout for custom tasks, YAML examples, validation, and CI outside of the main Anvil repository.
+> It is recommended to use the [foundry-anvil-template](https://github.com/JSChronicles/foundry-anvil-template).
+>
+> The template exposes project-local tasks and processors without forking Anvil.
+>
+> If you do not need/want the full Anvil framework and only want a simple starting point for small AWS Organization tasks, see: [`templates/aws_multi_account_template.py`](./templates/multi_aws_account_task_template.py)
+
 
 
 1. When using the uv tool, there are several ways to run and install dependencies. Here are only a couple examples:
