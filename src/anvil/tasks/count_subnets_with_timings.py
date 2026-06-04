@@ -21,9 +21,11 @@ def _page_retry_attempts(page: dict[str, object]) -> int:
     if not isinstance(response_metadata, dict):
         return 0
 
-    retry_attempts = response_metadata.get("RetryAttempts", 0)
-    if not isinstance(retry_attempts, int):
-        return 0
+    retry_attempts = 0
+    for key, value in response_metadata.items():
+        if key == "RetryAttempts" and isinstance(value, int):
+            retry_attempts = value
+            break
 
     return retry_attempts
 

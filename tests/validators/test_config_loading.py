@@ -204,7 +204,7 @@ def test_validate_config_schema_rejects_invalid_max_parallel_targets():
                 "max_parallel_targets": 0,
                 "organizations": [{"name": "org-a"}],
             }
-    )
+        )
 
 
 def test_validate_config_schema_rejects_invalid_post_run_output():
@@ -217,9 +217,7 @@ def test_validate_config_schema_rejects_invalid_post_run_output():
                 "organizations": [
                     {
                         "name": "org-a",
-                        "post_run": [
-                            {"processor": "summary_json", "output": False}
-                        ],
+                        "post_run": [{"processor": "summary_json", "output": False}],
                     }
                 ],
             }

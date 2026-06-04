@@ -84,7 +84,9 @@ def _load_targets_from_config_file(path: Path) -> LoadedConfig:
     return load_config_descriptors(config=raw)
 
 
-def _validate_cli_overrides(*, loaded_config: LoadedConfig, args) -> None:
+def _validate_cli_overrides(
+    *, loaded_config: LoadedConfig, args: argparse.Namespace
+) -> None:
     """
     Validate branch-specific CLI override semantics.
     """
@@ -156,7 +158,9 @@ def _target_result_file_path(*, target_results_dir: Path, target_name: str) -> P
     return result_file
 
 
-def _write_run_results(*, config_file: Path, engine_result) -> WrittenRunResults:
+def _write_run_results(
+    *, config_file: Path, engine_result: EngineResult
+) -> WrittenRunResults:
     run_dir = _create_results_run_dir(config_file=config_file)
     target_results_dir = run_dir / _target_results_dir_name(engine_result.config_branch)
     target_results_dir.mkdir()
@@ -256,7 +260,7 @@ def _print_failure_followups(*, results_file: Path) -> None:
     print(f"  anvil results --status failed --results-file {results_path} --rerun")
 
 
-def _run_single_config_file(*, config_file: Path, args) -> int:
+def _run_single_config_file(*, config_file: Path, args: argparse.Namespace) -> int:
     loaded_config: LoadedConfig = _load_targets_from_config_file(config_file)
     _validate_cli_overrides(loaded_config=loaded_config, args=args)
 
@@ -287,7 +291,7 @@ def _run_single_config_file(*, config_file: Path, args) -> int:
     return 0 if engine_result.state is EngineState.COMPLETED_SUCCESS else 1
 
 
-def _cmd_run(args) -> int:
+def _cmd_run(args: argparse.Namespace) -> int:
     exit_code = 0
 
     for config_file in args.config_file:
@@ -298,7 +302,7 @@ def _cmd_run(args) -> int:
     return exit_code
 
 
-def _cmd_auth_check(args) -> int:
+def _cmd_auth_check(args: argparse.Namespace) -> int:
     overall_exit_code = 0
 
     for config_file in args.config_file:
@@ -396,7 +400,7 @@ def _cmd_processors_validate() -> int:
     return 0
 
 
-def _cmd_graph(args) -> int:
+def _cmd_graph(args: argparse.Namespace) -> int:
 
     for config_file in args.config_file:
         loaded_config = _load_targets_from_config_file(config_file)
@@ -406,7 +410,7 @@ def _cmd_graph(args) -> int:
     return 0
 
 
-def _load_filtered_result_records(args) -> list[dict[str, object]]:
+def _load_filtered_result_records(args: argparse.Namespace) -> list[dict[str, object]]:
     records = load_result_records(
         results_dir=Path.cwd() / "results", files=args.results_file
     )
@@ -446,7 +450,9 @@ def _print_query_payload(
     print(format_records_table(payload, fields=fields))
 
 
-def _emit_result_records(args, records: list[dict[str, object]]) -> None:
+def _emit_result_records(
+    args: argparse.Namespace, records: list[dict[str, object]]
+) -> None:
     fields = parse_fields(args.fields)
     records = limit_records(records, limit=args.limit)
     _print_query_payload(
@@ -455,7 +461,7 @@ def _emit_result_records(args, records: list[dict[str, object]]) -> None:
 
 
 def _validate_results_rerun_args(
-    args, *, parser: argparse.ArgumentParser | None = None
+    args: argparse.Namespace, *, parser: argparse.ArgumentParser | None = None
 ) -> None:
     rejected_flags: list[str] = []
     if getattr(args, "type", None) is not None:
@@ -484,7 +490,7 @@ def _validate_results_rerun_args(
 
 
 def _validate_results_processor_args(
-    args, *, parser: argparse.ArgumentParser | None = None
+    args: argparse.Namespace, *, parser: argparse.ArgumentParser | None = None
 ) -> None:
     rejected_flags: list[str] = []
     if getattr(args, "rerun", False):
@@ -530,7 +536,7 @@ def _validate_results_processor_args(
         raise ValueError(message)
 
 
-def _cmd_results(args) -> int:
+def _cmd_results(args: argparse.Namespace) -> int:
     if getattr(args, "processor", None) is not None:
         _validate_results_processor_args(args)
         return _cmd_results_processor(args)
@@ -549,30 +555,19 @@ def _cmd_results(args) -> int:
     return 0
 
 
-def _cmd_results_processor(args) -> int:
+def _cmd_results_processor(args: argparse.Namespace) -> int:
     context = load_historical_run_context(results_dir=args.results_dir)
     output = (
-        str(
-            resolve_processor_output_path(
-                run_dir=context.run_dir,
-                output=args.output,
-            )
-        )
+        str(resolve_processor_output_path(run_dir=context.run_dir, output=args.output))
         if args.output is not None
         else None
     )
-    specs = [
-        ProcessorSpec(
-            processor=args.processor,
-            output=output,
-            metadata={},
-        )
-    ]
+    specs = [ProcessorSpec(processor=args.processor, output=output, metadata={})]
     run_processors(specs=specs, context=context)
     return 0
 
 
-def _cmd_results_rerun(args) -> int:
+def _cmd_results_rerun(args: argparse.Namespace) -> int:
     records = _load_filtered_result_records(args)
     failures = failure_records(records)
     if not failures:
@@ -784,12 +779,10 @@ def main() -> None:
         help="Historical results run directory to process with --processor",
     )
     results_parser.add_argument(
-        "--processor",
-        help="Run a processor against a historical results directory",
+        "--processor", help="Run a processor against a historical results directory"
     )
     results_parser.add_argument(
-        "--output",
-        help="Optional processor-owned output destination",
+        "--output", help="Optional processor-owned output destination"
     )
     results_parser.set_defaults(func=_cmd_results)
 
@@ -801,7 +794,11 @@ def main() -> None:
         _validate_results_rerun_args(args, parser=results_parser)
     if args.command == "results" and args.processor is not None:
         _validate_results_processor_args(args, parser=results_parser)
-    if args.command == "results" and args.processor is None and args.results_dir is not None:
+    if (
+        args.command == "results"
+        and args.processor is None
+        and args.results_dir is not None
+    ):
         results_parser.error("--results-dir requires --processor")
     if args.command == "results" and args.processor is None and args.output is not None:
         results_parser.error("--output requires --processor")

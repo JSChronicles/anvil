@@ -4,7 +4,7 @@ import importlib
 import logging
 import pkgutil
 from collections import defaultdict, deque
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import lru_cache
 from importlib.metadata import entry_points
@@ -142,16 +142,30 @@ def _load_task_callable(task_name: str) -> Callable:
 # ============================================================================
 
 
-def _freeze_task_specs(task_specs: list[dict[str, object]]) -> TaskSpecKey:
+TaskSpecInput = Mapping[str, object]
+
+
+def _freeze_task_specs(task_specs: Sequence[TaskSpecInput]) -> TaskSpecKey:
     frozen_specs: list[tuple[str, tuple[str, ...], bool]] = []
 
     for spec in task_specs:
+        name = spec["name"]
+        if not isinstance(name, str):
+            raise TaskConfigError("task name must be a string")
+
+        raw_depends_on = spec.get("depends_on", [])
+        if not isinstance(raw_depends_on, list):
+            raise TaskConfigError(f"Task '{name}' depends_on must be a list of strings")
+        depends_on: list[str] = []
+        for dependency in raw_depends_on:
+            if not isinstance(dependency, str):
+                raise TaskConfigError(
+                    f"Task '{name}' depends_on must be a list of strings"
+                )
+            depends_on.append(dependency)
+
         frozen_specs.append(
-            (
-                spec["name"],
-                tuple(spec.get("depends_on", [])),
-                bool(spec.get("optional", False)),
-            )
+            (name, tuple(depends_on), bool(spec.get("optional", False)))
         )
 
     return tuple(frozen_specs)
@@ -175,7 +189,7 @@ def _build_resolved_execution(
 def _resolve_tasks_cached(
     task_specs_key: TaskSpecKey,
 ) -> tuple[CachedOrderedTask, CachedAdjacency]:
-    task_specs = [
+    task_specs: list[dict[str, object]] = [
         {"name": name, "depends_on": list(depends_on), "optional": optional}
         for name, depends_on, optional in task_specs_key
     ]
@@ -202,17 +216,30 @@ def _resolve_tasks_cached(
     return ordered, frozen_adjacency
 
 
-def _parse_task_specs(task_specs: list[dict[str, object]]) -> dict[str, _TaskSpec]:
+def _parse_task_specs(task_specs: Sequence[TaskSpecInput]) -> dict[str, _TaskSpec]:
     spec_by_name: dict[str, _TaskSpec] = {}
 
     for spec in task_specs:
         name = spec["name"]
+        if not isinstance(name, str):
+            raise TaskConfigError("task name must be a string")
 
         if name in spec_by_name:
             raise TaskConfigError(f"Duplicate task name detected: '{name}'")
 
+        raw_depends_on = spec.get("depends_on", [])
+        if not isinstance(raw_depends_on, list):
+            raise TaskConfigError(f"Task '{name}' depends_on must be a list of strings")
+        depends_on: list[str] = []
+        for dependency in raw_depends_on:
+            if not isinstance(dependency, str):
+                raise TaskConfigError(
+                    f"Task '{name}' depends_on must be a list of strings"
+                )
+            depends_on.append(dependency)
+
         spec_by_name[name] = _TaskSpec(
-            depends_on=spec.get("depends_on", []), optional=spec.get("optional", False)
+            depends_on=depends_on, optional=bool(spec.get("optional", False))
         )
 
     return spec_by_name
@@ -263,7 +290,7 @@ def _topological_sort(
     return ordered, dict(graph)
 
 
-def resolve_tasks(*, task_specs: list[dict[str, object]]) -> ResolvedExecution:
+def resolve_tasks(*, task_specs: Sequence[TaskSpecInput]) -> ResolvedExecution:
     task_specs_key = _freeze_task_specs(task_specs)
     ordered, adjacency = _resolve_tasks_cached(task_specs_key)
     return _build_resolved_execution(ordered, adjacency)

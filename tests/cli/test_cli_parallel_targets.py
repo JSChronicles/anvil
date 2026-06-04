@@ -27,11 +27,14 @@ def test_run_single_config_file_passes_run_controls(
 ):
     from pathlib import Path
 
+    from anvil.descriptors import ConfigBranch, TargetDescriptor
+
     cli = _import_cli_or_skip()
 
+    target = TargetDescriptor(config_branch=ConfigBranch.ORGANIZATIONS, name="target-a")
     loaded_config = SimpleNamespace(
         branch=SimpleNamespace(value="organizations"),
-        targets=["target-a"],
+        targets=[target],
         max_parallel_targets=4,
     )
     seen = {}

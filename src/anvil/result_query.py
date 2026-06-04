@@ -367,7 +367,10 @@ def _expand_task_names_with_dependencies(
         task = task_specs.get(task_name)
         if task is None:
             return
-        for dependency in task.get("depends_on", []):
+        depends_on = task.get("depends_on", [])
+        if not isinstance(depends_on, list):
+            depends_on = []
+        for dependency in depends_on:
             if isinstance(dependency, str):
                 add_with_dependencies(dependency)
         expanded_names.add(task_name)

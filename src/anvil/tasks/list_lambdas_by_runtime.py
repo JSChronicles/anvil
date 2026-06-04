@@ -18,13 +18,15 @@ def _validate_runtimes(metadata: dict[str, object]) -> list[str]:
             "list_lambdas_by_runtime requires metadata.runtimes to be a non-empty list "
             "of AWS runtime strings (e.g. ['python3.8', 'nodejs14.x'])"
         )
+    validated_runtimes: list[str] = []
     for item in runtimes:
         if not isinstance(item, str):
             raise RuntimeError(
                 "list_lambdas_by_runtime requires every entry in metadata.runtimes "
                 f"to be a string; got {type(item).__name__!r}: {item!r}"
             )
-    return runtimes
+        validated_runtimes.append(item)
+    return validated_runtimes
 
 
 def _list_matching_functions(
@@ -37,7 +39,9 @@ def _list_matching_functions(
     for page in paginator.paginate():
         for function in page.get("Functions", []):
             total_scanned += 1
-            runtime = function.get("Runtime", "")
+            runtime = function.get("Runtime")
+            if not isinstance(runtime, str):
+                continue
             if runtime not in target_runtimes:
                 continue
             matched.append(
@@ -77,6 +81,8 @@ def run(
     by_runtime: dict[str, list[dict[str, object]]] = {}
     for function in matched:
         runtime = function["runtime"]
+        if not isinstance(runtime, str):
+            continue
         if runtime not in by_runtime:
             by_runtime[runtime] = []
         by_runtime[runtime].append(function)

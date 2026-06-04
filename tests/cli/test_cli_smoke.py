@@ -461,17 +461,16 @@ def test_run_configured_post_processors_runs_successful_targets(monkeypatch):
         ],
     )
     loaded_config = LoadedConfig(branch=ConfigBranch.ORGANIZATIONS, targets=[target])
-    target_result = SimpleNamespace(
-        target_name="org-a",
-        has_failures=False,
-    )
+    target_result = SimpleNamespace(target_name="org-a", has_failures=False)
     engine_result = SimpleNamespace(target_results=[target_result])
     written_results = SimpleNamespace(
         run_dir=Path("results/orgs/run"),
         summary_path=Path("results/orgs/run/summary.json"),
         jsonl_path=Path("results/orgs/run/results.jsonl"),
         summary={"state": "completed_success"},
-        target_result_paths={"org-a": Path("results/orgs/run/organizations/org-a.json")},
+        target_result_paths={
+            "org-a": Path("results/orgs/run/organizations/org-a.json")
+        },
     )
 
     def fake_run_processors(*, specs, context):
@@ -581,6 +580,4 @@ def test_cmd_results_processor_runs_historical_context(monkeypatch):
     assert cli._cmd_results(args) == 0
     assert seen["context"] is context
     assert seen["specs"][0].processor == "summary_json"
-    assert seen["specs"][0].output == str(
-        Path("results/orgs/run/reports/summary.json")
-    )
+    assert seen["specs"][0].output == str(Path("results/orgs/run/reports/summary.json"))

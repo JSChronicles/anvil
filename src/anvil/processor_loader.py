@@ -4,14 +4,15 @@ import importlib
 import json
 import logging
 import pkgutil
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from functools import lru_cache
 from importlib.metadata import entry_points
 from pathlib import Path
 
-from anvil.descriptors import ConfigBranch
+from anvil.descriptors import ConfigBranch, TargetDescriptor
 from anvil.result_query import JSONL_FILENAME
+from anvil.results import TargetResult
 
 __LOGGER__ = logging.getLogger(__name__)
 
@@ -55,11 +56,13 @@ class ProcessorRunContext:
     summary: dict[str, object]
     target_result_paths: dict[str, Path]
     target_name: str | None = None
-    target_result: object | None = None
+    target_result: TargetResult | dict[str, object] | None = None
     target_result_path: Path | None = None
     target_metadata: dict[str, object] = field(default_factory=dict)
     results_jsonl_records: list[dict[str, object]] = field(default_factory=list)
-    target_results: list[object] = field(default_factory=list)
+    target_results: Sequence[TargetResult | dict[str, object]] = field(
+        default_factory=list
+    )
 
 
 # ============================================================================
@@ -76,9 +79,15 @@ def _parse_processor_specs(
 
     specs: list[ProcessorSpec] = []
     for raw_spec in raw_specs:
-        metadata = raw_spec.get("metadata", {})
-        if not isinstance(metadata, dict):
+        raw_metadata = raw_spec.get("metadata", {})
+        if not isinstance(raw_metadata, dict):
             raise ProcessorConfigError("processor metadata must be a mapping")
+
+        metadata: dict[str, object] = {}
+        for key, value in raw_metadata.items():
+            if not isinstance(key, str):
+                raise ProcessorConfigError("processor metadata keys must be strings")
+            metadata[key] = value
 
         output = raw_spec.get("output")
         specs.append(
@@ -103,9 +112,7 @@ def _safe_output_filename(name: str) -> str:
 def _output_path_parts(output: str) -> list[str]:
     output_path = Path(output)
     parts = [
-        part
-        for part in output_path.parts
-        if part not in {output_path.anchor, ".", ""}
+        part for part in output_path.parts if part not in {output_path.anchor, ".", ""}
     ]
 
     if parts and parts[0].lower() == "reports":
@@ -162,61 +169,24 @@ def resolve_processor_output_path(
 
 
 def _processor_specs_by_target_name(
-    targets: list[object],
-) -> dict[str, tuple[object, list[ProcessorSpec]]]:
-    processors_by_name: dict[str, tuple[object, list[ProcessorSpec]]] = {}
+    targets: list[TargetDescriptor],
+) -> dict[str, tuple[TargetDescriptor, list[ProcessorSpec]]]:
+    processors_by_name: dict[str, tuple[TargetDescriptor, list[ProcessorSpec]]] = {}
 
     for target in targets:
-        target_name = getattr(target, "name", None)
-        if not isinstance(target_name, str) or not target_name:
-            continue
-
-        raw_specs = getattr(target, "post_run", [])
-        processors_by_name[target_name] = (
+        processors_by_name[target.name] = (
             target,
-            _parse_processor_specs(raw_specs),
+            _parse_processor_specs(target.post_run),
         )
 
     return processors_by_name
 
 
-def resolve_target_processor_specs(
-    *,
-    specs: list[ProcessorSpec],
-    run_dir: Path,
-    target_name: str,
-    reserved_paths: set[Path],
-) -> list[ProcessorSpec]:
-    """Resolve target processor output paths under run_dir/reports."""
-    resolved_specs: list[ProcessorSpec] = []
-
-    for spec in specs:
-        output = (
-            str(
-                resolve_processor_output_path(
-                    run_dir=run_dir,
-                    output=spec.output,
-                    target_name=target_name,
-                    reserved_paths=reserved_paths,
-                )
-            )
-            if spec.output is not None
-            else None
-        )
-        resolved_specs.append(
-            ProcessorSpec(
-                processor=spec.processor, output=output, metadata=spec.metadata
-            )
-        )
-
-    return resolved_specs
-
-
 def run_configured_post_processors(
     *,
     config_branch: ConfigBranch,
-    targets: list[object],
-    target_results: list[object],
+    targets: list[TargetDescriptor],
+    target_results: list[TargetResult],
     run_dir: Path,
     summary_path: Path,
     jsonl_path: Path,
@@ -228,13 +198,12 @@ def run_configured_post_processors(
     reserved_output_paths: set[Path] = set()
 
     for target_result in target_results:
-        target_name = getattr(target_result, "target_name")
-        target_entry = processors_by_name.get(target_name)
+        target_entry = processors_by_name.get(target_result.target_name)
         if target_entry is None:
             continue
 
         target, specs = target_entry
-        if not specs or getattr(target_result, "has_failures"):
+        if not specs or target_result.has_failures:
             continue
 
         context = ProcessorRunContext(
@@ -244,18 +213,33 @@ def run_configured_post_processors(
             jsonl_path=jsonl_path,
             summary=summary,
             target_result_paths=target_result_paths,
-            target_name=target_name,
+            target_name=target_result.target_name,
             target_result=target_result,
-            target_result_path=target_result_paths.get(target_name),
-            target_metadata=dict(getattr(target, "metadata", {})),
+            target_result_path=target_result_paths.get(target_result.target_name),
+            target_metadata=dict(target.metadata),
             target_results=[target_result],
         )
-        resolved_specs = resolve_target_processor_specs(
-            specs=specs,
-            run_dir=run_dir,
-            target_name=target_name,
-            reserved_paths=reserved_output_paths,
-        )
+
+        resolved_specs: list[ProcessorSpec] = []
+        for spec in specs:
+            output = (
+                str(
+                    resolve_processor_output_path(
+                        run_dir=run_dir,
+                        output=spec.output,
+                        target_name=target_result.target_name,
+                        reserved_paths=reserved_output_paths,
+                    )
+                )
+                if spec.output is not None
+                else None
+            )
+            resolved_specs.append(
+                ProcessorSpec(
+                    processor=spec.processor, output=output, metadata=spec.metadata
+                )
+            )
+
         run_processors(specs=resolved_specs, context=context)
 
 
@@ -414,9 +398,7 @@ def run_processors(
             f"Running processor '{spec.processor}' for target "
             f"'{context.target_name or 'run'}'"
         )
-        results.append(
-            run(context=context, output=spec.output, metadata=spec.metadata)
-        )
+        results.append(run(context=context, output=spec.output, metadata=spec.metadata))
 
     return results
 
@@ -474,7 +456,13 @@ def _load_json_object(path: Path) -> dict[str, object]:
     if not isinstance(payload, dict):
         raise ValueError(f"Expected JSON object in {path}")
 
-    return payload
+    record: dict[str, object] = {}
+    for key, value in payload.items():
+        if not isinstance(key, str):
+            raise ValueError(f"Expected JSON object with string keys in {path}")
+        record[key] = value
+
+    return record
 
 
 def _load_jsonl_records(path: Path) -> list[dict[str, object]]:
@@ -489,6 +477,14 @@ def _load_jsonl_records(path: Path) -> list[dict[str, object]]:
                 raise ValueError(
                     f"Invalid JSONL in {path} on line {line_number}: expected object"
                 )
-            records.append(payload)
+            record: dict[str, object] = {}
+            for key, value in payload.items():
+                if not isinstance(key, str):
+                    raise ValueError(
+                        f"Invalid JSONL in {path} on line {line_number}: "
+                        "expected object with string keys"
+                    )
+                record[key] = value
+            records.append(record)
 
     return records

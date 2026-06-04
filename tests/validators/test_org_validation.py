@@ -83,18 +83,12 @@ def test_post_run_normalizes_processor_and_metadata():
         config_branch=ConfigBranch.ORGANIZATIONS,
         name="org",
         post_run=[
-            {
-                "processor": " summary_markdown ",
-                "metadata": {"include_passed": False},
-            }
+            {"processor": " summary_markdown ", "metadata": {"include_passed": False}}
         ],
     )
 
     assert descriptor.post_run == [
-        {
-            "processor": "summary_markdown",
-            "metadata": {"include_passed": False},
-        }
+        {"processor": "summary_markdown", "metadata": {"include_passed": False}}
     ]
 
 

@@ -82,10 +82,7 @@ def test_run_processors_executes_in_declaration_order(monkeypatch, tmp_path):
         context=_context(tmp_path),
     )
 
-    assert seen == [
-        ("first", "one.md", {"include": True}),
-        ("second", "two.md", {}),
-    ]
+    assert seen == [("first", "one.md", {"include": True}), ("second", "two.md", {})]
 
 
 def test_load_historical_run_context_reads_complete_results_directory(tmp_path):
