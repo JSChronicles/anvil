@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 <!-- version list -->
 
+## v0.28.1 (2026-06-09)
+
+### Bug Fixes
+
+- Add post_run processors to example configs ([#48](https://github.com/JSChronicles/anvil/pull/48),
+  [`5302d04`](https://github.com/JSChronicles/anvil/commit/5302d04bac6e9d9a6d110c3261d6257c0416f3cb))
+
+
 ## v0.28.0 (2026-06-09)
 
 ### Features
