@@ -16,6 +16,7 @@ import yaml
 from anvil.benchmark import BenchmarkRecorder
 from anvil.descriptors import ConfigBranch, LoadedConfig
 from anvil.processor_loader import (
+    ProcessorDescriptor,
     ProcessorSpec,
     discover_processors,
     list_processors,
@@ -66,6 +67,15 @@ class WrittenRunResults:
     target_result_paths: dict[str, Path]
     target_file_count: int
     jsonl_record_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class ValidationResult:
+    """Result for one requested validation category."""
+
+    label: str
+    succeeded: bool
+    error: str | None = None
 
 
 def _load_targets_from_config_file(path: Path) -> LoadedConfig:
@@ -327,6 +337,19 @@ def _cmd_auth_check(args: argparse.Namespace) -> int:
     return overall_exit_code
 
 
+def _cmd_validate_auth(args: argparse.Namespace) -> int:
+    if args.config_file is None:
+        raise ValueError("--config-file is required with --auth")
+
+    auth_args = argparse.Namespace(
+        config_file=args.config_file,
+        include=args.include,
+        exclude=args.exclude,
+        quiet=True,
+    )
+    return _cmd_auth_check(auth_args)
+
+
 def _cmd_list_tasks() -> int:
     tasks: list[TaskDescriptor] = list_tasks()
 
@@ -346,27 +369,33 @@ def _cmd_list_tasks() -> int:
     return 0
 
 
-def _cmd_tasks_validate() -> int:
-    try:
-        descriptors: list[TaskDescriptor] = discover_tasks()
+def _select_tasks(task_names: list[str]) -> list[TaskDescriptor]:
+    descriptors: list[TaskDescriptor] = discover_tasks()
+    descriptor_by_name = {descriptor.name: descriptor for descriptor in descriptors}
+    unknown_names = [name for name in task_names if name not in descriptor_by_name]
 
-        resolved = []
-        for descriptor in descriptors:
-            run = _load_task_callable(descriptor.name)
-            resolved.append(
-                ResolvedTask(
-                    name=descriptor.name, run=run, depends_on=[], optional=False
-                )
-            )
+    if unknown_names:
+        available_names = ", ".join(sorted(descriptor_by_name))
+        unknown_display = ", ".join(unknown_names)
+        raise ValueError(
+            f"Unknown task(s): {unknown_display}. Available tasks: {available_names}"
+        )
 
-        validate_tasks(resolved)
+    return [descriptor_by_name[name] for name in task_names]
 
-    except Exception as exc:
-        print(f"[ERROR] task validation failed: {exc}")
-        return 1
 
-    print("[OK] all tasks are valid")
-    return 0
+def _validate_selected_tasks(task_names: list[str] | None) -> None:
+    descriptors = (
+        discover_tasks() if not task_names else _select_tasks(task_names)
+    )
+    resolved = []
+    for descriptor in descriptors:
+        run = _load_task_callable(descriptor.name)
+        resolved.append(
+            ResolvedTask(name=descriptor.name, run=run, depends_on=[], optional=False)
+        )
+
+    validate_tasks(resolved)
 
 
 def _cmd_list_processors() -> int:
@@ -388,15 +417,88 @@ def _cmd_list_processors() -> int:
     return 0
 
 
-def _cmd_processors_validate() -> int:
-    try:
-        validate_processors(discover_processors())
-    except Exception as exc:
-        print(f"[ERROR] processor validation failed: {exc}")
-        return 1
+def _select_processors(processor_names: list[str]) -> list[ProcessorDescriptor]:
+    descriptors = discover_processors()
+    requested_names = set(processor_names)
+    available_names = {descriptor.name for descriptor in descriptors}
+    unknown_names = [name for name in processor_names if name not in available_names]
 
-    print("[OK] all processors are valid")
-    return 0
+    if unknown_names:
+        available_display = ", ".join(sorted(available_names))
+        unknown_display = ", ".join(unknown_names)
+        raise ValueError(
+            f"Unknown processor(s): {unknown_display}. "
+            f"Available processors: {available_display}"
+        )
+
+    return [
+        descriptor for descriptor in descriptors if descriptor.name in requested_names
+    ]
+
+
+def _validate_selected_processors(processor_names: list[str] | None) -> None:
+    processors = (
+        discover_processors()
+        if not processor_names
+        else _select_processors(processor_names)
+    )
+    validate_processors(processors)
+
+
+def _validation_result(label: str, callback) -> ValidationResult:
+    try:
+        result = callback()
+    except Exception as exc:
+        return ValidationResult(label=label, succeeded=False, error=str(exc))
+
+    if isinstance(result, int) and result != 0:
+        return ValidationResult(label=label, succeeded=False)
+
+    return ValidationResult(label=label, succeeded=True)
+
+
+def _print_validation_summary(results: list[ValidationResult]) -> None:
+    for result in results:
+        status = "[OK]" if result.succeeded else "[ERROR]"
+        print(f"{status:<8} {result.label}")
+        if result.error is not None:
+            for error_line in result.error.splitlines():
+                if error_line:
+                    print(f"         {error_line}")
+
+    print()
+    print(f"Result: {'Success' if all(result.succeeded for result in results) else 'Failed'}")
+
+
+def _cmd_validate(args: argparse.Namespace) -> int:
+    results: list[ValidationResult] = []
+
+    if args.tasks is not None:
+        results.append(
+            _validation_result("Tasks", lambda: _validate_selected_tasks(args.tasks))
+        )
+
+    if args.processors is not None:
+        results.append(
+            _validation_result(
+                "Processors", lambda: _validate_selected_processors(args.processors)
+            )
+        )
+
+    if args.auth:
+        results.append(
+            _validation_result("Authentication", lambda: _cmd_validate_auth(args))
+        )
+
+    if not results:
+        raise ValueError(
+            "at least one validation category is required: "
+            "--tasks, --processors, or --auth"
+        )
+
+    if not args.quiet:
+        _print_validation_summary(results)
+    return 0 if all(result.succeeded for result in results) else 1
 
 
 def _cmd_graph(args: argparse.Namespace) -> int:
@@ -669,20 +771,6 @@ def main() -> None:
 
     subparsers = parser.add_subparsers(dest="command", required=False)
 
-    auth_parser = subparsers.add_parser("auth", help="Authentication commands")
-    auth_subparsers = auth_parser.add_subparsers(dest="auth_command", required=True)
-
-    auth_check_parser = auth_subparsers.add_parser(
-        "check",
-        help="Validate AWS authentication for configured organizations or account groups",
-    )
-    _add_common_config_args(auth_check_parser)
-    _add_log_level_arg(auth_check_parser)
-    auth_check_parser.add_argument(
-        "--quiet", action="store_true", help="Suppress output (exit code only)"
-    )
-    auth_check_parser.set_defaults(func=_cmd_auth_check)
-
     run_parser = subparsers.add_parser(
         "run", help="Execute tasks from an organization or account-group config"
     )
@@ -711,12 +799,6 @@ def main() -> None:
     tasks_list_parser = tasks_subparsers.add_parser("list", help="List available tasks")
     tasks_list_parser.set_defaults(func=lambda _: _cmd_list_tasks())
 
-    tasks_validate_parser = tasks_subparsers.add_parser(
-        "validate", help="Validate available tasks without executing them"
-    )
-    tasks_validate_parser.set_defaults(func=lambda _: _cmd_tasks_validate())
-    _add_log_level_arg(tasks_validate_parser)
-
     processors_parser = subparsers.add_parser(
         "processors", help="Processor-related commands"
     )
@@ -730,11 +812,55 @@ def main() -> None:
     )
     processors_list_parser.set_defaults(func=lambda _: _cmd_list_processors())
 
-    processors_validate_parser = processors_subparsers.add_parser(
-        "validate", help="Validate available processors without executing them"
+    validate_parser = subparsers.add_parser(
+        "validate", help="Validate tasks, processors, and AWS authentication"
     )
-    processors_validate_parser.set_defaults(func=lambda _: _cmd_processors_validate())
-    _add_log_level_arg(processors_validate_parser)
+    _add_log_level_arg(validate_parser)
+    validate_parser.add_argument(
+        "--tasks",
+        nargs="*",
+        default=None,
+        metavar="TASK",
+        help="Validate all discovered tasks, or only the named tasks when provided",
+    )
+    validate_parser.add_argument(
+        "--processors",
+        nargs="*",
+        default=None,
+        metavar="PROCESSOR",
+        help=(
+            "Validate all discovered processors, or only the named processors "
+            "when provided"
+        ),
+    )
+    validate_parser.add_argument(
+        "--auth",
+        action="store_true",
+        help="Validate AWS authentication for configured targets",
+    )
+    validate_parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suppress validation output and rely on the exit code",
+    )
+    validate_parser.add_argument(
+        "--config-file",
+        nargs="+",
+        type=Path,
+        help="Path(s) to YAML config file(s) required with --auth",
+    )
+    validate_group = validate_parser.add_mutually_exclusive_group()
+    validate_group.add_argument(
+        "--include",
+        nargs="+",
+        help="Narrow authentication targets to specific account IDs",
+    )
+    validate_group.add_argument(
+        "--exclude",
+        nargs="+",
+        help="Organization-config only: exclude discovered account IDs",
+    )
+    validate_parser.set_defaults(func=_cmd_validate)
 
     graph_parser = subparsers.add_parser(
         "graph",
@@ -801,9 +927,26 @@ def main() -> None:
         results_parser.error("--results-dir requires --processor")
     if args.command == "results" and args.processor is None and args.output is not None:
         results_parser.error("--output requires --processor")
+    if args.command == "validate" and args.auth and args.config_file is None:
+        validate_parser.error("--config-file is required with --auth")
+    if (
+        args.command == "validate"
+        and args.tasks is None
+        and args.processors is None
+        and not args.auth
+    ):
+        validate_parser.error(
+            "at least one validation category is required: "
+            "--tasks, --processors, or --auth"
+        )
 
+    log_level = (
+        "CRITICAL"
+        if args.command == "validate" and getattr(args, "quiet", False)
+        else args.log_level
+    )
     logging.basicConfig(
-        level=getattr(logging, args.log_level),
+        level=getattr(logging, log_level),
         format=("%(levelname)-8s [%(filename)s:%(funcName)s:%(lineno)d] %(message)s"),
     )
     # Suppress repeated botocore SSO cache reads at INFO while keeping Anvil INFO logs.

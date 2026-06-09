@@ -80,10 +80,10 @@ Anvil is built for teams that need repeatable AWS workflows, such as inventory, 
 
 There are multiple global commands:
 ```console
-anvil auth      # Check AWS credentials and access
 anvil graph     # Show the resolved task dependency graph
 anvil results   # Query JSONL results and rerun failures
-anvil tasks     # List and validate available tasks
+anvil tasks     # List available tasks
+anvil validate  # Validate tasks, processors, and AWS authentication
 anvil run       # Execute YAML-defined workflows
 ```
 
