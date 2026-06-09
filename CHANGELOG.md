@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 <!-- version list -->
 
+## v0.28.0 (2026-06-09)
+
+### Features
+
+- Refactor loader design
+  ([`8e916d7`](https://github.com/JSChronicles/anvil/commit/8e916d7aff7903c50193e27cdcc5f43c040bada3))
+
+
 ## v0.27.0 (2026-06-09)
 
 ### Features
