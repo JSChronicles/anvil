@@ -284,9 +284,7 @@ def discover_processors() -> list[ProcessorDescriptor]:
         package_name="anvil.processors", load=_load_core_processor
     ):
         processors.append(
-            ProcessorDescriptor(
-                name=module.name, run=module.load, source=module.source
-            )
+            ProcessorDescriptor(name=module.name, run=module.load, source=module.source)
         )
 
     for module in iter_plugin_modules(
@@ -296,11 +294,7 @@ def discover_processors() -> list[ProcessorDescriptor]:
         skip_log_label="processor plugin",
     ):
         processors.append(
-            ProcessorDescriptor(
-                name=module.name,
-                run=module.load,
-                source=module.source,
-            )
+            ProcessorDescriptor(name=module.name, run=module.load, source=module.source)
         )
 
     return processors

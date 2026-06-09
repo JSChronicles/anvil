@@ -36,11 +36,7 @@ def _validate_run_callable(
 
 
 def load_stock_callable(
-    *,
-    name: str,
-    kind: str,
-    package_name: str,
-    error_type: type[RuntimeError],
+    *, name: str, kind: str, package_name: str, error_type: type[RuntimeError]
 ) -> Callable:
     """Load a named stock module and return its run callable."""
     module_name = f"{package_name}.{name}"
@@ -51,11 +47,7 @@ def load_stock_callable(
         raise error_type(f"Core {kind} '{name}' not found") from error
 
     return _validate_run_callable(
-        module=module,
-        name=name,
-        kind=kind,
-        source_label="Core",
-        error_type=error_type,
+        module=module, name=name, kind=kind, source_label="Core", error_type=error_type
     )
 
 
@@ -118,9 +110,7 @@ def load_plugin_callable(
 
 
 def iter_stock_modules(
-    *,
-    package_name: str,
-    load: Callable[[str], Callable],
+    *, package_name: str, load: Callable[[str], Callable]
 ) -> Iterable[DiscoveredModule]:
     """Yield public modules from a stock package without importing each module."""
     package = importlib.import_module(package_name)
@@ -130,9 +120,7 @@ def iter_stock_modules(
         if name.startswith("_"):
             continue
 
-        yield DiscoveredModule(
-            name=name, source="stock", load=lambda n=name: load(n)
-        )
+        yield DiscoveredModule(name=name, source="stock", load=lambda n=name: load(n))
 
 
 def plugin_source(entry_point: EntryPoint) -> str:

@@ -256,9 +256,7 @@ def discover_tasks() -> list[TaskDescriptor]:
 
     for module in iter_stock_modules(package_name="anvil.tasks", load=_load_core_task):
         name = module.name
-        tasks[name] = TaskDescriptor(
-            name=name, run=module.load, source=module.source
-        )
+        tasks[name] = TaskDescriptor(name=name, run=module.load, source=module.source)
 
     for module in iter_plugin_modules(
         entry_point_group=TASK_ENTRY_POINT_GROUP,

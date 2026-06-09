@@ -101,7 +101,6 @@ def test_discover_processors_includes_real_plugin_entry_point(monkeypatch, tmp_p
     )
 
     assert descriptor.source == "plugin: anvil-test-processor-plugin"
-    assert descriptor.run()(context=None, output="report.md", metadata={"ok": True}) == {
-        "output": "report.md",
-        "metadata": {"ok": True},
-    }
+    assert descriptor.run()(
+        context=None, output="report.md", metadata={"ok": True}
+    ) == {"output": "report.md", "metadata": {"ok": True}}
