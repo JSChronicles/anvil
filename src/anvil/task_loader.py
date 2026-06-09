@@ -1,13 +1,17 @@
 from __future__ import annotations
 
-import importlib
 import logging
-import pkgutil
 from collections import defaultdict, deque
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import lru_cache
-from importlib.metadata import entry_points
+
+from anvil._loader_utils import (
+    iter_plugin_modules,
+    iter_stock_modules,
+    load_plugin_callable,
+    load_stock_callable,
+)
 
 __LOGGER__ = logging.getLogger(__name__)
 
@@ -60,72 +64,23 @@ class ResolvedExecution:
 
 
 def _load_core_task(task_name: str) -> Callable:
-    module_name = f"anvil.tasks.{task_name}"
-
-    try:
-        module = importlib.import_module(module_name)
-    except ModuleNotFoundError:
-        raise TaskConfigError(f"Core task '{task_name}' not found")
-
-    run = getattr(module, "run", None)
-    if not callable(run):
-        raise TaskConfigError(
-            f"Core task '{task_name}' must define a callable run(...)"
-        )
-
-    return run
+    return load_stock_callable(
+        name=task_name,
+        kind="task",
+        package_name="anvil.tasks",
+        error_type=TaskConfigError,
+    )
 
 
 def _load_plugin_task(task_name: str) -> Callable:
-    eps = entry_points(group=TASK_ENTRY_POINT_GROUP)
-
-    discovered_plugins: list[str] = []
-    import_failures: list[str] = []
-
-    for entry_point in eps:
-        discovered_plugins.append(entry_point.name)
-
-        # Import plugin package
-        try:
-            pkg = importlib.import_module(entry_point.value)
-        except Exception as exc:
-            __LOGGER__.debug(
-                f"Failed importing plugin package '{entry_point.value}' "
-                f"(entry point '{entry_point.name}'): {exc}"
-            )
-            import_failures.append(f"{entry_point.name}: package import failed ({exc})")
-            continue
-
-        # Try loading task module inside plugin
-        try:
-            module = importlib.import_module(f"{pkg.__name__}.{task_name}")
-        except ModuleNotFoundError:
-            # Plugin simply doesn't provide this task
-            continue
-        except Exception as exc:
-            raise TaskConfigError(
-                f"Plugin task '{task_name}' in plugin "
-                f"'{entry_point.name}' failed during import: {exc}"
-            ) from exc
-
-        run = getattr(module, "run", None)
-        if not callable(run):
-            raise TaskConfigError(
-                f"Plugin task '{task_name}' in plugin "
-                f"'{entry_point.name}' must define callable run(...)"
-            )
-
-        return run
-
-    if import_failures:
-        __LOGGER__.debug(
-            f"Plugin import issues encountered while resolving '{task_name}': "
-            f"{import_failures}"
-        )
-
-    raise TaskConfigError(
-        f"Plugin task '{task_name}' not found in registered entry points: "
-        f"{discovered_plugins}"
+    return load_plugin_callable(
+        name=task_name,
+        kind="task",
+        entry_point_group=TASK_ENTRY_POINT_GROUP,
+        error_type=TaskConfigError,
+        logger=__LOGGER__,
+        import_failure_log_label="plugin package",
+        import_issue_log_label=task_name,
     )
 
 
@@ -299,42 +254,24 @@ def resolve_tasks(*, task_specs: Sequence[TaskSpecInput]) -> ResolvedExecution:
 def discover_tasks() -> list[TaskDescriptor]:
     tasks: dict[str, TaskDescriptor] = {}
 
-    # Core tasks
-    import anvil.tasks
-
-    for module_info in pkgutil.iter_modules(anvil.tasks.__path__):
-        name = module_info.name
-        if name.startswith("_"):
-            continue
-
+    for module in iter_stock_modules(package_name="anvil.tasks", load=_load_core_task):
+        name = module.name
         tasks[name] = TaskDescriptor(
-            name=name, run=lambda n=name: _load_core_task(n), source="stock"
+            name=name, run=module.load, source=module.source
         )
 
-    # Plugin tasks (package scan, no imports)
-    for entry_point in entry_points(group=TASK_ENTRY_POINT_GROUP):
-        try:
-            pkg = importlib.import_module(entry_point.value)
-        except Exception as exc:
-            __LOGGER__.debug(
-                f"Skipping plugin '{entry_point.name}' due to import error: {exc}"
-            )
+    for module in iter_plugin_modules(
+        entry_point_group=TASK_ENTRY_POINT_GROUP,
+        load=_load_plugin_task,
+        logger=__LOGGER__,
+        skip_log_label="plugin",
+    ):
+        if module.name in tasks:
             continue
 
-        for module_info in pkgutil.iter_modules(pkg.__path__):
-            name = module_info.name
-            if name.startswith("_") or name in tasks:
-                continue
-
-            source = (
-                f"plugin: {entry_point.dist.name}"
-                if entry_point.dist is not None
-                else "plugin (unpackaged)"
-            )
-
-            tasks[name] = TaskDescriptor(
-                name=name, run=lambda n=name: _load_plugin_task(n), source=source
-            )
+        tasks[module.name] = TaskDescriptor(
+            name=module.name, run=module.load, source=module.source
+        )
 
     return list(tasks.values())
 

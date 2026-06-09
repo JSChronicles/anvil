@@ -1,15 +1,18 @@
 from __future__ import annotations
 
-import importlib
 import json
 import logging
-import pkgutil
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from functools import lru_cache
-from importlib.metadata import entry_points
 from pathlib import Path
 
+from anvil._loader_utils import (
+    iter_plugin_modules,
+    iter_stock_modules,
+    load_plugin_callable,
+    load_stock_callable,
+)
 from anvil.descriptors import ConfigBranch, TargetDescriptor
 from anvil.results import TargetResult
 
@@ -239,74 +242,23 @@ def run_configured_post_processors(
 
 
 def _load_core_processor(processor_name: str) -> Callable:
-    module_name = f"anvil.processors.{processor_name}"
-
-    try:
-        module = importlib.import_module(module_name)
-    except ModuleNotFoundError as error:
-        raise ProcessorConfigError(
-            f"Core processor '{processor_name}' not found"
-        ) from error
-
-    run = getattr(module, "run", None)
-    if not callable(run):
-        raise ProcessorConfigError(
-            f"Core processor '{processor_name}' must define a callable run(...)"
-        )
-
-    return run
+    return load_stock_callable(
+        name=processor_name,
+        kind="processor",
+        package_name="anvil.processors",
+        error_type=ProcessorConfigError,
+    )
 
 
 def _load_plugin_processor(processor_name: str) -> Callable:
-    eps = entry_points(group=PROCESSOR_ENTRY_POINT_GROUP)
-
-    discovered_plugins: list[str] = []
-    import_failures: list[str] = []
-
-    for entry_point in eps:
-        discovered_plugins.append(entry_point.name)
-
-        # Import plugin package
-        try:
-            pkg = importlib.import_module(entry_point.value)
-        except Exception as exc:
-            __LOGGER__.debug(
-                f"Failed importing processor plugin package '{entry_point.value}' "
-                f"(entry point '{entry_point.name}'): {exc}"
-            )
-            import_failures.append(f"{entry_point.name}: package import failed ({exc})")
-            continue
-
-        # Try loading processor module inside plugin
-        try:
-            module = importlib.import_module(f"{pkg.__name__}.{processor_name}")
-        except ModuleNotFoundError:
-            # Plugin simply doesn't provide this processor
-            continue
-        except Exception as exc:
-            raise ProcessorConfigError(
-                f"Plugin processor '{processor_name}' in plugin "
-                f"'{entry_point.name}' failed during import: {exc}"
-            ) from exc
-
-        run = getattr(module, "run", None)
-        if not callable(run):
-            raise ProcessorConfigError(
-                f"Plugin processor '{processor_name}' in plugin "
-                f"'{entry_point.name}' must define callable run(...)"
-            )
-
-        return run
-
-    if import_failures:
-        __LOGGER__.debug(
-            f"Plugin import issues encountered while resolving '{processor_name}': "
-            f"{import_failures}"
-        )
-
-    raise ProcessorConfigError(
-        f"Plugin processor '{processor_name}' not found in registered entry points: "
-        f"{discovered_plugins}"
+    return load_plugin_callable(
+        name=processor_name,
+        kind="processor",
+        entry_point_group=PROCESSOR_ENTRY_POINT_GROUP,
+        error_type=ProcessorConfigError,
+        logger=__LOGGER__,
+        import_failure_log_label="processor plugin package",
+        import_issue_log_label=processor_name,
     )
 
 
@@ -328,48 +280,28 @@ def discover_processors() -> list[ProcessorDescriptor]:
     """Discover stock and plugin processors without executing them."""
     processors: list[ProcessorDescriptor] = []
 
-    # Core processors
-    import anvil.processors
-
-    for module_info in pkgutil.iter_modules(anvil.processors.__path__):
-        name = module_info.name
-        if name.startswith("_"):
-            continue
-
+    for module in iter_stock_modules(
+        package_name="anvil.processors", load=_load_core_processor
+    ):
         processors.append(
             ProcessorDescriptor(
-                name=name, run=lambda n=name: _load_core_processor(n), source="stock"
+                name=module.name, run=module.load, source=module.source
             )
         )
 
-    # Plugin processors (package scan, no imports)
-    for entry_point in entry_points(group=PROCESSOR_ENTRY_POINT_GROUP):
-        try:
-            pkg = importlib.import_module(entry_point.value)
-        except Exception as exc:
-            __LOGGER__.debug(
-                f"Skipping processor plugin '{entry_point.name}' due to import error: "
-                f"{exc}"
+    for module in iter_plugin_modules(
+        entry_point_group=PROCESSOR_ENTRY_POINT_GROUP,
+        load=_load_plugin_processor,
+        logger=__LOGGER__,
+        skip_log_label="processor plugin",
+    ):
+        processors.append(
+            ProcessorDescriptor(
+                name=module.name,
+                run=module.load,
+                source=module.source,
             )
-            continue
-
-        for module_info in pkgutil.iter_modules(pkg.__path__):
-            name = module_info.name
-            if name.startswith("_"):
-                continue
-
-            source = (
-                f"plugin: {entry_point.dist.name}"
-                if entry_point.dist is not None
-                else "plugin (unpackaged)"
-            )
-            processors.append(
-                ProcessorDescriptor(
-                    name=name,
-                    run=lambda n=name: _load_plugin_processor(n),
-                    source=source,
-                )
-            )
+        )
 
     return processors
 
