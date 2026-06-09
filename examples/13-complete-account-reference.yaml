@@ -20,3 +20,11 @@ accounts:
     metadata:
       owner: app-team
       environment: production
+    # Post-run processors run only after this account target completes
+    # successfully. Processor names are discovered from installed Anvil
+    # processor plugins.
+    post_run:
+      - processor: summary_markdown
+        output: reports/app-team-summary.md
+        metadata:
+          include_passed: true

@@ -35,6 +35,15 @@ organizations:
     metadata:
       user_name: test
 
+    # Post-run processors run only after this organization target completes
+    # successfully. Processor names are discovered from installed Anvil
+    # processor plugins.
+    post_run:
+      - processor: summary_markdown
+        output: reports/place-summary.md
+        metadata:
+          include_passed: false
+
   - name: audit
     profile: audit-root
     # Example alternatives:
@@ -68,3 +77,7 @@ organizations:
 
     metadata:
       owner: security
+
+    post_run:
+      - processor: summary_json
+        output: reports/audit-summary.json
