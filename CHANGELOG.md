@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 <!-- version list -->
 
+## v0.27.0 (2026-06-09)
+
+### Features
+
+- Add processor listing to unified list CLI
+  ([`a84ebe7`](https://github.com/JSChronicles/anvil/commit/a84ebe71af2f0694ac52f26e18a63bd481f98b96))
+
+
 ## v0.26.0 (2026-06-03)
 
 ### Chores
