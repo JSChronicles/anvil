@@ -404,9 +404,7 @@ def _select_tasks(task_names: list[str]) -> list[TaskDescriptor]:
 
 
 def _validate_selected_tasks(task_names: list[str] | None) -> None:
-    descriptors = (
-        discover_tasks() if not task_names else _select_tasks(task_names)
-    )
+    descriptors = discover_tasks() if not task_names else _select_tasks(task_names)
     resolved = []
     for descriptor in descriptors:
         run = _load_task_callable(descriptor.name)
@@ -467,7 +465,9 @@ def _print_validation_summary(results: list[ValidationResult]) -> None:
                     print(f"         {error_line}")
 
     print()
-    print(f"Result: {'Success' if all(result.succeeded for result in results) else 'Failed'}")
+    print(
+        f"Result: {'Success' if all(result.succeeded for result in results) else 'Failed'}"
+    )
 
 
 def _cmd_validate(args: argparse.Namespace) -> int:

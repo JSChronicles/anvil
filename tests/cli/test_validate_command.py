@@ -66,8 +66,7 @@ def test_validate_cli_parses_selected_processor_validation(monkeypatch):
 
 def test_validate_cli_parses_auth_validation(monkeypatch):
     args = _run_main_with_args(
-        monkeypatch,
-        ["anvil", "validate", "--auth", "--config-file", "yaml/orgs.yaml"],
+        monkeypatch, ["anvil", "validate", "--auth", "--config-file", "yaml/orgs.yaml"]
     )
 
     assert args.auth is True
@@ -75,9 +74,7 @@ def test_validate_cli_parses_auth_validation(monkeypatch):
 
 
 def test_validate_cli_parses_quiet(monkeypatch):
-    args = _run_main_with_args(
-        monkeypatch, ["anvil", "validate", "--tasks", "--quiet"]
-    )
+    args = _run_main_with_args(monkeypatch, ["anvil", "validate", "--tasks", "--quiet"])
 
     assert args.tasks == []
     assert args.quiet is True
@@ -196,7 +193,9 @@ def test_validate_selected_tasks_reports_unknown_names(monkeypatch):
     monkeypatch.setattr(
         cli,
         "discover_tasks",
-        lambda: [cli.TaskDescriptor(name="count_vpc", run=lambda: None, source="stock")],
+        lambda: [
+            cli.TaskDescriptor(name="count_vpc", run=lambda: None, source="stock")
+        ],
     )
 
     with pytest.raises(ValueError, match="Unknown task"):
@@ -208,7 +207,9 @@ def test_validate_selected_processors_validates_all_when_no_names(monkeypatch):
     seen = {}
 
     processors = [
-        cli.ProcessorDescriptor(name="summary_report", run=lambda: None, source="stock"),
+        cli.ProcessorDescriptor(
+            name="summary_report", run=lambda: None, source="stock"
+        ),
         cli.ProcessorDescriptor(name="html_export", run=lambda: None, source="stock"),
     ]
     monkeypatch.setattr(cli, "discover_processors", lambda: processors)
@@ -228,7 +229,9 @@ def test_validate_selected_processors_validates_selected_names(monkeypatch):
     seen = {}
 
     processors = [
-        cli.ProcessorDescriptor(name="summary_report", run=lambda: None, source="stock"),
+        cli.ProcessorDescriptor(
+            name="summary_report", run=lambda: None, source="stock"
+        ),
         cli.ProcessorDescriptor(name="html_export", run=lambda: None, source="stock"),
     ]
     monkeypatch.setattr(cli, "discover_processors", lambda: processors)
@@ -248,7 +251,9 @@ def test_validate_selected_processors_preserves_duplicate_discoveries(monkeypatc
     seen = {}
 
     processors = [
-        cli.ProcessorDescriptor(name="summary_report", run=lambda: None, source="stock"),
+        cli.ProcessorDescriptor(
+            name="summary_report", run=lambda: None, source="stock"
+        ),
         cli.ProcessorDescriptor(
             name="summary_report", run=lambda: None, source="plugin"
         ),
@@ -300,7 +305,9 @@ def test_validate_aggregates_failures_and_successes(monkeypatch, capsys):
     )
 
     calls = []
-    monkeypatch.setattr(cli, "_validate_selected_tasks", lambda _: calls.append("tasks"))
+    monkeypatch.setattr(
+        cli, "_validate_selected_tasks", lambda _: calls.append("tasks")
+    )
 
     def fail_processors(_):
         calls.append("processors")
@@ -417,9 +424,7 @@ def test_validate_auth_uses_quiet_auth_check(monkeypatch):
     cli = _import_cli_or_skip()
     seen = {}
     args = SimpleNamespace(
-        config_file=[Path("yaml/orgs.yaml")],
-        include=None,
-        exclude=None,
+        config_file=[Path("yaml/orgs.yaml")], include=None, exclude=None
     )
 
     def fake_cmd_auth_check(auth_args):
