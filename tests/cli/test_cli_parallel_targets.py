@@ -27,11 +27,14 @@ def test_run_single_config_file_passes_run_controls(
 ):
     from pathlib import Path
 
+    from anvil.descriptors import ConfigBranch, TargetDescriptor
+
     cli = _import_cli_or_skip()
 
+    target = TargetDescriptor(config_branch=ConfigBranch.ORGANIZATIONS, name="target-a")
     loaded_config = SimpleNamespace(
         branch=SimpleNamespace(value="organizations"),
-        targets=["target-a"],
+        targets=[target],
         max_parallel_targets=4,
     )
     seen = {}
@@ -43,13 +46,21 @@ def test_run_single_config_file_passes_run_controls(
 
     def fake_run_multiple_targets(**kwargs):
         seen["kwargs"] = kwargs
-        return SimpleNamespace(state=cli.EngineState.COMPLETED_SUCCESS)
+        return SimpleNamespace(
+            state=cli.EngineState.COMPLETED_SUCCESS, target_results=[]
+        )
 
     monkeypatch.setattr(cli, "run_multiple_targets", fake_run_multiple_targets)
     monkeypatch.setattr(
         cli,
         "_write_run_results",
-        lambda **kwargs: SimpleNamespace(summary={}, jsonl_path=Path("results.jsonl")),
+        lambda **kwargs: SimpleNamespace(
+            run_dir=Path("results/orgs/run"),
+            summary_path=Path("results/orgs/run/summary.json"),
+            jsonl_path=Path("results/orgs/run/results.jsonl"),
+            summary={},
+            target_result_paths={},
+        ),
     )
 
     exit_code = cli._run_single_config_file(config_file=Path("orgs.yaml"), args=args)

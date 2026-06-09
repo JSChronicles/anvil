@@ -138,7 +138,7 @@ Anvil includes an authentication check mode that validates AWS access for each c
 
 - Within one run, Anvil reuses auth-check outcomes for targets that use the same profile and inferred authentication source. The first target performs the STS identity check, while concurrent or later targets with the same auth identity reuse that outcome. Output remains target-specific: each target still receives its own `AuthResult`, and a cached failure is reported for every target that uses the failing identity.
 
-### What auth check does
+### What authentication validation does
 
 For each configured organization, Anvil:
 
@@ -147,7 +147,7 @@ For each configured organization, Anvil:
 3. Calls AWS STS `GetCallerIdentity`.
 4. Records a structured result with status, source, timing, message, and optional remediation guidance.
 
-`auth check` is a lightweight preflight validation step, not a full execution run.
+Authentication validation is a lightweight preflight validation step, not a full execution run.
 
 ### Supported authentication-source detection
 
@@ -180,19 +180,19 @@ Where possible, Anvil also includes remediation guidance such as re-running SSO 
 Authentication checks validate AWS credentials and access without executing any tasks.
 
 ```console
-anvil auth check --help
+anvil validate --help
 ```
 
 Authenticate credentials from an organization file:
 
 ```console
-anvil auth check --config-file ./yaml/orgs.yaml
+anvil validate --auth --config-file ./yaml/orgs.yaml
 ```
 
-Suppress all output and rely on the exit code only, which is useful for CI:
+Suppress validation output and rely on the exit code only, which is useful for CI:
 
 ```console
-anvil auth check --config-file orgs.yaml --quiet
+anvil validate --tasks --processors --auth --config-file orgs.yaml --quiet
 ```
 
 ## Detailed CLI examples
@@ -202,7 +202,7 @@ anvil auth check --config-file orgs.yaml --quiet
 Authenticate credentials from an organization file:
 
 ```console
-anvil auth check --config-file ./yaml/orgs.yaml
+anvil validate --auth --config-file ./yaml/orgs.yaml
 
 INFO     [auth.py:auth_check:106] Running auth check for org=root profile=root auth_source=AuthSource.SSO
 INFO     [auth.py:auth_check:106] Running auth check for org=other-root profile=other-root auth_source=AuthSource.SSO
@@ -463,7 +463,7 @@ Anvil includes a task validation mode that checks discovered tasks for structura
 List all available stock and user-defined tasks:
 
 ```console
-anvil tasks list
+anvil list --tasks
 
 Available tasks:
 plugin: my-test-project:
@@ -484,15 +484,43 @@ stock:
 Validate all available stock and user-defined tasks:
 
 ```console
-anvil tasks validate
-[ERROR] task validation failed:
-  - task 'cleanup' is missing required run() parameters: ['account_alias']
-  - task 'inventory' is missing required run() parameters: ['metadata']
+anvil validate --tasks
+[ERROR]  Tasks
+         task 'cleanup' is missing required run() parameters: ['account_alias']
+         task 'inventory' is missing required run() parameters: ['metadata']
+
+Result: Failed
 ```
 
 ```console
-anvil tasks validate
-[OK] all tasks are valid
+anvil validate --tasks
+[OK]     Tasks
+
+Result: Success
+```
+
+Validate selected tasks by name:
+
+```console
+anvil validate --tasks count_vpc noop
+```
+
+List discovered processors:
+
+```console
+anvil list --processors
+```
+
+Validate discovered processors:
+
+```console
+anvil validate --processors
+```
+
+Validate selected processors by name:
+
+```console
+anvil validate --processors summary_report html_export
 ```
 
 ### What task validation does
@@ -600,10 +628,10 @@ Using these utilities is **not required**, but recommended for tasks that modify
 
 Anvil currently exposes these primary command groups:
 
-- `auth check`
 - `run`
-- `tasks list`
-- `tasks validate`
+- `list --tasks`
+- `list --processors`
+- `validate`
 - `graph`
 - `results`
 

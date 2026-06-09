@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import datetime
 import logging
-from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
-from concurrent.futures._base import Future
+from concurrent.futures import CancelledError, Future, ThreadPoolExecutor, as_completed
 
 from anvil.benchmark import BenchmarkRecorder
 from anvil.account import Account

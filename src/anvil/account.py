@@ -326,10 +326,12 @@ class Account:
         actions: ActionRecorder | None = None,
     ) -> RegionExecutionOutcome:
         region_started = time.perf_counter()
-        session: Session = self._get_region_session(
+        region_session = self._get_region_session(
             region=region, assumed_credential_state=assumed_credential_state
         )
-        session = self._session_factory.create_cached_client_session(session=session)
+        session = self._session_factory.create_cached_client_session(
+            session=region_session
+        )
 
         if actions is None:
             actions = ActionRecorder(actions=[])

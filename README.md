@@ -54,7 +54,20 @@ Anvil is built for teams that need repeatable AWS workflows, such as inventory, 
 - Structured output and safer operations
   - Record structured results at task, account, target, and engine levels.
 
+
+## Standalone Multi-Account Script Template
+
+
 ## Usage
+> [!TIP]
+> It is recommended to use the [foundry-anvil-template](https://github.com/JSChronicles/foundry-anvil-template).
+>
+> The template exposes project-local tasks and processors without forking Anvil.
+>
+> If you do not need/want the full Anvil framework and only want a simple starting point for small AWS Organization tasks, see: [`templates/aws_multi_account_template.py`](./templates/multi_aws_account_task_template.py)
+
+
+
 1. When using the uv tool, there are several ways to run and install dependencies. Here are only a couple examples:
 1. uv sync:
    1. Sync the project's dependencies with the environment: uv sync
@@ -67,10 +80,10 @@ Anvil is built for teams that need repeatable AWS workflows, such as inventory, 
 
 There are multiple global commands:
 ```console
-anvil auth      # Check AWS credentials and access
 anvil graph     # Show the resolved task dependency graph
 anvil results   # Query JSONL results and rerun failures
-anvil tasks     # List and validate available tasks
+anvil tasks     # List available tasks
+anvil validate  # Validate tasks, processors, and AWS authentication
 anvil run       # Execute YAML-defined workflows
 ```
 
@@ -145,14 +158,6 @@ organizations:
       user_name: test
 ```
 
-## Repository template
-
-Create your own dedicated task repository using the [foundry-anvil-template](https://github.com/JSChronicles/foundry-anvil-template). The template provides a ready project layout for custom tasks, YAML examples, validation, and CI outside of the main Anvil repository.
-
-
-## Standalone Multi-Account Script Template
-
-If you do not need/want the full Anvil framework and only want a simple starting point for small AWS Organization tasks, see: [`templates/aws_multi_account_template.py`](./templates/multi_aws_account_task_template.py)
 
 ## Example Benchmarks
 

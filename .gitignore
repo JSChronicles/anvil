@@ -161,3 +161,9 @@ cython_debug/
 
 # Ruff
 .ruff_cache
+
+# anvil results
+./results/
+
+#macOS
+.DS_Store

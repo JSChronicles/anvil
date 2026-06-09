@@ -9,12 +9,25 @@ import datetime
 import json
 import logging
 import shlex
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol
 from anvil.graph import render_graph
 import yaml
 from anvil.benchmark import BenchmarkRecorder
 from anvil.descriptors import ConfigBranch, LoadedConfig
+from anvil.processor_loader import (
+    ProcessorDescriptor,
+    ProcessorSpec,
+    discover_processors,
+    list_processors,
+    load_historical_run_context,
+    resolve_processor_output_path,
+    run_configured_post_processors,
+    run_processors,
+)
+from anvil.processor_validation import validate_processors
 from anvil.result_query import (
     ResultFilters,
     build_rerun_targets,
@@ -53,8 +66,25 @@ class WrittenRunResults:
     summary_path: Path
     jsonl_path: Path
     summary: dict[str, object]
+    target_result_paths: dict[str, Path]
     target_file_count: int
     jsonl_record_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class ValidationResult:
+    """Result for one requested validation category."""
+
+    label: str
+    succeeded: bool
+    error: str | None = None
+
+
+class ListableDescriptor(Protocol):
+    """Descriptor fields needed for grouped CLI listing."""
+
+    name: str
+    source: str
 
 
 def _load_targets_from_config_file(path: Path) -> LoadedConfig:
@@ -73,7 +103,9 @@ def _load_targets_from_config_file(path: Path) -> LoadedConfig:
     return load_config_descriptors(config=raw)
 
 
-def _validate_cli_overrides(*, loaded_config: LoadedConfig, args) -> None:
+def _validate_cli_overrides(
+    *, loaded_config: LoadedConfig, args: argparse.Namespace
+) -> None:
     """
     Validate branch-specific CLI override semantics.
     """
@@ -145,18 +177,22 @@ def _target_result_file_path(*, target_results_dir: Path, target_name: str) -> P
     return result_file
 
 
-def _write_run_results(*, config_file: Path, engine_result) -> WrittenRunResults:
+def _write_run_results(
+    *, config_file: Path, engine_result: EngineResult
+) -> WrittenRunResults:
     run_dir = _create_results_run_dir(config_file=config_file)
     target_results_dir = run_dir / _target_results_dir_name(engine_result.config_branch)
     target_results_dir.mkdir()
 
     recorder = BenchmarkRecorder(enabled=engine_result.benchmark is not None)
     target_files: list[dict[str, object]] = []
+    target_result_paths: dict[str, Path] = {}
 
     for target_result in engine_result.target_results:
         result_file = _target_result_file_path(
             target_results_dir=target_results_dir, target_name=target_result.target_name
         )
+        target_result_paths[target_result.target_name] = result_file
 
         with recorder.phase("serialization_seconds"):
             target_json = json.dumps(target_result.to_dict(), indent=2)
@@ -204,6 +240,7 @@ def _write_run_results(*, config_file: Path, engine_result) -> WrittenRunResults
         summary_path=summary_path,
         jsonl_path=jsonl_path,
         summary=summary,
+        target_result_paths=target_result_paths,
         target_file_count=len(engine_result.target_results),
         jsonl_record_count=jsonl_record_count,
     )
@@ -242,7 +279,7 @@ def _print_failure_followups(*, results_file: Path) -> None:
     print(f"  anvil results --status failed --results-file {results_path} --rerun")
 
 
-def _run_single_config_file(*, config_file: Path, args) -> int:
+def _run_single_config_file(*, config_file: Path, args: argparse.Namespace) -> int:
     loaded_config: LoadedConfig = _load_targets_from_config_file(config_file)
     _validate_cli_overrides(loaded_config=loaded_config, args=args)
 
@@ -257,13 +294,22 @@ def _run_single_config_file(*, config_file: Path, args) -> int:
     written_results = _write_run_results(
         config_file=config_file, engine_result=engine_result
     )
+    run_configured_post_processors(
+        config_branch=loaded_config.branch,
+        targets=loaded_config.targets,
+        target_results=engine_result.target_results,
+        run_dir=written_results.run_dir,
+        summary_path=written_results.summary_path,
+        summary=written_results.summary,
+        target_result_paths=written_results.target_result_paths,
+    )
     if _summary_has_queryable_failures(written_results.summary):
         _print_failure_followups(results_file=written_results.jsonl_path)
 
     return 0 if engine_result.state is EngineState.COMPLETED_SUCCESS else 1
 
 
-def _cmd_run(args) -> int:
+def _cmd_run(args: argparse.Namespace) -> int:
     exit_code = 0
 
     for config_file in args.config_file:
@@ -274,7 +320,7 @@ def _cmd_run(args) -> int:
     return exit_code
 
 
-def _cmd_auth_check(args) -> int:
+def _cmd_auth_check(args: argparse.Namespace) -> int:
     overall_exit_code = 0
 
     for config_file in args.config_file:
@@ -300,49 +346,162 @@ def _cmd_auth_check(args) -> int:
     return overall_exit_code
 
 
-def _cmd_list_tasks() -> int:
-    tasks: list[TaskDescriptor] = list_tasks()
+def _cmd_validate_auth(args: argparse.Namespace) -> int:
+    if args.config_file is None:
+        raise ValueError("--config-file is required with --auth")
 
-    print("Available tasks:")
+    auth_args = argparse.Namespace(
+        config_file=args.config_file,
+        include=args.include,
+        exclude=args.exclude,
+        quiet=True,
+    )
+    return _cmd_auth_check(auth_args)
+
+
+def _print_grouped_listing(
+    *, label: str, descriptors: Sequence[ListableDescriptor]
+) -> None:
+    """Print descriptors grouped by their source."""
+    print(f"Available {label}:")
 
     current_source: str | None = None
-    for task in tasks:
-        if task.source != current_source:
+    for descriptor in descriptors:
+        if descriptor.source != current_source:
             if current_source is not None:
                 print()
 
-            print(f"{task.source}:")
-            current_source = task.source
+            print(f"{descriptor.source}:")
+            current_source = descriptor.source
 
-        print(f"  - {task.name}")
+        print(f"  - {descriptor.name}")
 
+
+def _cmd_list(args: argparse.Namespace) -> int:
+    _validate_list_args(args)
+
+    if args.tasks:
+        _print_grouped_listing(label="tasks", descriptors=list_tasks())
+        return 0
+
+    _print_grouped_listing(label="processors", descriptors=list_processors())
     return 0
 
 
-def _cmd_tasks_validate() -> int:
+def _select_tasks(task_names: list[str]) -> list[TaskDescriptor]:
+    descriptors: list[TaskDescriptor] = discover_tasks()
+    descriptor_by_name = {descriptor.name: descriptor for descriptor in descriptors}
+    unknown_names = [name for name in task_names if name not in descriptor_by_name]
+
+    if unknown_names:
+        available_names = ", ".join(sorted(descriptor_by_name))
+        unknown_display = ", ".join(unknown_names)
+        raise ValueError(
+            f"Unknown task(s): {unknown_display}. Available tasks: {available_names}"
+        )
+
+    return [descriptor_by_name[name] for name in task_names]
+
+
+def _validate_selected_tasks(task_names: list[str] | None) -> None:
+    descriptors = discover_tasks() if not task_names else _select_tasks(task_names)
+    resolved = []
+    for descriptor in descriptors:
+        run = _load_task_callable(descriptor.name)
+        resolved.append(
+            ResolvedTask(name=descriptor.name, run=run, depends_on=[], optional=False)
+        )
+
+    validate_tasks(resolved)
+
+
+def _select_processors(processor_names: list[str]) -> list[ProcessorDescriptor]:
+    descriptors = discover_processors()
+    requested_names = set(processor_names)
+    available_names = {descriptor.name for descriptor in descriptors}
+    unknown_names = [name for name in processor_names if name not in available_names]
+
+    if unknown_names:
+        available_display = ", ".join(sorted(available_names))
+        unknown_display = ", ".join(unknown_names)
+        raise ValueError(
+            f"Unknown processor(s): {unknown_display}. "
+            f"Available processors: {available_display}"
+        )
+
+    return [
+        descriptor for descriptor in descriptors if descriptor.name in requested_names
+    ]
+
+
+def _validate_selected_processors(processor_names: list[str] | None) -> None:
+    processors = (
+        discover_processors()
+        if not processor_names
+        else _select_processors(processor_names)
+    )
+    validate_processors(processors)
+
+
+def _validation_result(label: str, callback) -> ValidationResult:
     try:
-        descriptors: list[TaskDescriptor] = discover_tasks()
-
-        resolved = []
-        for descriptor in descriptors:
-            run = _load_task_callable(descriptor.name)
-            resolved.append(
-                ResolvedTask(
-                    name=descriptor.name, run=run, depends_on=[], optional=False
-                )
-            )
-
-        validate_tasks(resolved)
-
+        result = callback()
     except Exception as exc:
-        print(f"[ERROR] task validation failed: {exc}")
-        return 1
+        return ValidationResult(label=label, succeeded=False, error=str(exc))
 
-    print("[OK] all tasks are valid")
-    return 0
+    if isinstance(result, int) and result != 0:
+        return ValidationResult(label=label, succeeded=False)
+
+    return ValidationResult(label=label, succeeded=True)
 
 
-def _cmd_graph(args) -> int:
+def _print_validation_summary(results: list[ValidationResult]) -> None:
+    for result in results:
+        status = "[OK]" if result.succeeded else "[ERROR]"
+        print(f"{status:<8} {result.label}")
+        if result.error is not None:
+            for error_line in result.error.splitlines():
+                if error_line:
+                    print(f"         {error_line}")
+
+    print()
+    print(
+        f"Result: {'Success' if all(result.succeeded for result in results) else 'Failed'}"
+    )
+
+
+def _cmd_validate(args: argparse.Namespace) -> int:
+    results: list[ValidationResult] = []
+
+    if args.tasks is not None:
+        results.append(
+            _validation_result("Tasks", lambda: _validate_selected_tasks(args.tasks))
+        )
+
+    if args.processors is not None:
+        results.append(
+            _validation_result(
+                "Processors", lambda: _validate_selected_processors(args.processors)
+            )
+        )
+
+    if args.auth:
+        results.append(
+            _validation_result("Authentication", lambda: _cmd_validate_auth(args))
+        )
+
+    if not results:
+        raise ValueError(
+            "at least one validation category is required: "
+            "--tasks, --processors, or --auth"
+        )
+
+    if not args.quiet:
+        _print_validation_summary(results)
+    return 0 if all(result.succeeded for result in results) else 1
+
+
+def _cmd_graph(args: argparse.Namespace) -> int:
 
     for config_file in args.config_file:
         loaded_config = _load_targets_from_config_file(config_file)
@@ -352,7 +511,7 @@ def _cmd_graph(args) -> int:
     return 0
 
 
-def _load_filtered_result_records(args) -> list[dict[str, object]]:
+def _load_filtered_result_records(args: argparse.Namespace) -> list[dict[str, object]]:
     records = load_result_records(
         results_dir=Path.cwd() / "results", files=args.results_file
     )
@@ -392,7 +551,9 @@ def _print_query_payload(
     print(format_records_table(payload, fields=fields))
 
 
-def _emit_result_records(args, records: list[dict[str, object]]) -> None:
+def _emit_result_records(
+    args: argparse.Namespace, records: list[dict[str, object]]
+) -> None:
     fields = parse_fields(args.fields)
     records = limit_records(records, limit=args.limit)
     _print_query_payload(
@@ -401,19 +562,25 @@ def _emit_result_records(args, records: list[dict[str, object]]) -> None:
 
 
 def _validate_results_rerun_args(
-    args, *, parser: argparse.ArgumentParser | None = None
+    args: argparse.Namespace, *, parser: argparse.ArgumentParser | None = None
 ) -> None:
     rejected_flags: list[str] = []
-    if args.type is not None:
+    if getattr(args, "type", None) is not None:
         rejected_flags.append("--type")
-    if args.fields is not None:
+    if getattr(args, "fields", None) is not None:
         rejected_flags.append("--fields")
-    if args.limit is not None:
+    if getattr(args, "limit", None) is not None:
         rejected_flags.append("--limit")
-    if args.json:
+    if getattr(args, "json", False):
         rejected_flags.append("--json")
-    if args.jsonl:
+    if getattr(args, "jsonl", False):
         rejected_flags.append("--jsonl")
+    if getattr(args, "results_dir", None) is not None:
+        rejected_flags.append("--results-dir")
+    if getattr(args, "processor", None) is not None:
+        rejected_flags.append("--processor")
+    if getattr(args, "output", None) is not None:
+        rejected_flags.append("--output")
 
     if rejected_flags:
         rejected = ", ".join(rejected_flags)
@@ -423,7 +590,63 @@ def _validate_results_rerun_args(
         raise ValueError(message)
 
 
-def _cmd_results(args) -> int:
+def _validate_results_processor_args(
+    args: argparse.Namespace, *, parser: argparse.ArgumentParser | None = None
+) -> None:
+    rejected_flags: list[str] = []
+    if getattr(args, "rerun", False):
+        rejected_flags.append("--rerun")
+    if getattr(args, "results_file", None) is not None:
+        rejected_flags.append("--results-file")
+    if getattr(args, "type", None) is not None:
+        rejected_flags.append("--type")
+    if getattr(args, "status", None) is not None:
+        rejected_flags.append("--status")
+    if getattr(args, "target", None) is not None:
+        rejected_flags.append("--target")
+    if getattr(args, "account", None) is not None:
+        rejected_flags.append("--account")
+    if getattr(args, "region", None) is not None:
+        rejected_flags.append("--region")
+    if getattr(args, "task", None) is not None:
+        rejected_flags.append("--task")
+    if getattr(args, "fields", None) is not None:
+        rejected_flags.append("--fields")
+    if getattr(args, "limit", None) is not None:
+        rejected_flags.append("--limit")
+    if getattr(args, "json", False):
+        rejected_flags.append("--json")
+    if getattr(args, "jsonl", False):
+        rejected_flags.append("--jsonl")
+    if getattr(args, "benchmark", False):
+        rejected_flags.append("--benchmark")
+    if getattr(args, "dry_run", None) is not None:
+        rejected_flags.append("--dry-run")
+
+    if getattr(args, "results_dir", None) is None:
+        message = "--results-dir is required with --processor"
+        if parser is not None:
+            parser.error(message)
+        raise ValueError(message)
+
+    if rejected_flags:
+        rejected = ", ".join(rejected_flags)
+        message = f"{rejected} cannot be used with --processor"
+        if parser is not None:
+            parser.error(message)
+        raise ValueError(message)
+
+
+def _cmd_results(args: argparse.Namespace) -> int:
+    if getattr(args, "processor", None) is not None:
+        _validate_results_processor_args(args)
+        return _cmd_results_processor(args)
+
+    if getattr(args, "results_dir", None) is not None:
+        raise ValueError("--results-dir requires --processor")
+    if getattr(args, "output", None) is not None:
+        raise ValueError("--output requires --processor")
+
     if args.rerun:
         _validate_results_rerun_args(args)
         return _cmd_results_rerun(args)
@@ -433,7 +656,19 @@ def _cmd_results(args) -> int:
     return 0
 
 
-def _cmd_results_rerun(args) -> int:
+def _cmd_results_processor(args: argparse.Namespace) -> int:
+    context = load_historical_run_context(results_dir=args.results_dir)
+    output = (
+        str(resolve_processor_output_path(run_dir=context.run_dir, output=args.output))
+        if args.output is not None
+        else None
+    )
+    specs = [ProcessorSpec(processor=args.processor, output=output, metadata={})]
+    run_processors(specs=specs, context=context)
+    return 0
+
+
+def _cmd_results_rerun(args: argparse.Namespace) -> int:
     records = _load_filtered_result_records(args)
     failures = failure_records(records)
     if not failures:
@@ -529,26 +764,28 @@ def _add_log_level_arg(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _validate_list_args(
+    args: argparse.Namespace, *, parser: argparse.ArgumentParser | None = None
+) -> None:
+    if args.tasks and args.processors:
+        message = "--tasks and --processors cannot be used together"
+        if parser is not None:
+            parser.error(message)
+        raise ValueError(message)
+
+    if not args.tasks and not args.processors:
+        message = "One of --tasks or --processors is required."
+        if parser is not None:
+            parser.error(message)
+        raise ValueError(message)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Anvil config-driven AWS account processing runner"
     )
 
     subparsers = parser.add_subparsers(dest="command", required=False)
-
-    auth_parser = subparsers.add_parser("auth", help="Authentication commands")
-    auth_subparsers = auth_parser.add_subparsers(dest="auth_command", required=True)
-
-    auth_check_parser = auth_subparsers.add_parser(
-        "check",
-        help="Validate AWS authentication for configured organizations or account groups",
-    )
-    _add_common_config_args(auth_check_parser)
-    _add_log_level_arg(auth_check_parser)
-    auth_check_parser.add_argument(
-        "--quiet", action="store_true", help="Suppress output (exit code only)"
-    )
-    auth_check_parser.set_defaults(func=_cmd_auth_check)
 
     run_parser = subparsers.add_parser(
         "run", help="Execute tasks from an organization or account-group config"
@@ -571,18 +808,67 @@ def main() -> None:
     )
     run_parser.set_defaults(func=_cmd_run)
 
-    tasks_parser = subparsers.add_parser("tasks", help="Task-related commands")
-    _add_log_level_arg(tasks_parser)
-    tasks_subparsers = tasks_parser.add_subparsers(dest="tasks_command", required=True)
-
-    tasks_list_parser = tasks_subparsers.add_parser("list", help="List available tasks")
-    tasks_list_parser.set_defaults(func=lambda _: _cmd_list_tasks())
-
-    tasks_validate_parser = tasks_subparsers.add_parser(
-        "validate", help="Validate available tasks without executing them"
+    list_parser = subparsers.add_parser(
+        "list", help="List discovered tasks or processors"
     )
-    tasks_validate_parser.set_defaults(func=lambda _: _cmd_tasks_validate())
-    _add_log_level_arg(tasks_validate_parser)
+    _add_log_level_arg(list_parser)
+    list_parser.add_argument(
+        "--tasks", action="store_true", help="List available tasks"
+    )
+    list_parser.add_argument(
+        "--processors", action="store_true", help="List available processors"
+    )
+    list_parser.set_defaults(func=_cmd_list)
+
+    validate_parser = subparsers.add_parser(
+        "validate", help="Validate tasks, processors, and AWS authentication"
+    )
+    _add_log_level_arg(validate_parser)
+    validate_parser.add_argument(
+        "--tasks",
+        nargs="*",
+        default=None,
+        metavar="TASK",
+        help="Validate all discovered tasks, or only the named tasks when provided",
+    )
+    validate_parser.add_argument(
+        "--processors",
+        nargs="*",
+        default=None,
+        metavar="PROCESSOR",
+        help=(
+            "Validate all discovered processors, or only the named processors "
+            "when provided"
+        ),
+    )
+    validate_parser.add_argument(
+        "--auth",
+        action="store_true",
+        help="Validate AWS authentication for configured targets",
+    )
+    validate_parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suppress validation output and rely on the exit code",
+    )
+    validate_parser.add_argument(
+        "--config-file",
+        nargs="+",
+        type=Path,
+        help="Path(s) to YAML config file(s) required with --auth",
+    )
+    validate_group = validate_parser.add_mutually_exclusive_group()
+    validate_group.add_argument(
+        "--include",
+        nargs="+",
+        help="Narrow authentication targets to specific account IDs",
+    )
+    validate_group.add_argument(
+        "--exclude",
+        nargs="+",
+        help="Organization-config only: exclude discovered account IDs",
+    )
+    validate_parser.set_defaults(func=_cmd_validate)
 
     graph_parser = subparsers.add_parser(
         "graph",
@@ -620,17 +906,57 @@ def main() -> None:
             "This can significantly increase output size."
         ),
     )
+    results_parser.add_argument(
+        "--results-dir",
+        type=Path,
+        help="Historical results run directory to process with --processor",
+    )
+    results_parser.add_argument(
+        "--processor", help="Run a processor against a historical results directory"
+    )
+    results_parser.add_argument(
+        "--output", help="Optional processor-owned output destination"
+    )
     results_parser.set_defaults(func=_cmd_results)
 
     args = parser.parse_args()
 
     if not args.command:
         parser.error("the following arguments are required: command")
+    if args.command == "list":
+        _validate_list_args(args, parser=list_parser)
     if args.command == "results" and args.rerun:
         _validate_results_rerun_args(args, parser=results_parser)
+    if args.command == "results" and args.processor is not None:
+        _validate_results_processor_args(args, parser=results_parser)
+    if (
+        args.command == "results"
+        and args.processor is None
+        and args.results_dir is not None
+    ):
+        results_parser.error("--results-dir requires --processor")
+    if args.command == "results" and args.processor is None and args.output is not None:
+        results_parser.error("--output requires --processor")
+    if args.command == "validate" and args.auth and args.config_file is None:
+        validate_parser.error("--config-file is required with --auth")
+    if (
+        args.command == "validate"
+        and args.tasks is None
+        and args.processors is None
+        and not args.auth
+    ):
+        validate_parser.error(
+            "at least one validation category is required: "
+            "--tasks, --processors, or --auth"
+        )
 
+    log_level = (
+        "CRITICAL"
+        if args.command == "validate" and getattr(args, "quiet", False)
+        else args.log_level
+    )
     logging.basicConfig(
-        level=getattr(logging, args.log_level),
+        level=getattr(logging, log_level),
         format=("%(levelname)-8s [%(filename)s:%(funcName)s:%(lineno)d] %(message)s"),
     )
     # Suppress repeated botocore SSO cache reads at INFO while keeping Anvil INFO logs.

@@ -117,6 +117,7 @@ def test_write_run_results_uses_config_stem_and_run_id_directories(monkeypatch):
         assert written_results.summary_path == summary_path
         assert written_results.jsonl_path == jsonl_path
         assert written_results.summary == {"state": "completed_success"}
+        assert written_results.target_result_paths == {"org2": target_path}
         assert written_results.target_file_count == 1
         assert written_results.jsonl_record_count == 0
     finally:
@@ -157,6 +158,44 @@ def test_target_result_file_path_avoids_sanitized_name_collisions():
     finally:
         for path in scratch_dir.glob("*.json"):
             path.unlink()
+        if scratch_dir.exists():
+            scratch_dir.rmdir()
+
+
+def test_processor_output_path_uses_reports_target_prefix_and_collision_suffix():
+    from pathlib import Path
+
+    from anvil.processor_loader import resolve_processor_output_path
+
+    scratch_dir = (Path("tests") / "_tmp" / "cli-processor-output").resolve()
+    reports_dir = scratch_dir / "reports"
+
+    try:
+        reports_dir.mkdir(parents=True)
+        existing_path = reports_dir / "org_a-summary.md"
+        existing_path.write_text("existing", encoding="utf-8")
+
+        reserved_paths: set[Path] = set()
+        first_path = resolve_processor_output_path(
+            run_dir=scratch_dir,
+            output="summary.md",
+            target_name="org/a",
+            reserved_paths=reserved_paths,
+        )
+        second_path = resolve_processor_output_path(
+            run_dir=scratch_dir,
+            output="reports/summary.md",
+            target_name="org/a",
+            reserved_paths=reserved_paths,
+        )
+
+        assert first_path == reports_dir / "org_a-summary-1.md"
+        assert second_path == reports_dir / "org_a-summary-2.md"
+    finally:
+        for path in reports_dir.glob("*.md"):
+            path.unlink()
+        if reports_dir.exists():
+            reports_dir.rmdir()
         if scratch_dir.exists():
             scratch_dir.rmdir()
 
@@ -398,3 +437,143 @@ def test_cmd_results_rerun_rejects_report_only_flags():
 
     with pytest.raises(ValueError, match="--type, --fields, --limit, --json"):
         cli._cmd_results(args)
+
+
+def test_run_configured_post_processors_runs_successful_targets(monkeypatch):
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from anvil.descriptors import ConfigBranch, LoadedConfig, TargetDescriptor
+    import anvil.processor_loader as processor_loader
+
+    seen = {}
+
+    target = TargetDescriptor(
+        config_branch=ConfigBranch.ORGANIZATIONS,
+        name="org-a",
+        metadata={"team": "security"},
+        post_run=[
+            {
+                "processor": "summary_markdown",
+                "output": "reports/summary.md",
+                "metadata": {"include_passed": False},
+            }
+        ],
+    )
+    loaded_config = LoadedConfig(branch=ConfigBranch.ORGANIZATIONS, targets=[target])
+    target_result = SimpleNamespace(target_name="org-a", has_failures=False)
+    engine_result = SimpleNamespace(target_results=[target_result])
+    written_results = SimpleNamespace(
+        run_dir=Path("results/orgs/run"),
+        summary_path=Path("results/orgs/run/summary.json"),
+        summary={"state": "completed_success"},
+        target_result_paths={
+            "org-a": Path("results/orgs/run/organizations/org-a.json")
+        },
+    )
+
+    def fake_run_processors(*, specs, context):
+        seen["specs"] = specs
+        seen["context"] = context
+
+    monkeypatch.setattr(processor_loader, "run_processors", fake_run_processors)
+
+    processor_loader.run_configured_post_processors(
+        config_branch=loaded_config.branch,
+        targets=loaded_config.targets,
+        target_results=engine_result.target_results,
+        run_dir=written_results.run_dir,
+        summary_path=written_results.summary_path,
+        summary=written_results.summary,
+        target_result_paths=written_results.target_result_paths,
+    )
+
+    assert [spec.processor for spec in seen["specs"]] == ["summary_markdown"]
+    assert seen["specs"][0].output == str(
+        Path("results/orgs/run/reports/org-a-summary.md")
+    )
+    assert seen["specs"][0].metadata == {"include_passed": False}
+    assert seen["context"].target_name == "org-a"
+    assert seen["context"].target_result is target_result
+    assert seen["context"].target_metadata == {"team": "security"}
+
+
+def test_run_configured_post_processors_skips_failed_targets(monkeypatch):
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from anvil.descriptors import ConfigBranch, LoadedConfig, TargetDescriptor
+    import anvil.processor_loader as processor_loader
+
+    target = TargetDescriptor(
+        config_branch=ConfigBranch.ORGANIZATIONS,
+        name="org-a",
+        post_run=[{"processor": "summary_markdown"}],
+    )
+    loaded_config = LoadedConfig(branch=ConfigBranch.ORGANIZATIONS, targets=[target])
+    engine_result = SimpleNamespace(
+        target_results=[SimpleNamespace(target_name="org-a", has_failures=True)]
+    )
+    written_results = SimpleNamespace(
+        run_dir=Path("results/orgs/run"),
+        summary_path=Path("results/orgs/run/summary.json"),
+        summary={"state": "completed_with_failures"},
+        target_result_paths={},
+    )
+
+    def fake_run_processors(**kwargs):
+        raise AssertionError("failed target processors should not run")
+
+    monkeypatch.setattr(processor_loader, "run_processors", fake_run_processors)
+
+    processor_loader.run_configured_post_processors(
+        config_branch=loaded_config.branch,
+        targets=loaded_config.targets,
+        target_results=engine_result.target_results,
+        run_dir=written_results.run_dir,
+        summary_path=written_results.summary_path,
+        summary=written_results.summary,
+        target_result_paths=written_results.target_result_paths,
+    )
+
+
+def test_cmd_results_processor_runs_historical_context(monkeypatch):
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    cli = _import_cli_or_skip()
+    seen = {}
+    context = SimpleNamespace(run_dir=Path("results/orgs/run"))
+
+    monkeypatch.setattr(cli, "load_historical_run_context", lambda **_: context)
+
+    def fake_run_processors(*, specs, context):
+        seen["specs"] = specs
+        seen["context"] = context
+
+    monkeypatch.setattr(cli, "run_processors", fake_run_processors)
+
+    args = SimpleNamespace(
+        results_dir=Path("results/orgs/run"),
+        processor="summary_json",
+        output="reports/summary.json",
+        rerun=False,
+        results_file=None,
+        type=None,
+        status=None,
+        target=None,
+        account=None,
+        region=None,
+        task=None,
+        fields=None,
+        limit=None,
+        json=False,
+        jsonl=False,
+        benchmark=False,
+        dry_run=None,
+    )
+
+    assert cli._cmd_results(args) == 0
+    assert seen["context"] is context
+    assert seen["specs"][0].processor == "summary_json"
+    assert seen["specs"][0].output == str(Path("results/orgs/run/reports/summary.json"))
