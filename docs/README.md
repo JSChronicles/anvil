@@ -463,7 +463,7 @@ Anvil includes a task validation mode that checks discovered tasks for structura
 List all available stock and user-defined tasks:
 
 ```console
-anvil tasks list
+anvil list --tasks
 
 Available tasks:
 plugin: my-test-project:
@@ -503,6 +503,12 @@ Validate selected tasks by name:
 
 ```console
 anvil validate --tasks count_vpc noop
+```
+
+List discovered processors:
+
+```console
+anvil list --processors
 ```
 
 Validate discovered processors:
@@ -623,8 +629,8 @@ Using these utilities is **not required**, but recommended for tasks that modify
 Anvil currently exposes these primary command groups:
 
 - `run`
-- `tasks list`
-- `processors list`
+- `list --tasks`
+- `list --processors`
 - `validate`
 - `graph`
 - `results`

@@ -9,8 +9,10 @@ import datetime
 import json
 import logging
 import shlex
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol
 from anvil.graph import render_graph
 import yaml
 from anvil.benchmark import BenchmarkRecorder
@@ -76,6 +78,13 @@ class ValidationResult:
     label: str
     succeeded: bool
     error: str | None = None
+
+
+class ListableDescriptor(Protocol):
+    """Descriptor fields needed for grouped CLI listing."""
+
+    name: str
+    source: str
 
 
 def _load_targets_from_config_file(path: Path) -> LoadedConfig:
@@ -350,22 +359,32 @@ def _cmd_validate_auth(args: argparse.Namespace) -> int:
     return _cmd_auth_check(auth_args)
 
 
-def _cmd_list_tasks() -> int:
-    tasks: list[TaskDescriptor] = list_tasks()
-
-    print("Available tasks:")
+def _print_grouped_listing(
+    *, label: str, descriptors: Sequence[ListableDescriptor]
+) -> None:
+    """Print descriptors grouped by their source."""
+    print(f"Available {label}:")
 
     current_source: str | None = None
-    for task in tasks:
-        if task.source != current_source:
+    for descriptor in descriptors:
+        if descriptor.source != current_source:
             if current_source is not None:
                 print()
 
-            print(f"{task.source}:")
-            current_source = task.source
+            print(f"{descriptor.source}:")
+            current_source = descriptor.source
 
-        print(f"  - {task.name}")
+        print(f"  - {descriptor.name}")
 
+
+def _cmd_list(args: argparse.Namespace) -> int:
+    _validate_list_args(args)
+
+    if args.tasks:
+        _print_grouped_listing(label="tasks", descriptors=list_tasks())
+        return 0
+
+    _print_grouped_listing(label="processors", descriptors=list_processors())
     return 0
 
 
@@ -396,25 +415,6 @@ def _validate_selected_tasks(task_names: list[str] | None) -> None:
         )
 
     validate_tasks(resolved)
-
-
-def _cmd_list_processors() -> int:
-    processors = list_processors()
-
-    print("Available processors:")
-
-    current_source: str | None = None
-    for processor in processors:
-        if processor.source != current_source:
-            if current_source is not None:
-                print()
-
-            print(f"{processor.source}:")
-            current_source = processor.source
-
-        print(f"  - {processor.name}")
-
-    return 0
 
 
 def _select_processors(processor_names: list[str]) -> list[ProcessorDescriptor]:
@@ -764,6 +764,22 @@ def _add_log_level_arg(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _validate_list_args(
+    args: argparse.Namespace, *, parser: argparse.ArgumentParser | None = None
+) -> None:
+    if args.tasks and args.processors:
+        message = "--tasks and --processors cannot be used together"
+        if parser is not None:
+            parser.error(message)
+        raise ValueError(message)
+
+    if not args.tasks and not args.processors:
+        message = "One of --tasks or --processors is required."
+        if parser is not None:
+            parser.error(message)
+        raise ValueError(message)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Anvil config-driven AWS account processing runner"
@@ -792,25 +808,17 @@ def main() -> None:
     )
     run_parser.set_defaults(func=_cmd_run)
 
-    tasks_parser = subparsers.add_parser("tasks", help="Task-related commands")
-    _add_log_level_arg(tasks_parser)
-    tasks_subparsers = tasks_parser.add_subparsers(dest="tasks_command", required=True)
-
-    tasks_list_parser = tasks_subparsers.add_parser("list", help="List available tasks")
-    tasks_list_parser.set_defaults(func=lambda _: _cmd_list_tasks())
-
-    processors_parser = subparsers.add_parser(
-        "processors", help="Processor-related commands"
+    list_parser = subparsers.add_parser(
+        "list", help="List discovered tasks or processors"
     )
-    _add_log_level_arg(processors_parser)
-    processors_subparsers = processors_parser.add_subparsers(
-        dest="processors_command", required=True
+    _add_log_level_arg(list_parser)
+    list_parser.add_argument(
+        "--tasks", action="store_true", help="List available tasks"
     )
-
-    processors_list_parser = processors_subparsers.add_parser(
-        "list", help="List available processors"
+    list_parser.add_argument(
+        "--processors", action="store_true", help="List available processors"
     )
-    processors_list_parser.set_defaults(func=lambda _: _cmd_list_processors())
+    list_parser.set_defaults(func=_cmd_list)
 
     validate_parser = subparsers.add_parser(
         "validate", help="Validate tasks, processors, and AWS authentication"
@@ -915,6 +923,8 @@ def main() -> None:
 
     if not args.command:
         parser.error("the following arguments are required: command")
+    if args.command == "list":
+        _validate_list_args(args, parser=list_parser)
     if args.command == "results" and args.rerun:
         _validate_results_rerun_args(args, parser=results_parser)
     if args.command == "results" and args.processor is not None:
