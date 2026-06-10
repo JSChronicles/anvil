@@ -6,7 +6,6 @@
 <br />
 <div align="center">
     <img src="../images/logo.png" alt="Logo" width="256" height="256">
-  </a>
 
   <h3 align="center">README</h3>
 
@@ -24,6 +23,7 @@
 - [Execution model](#execution-model)
 - [Flow](#flow)
 - [Authentication validation](#authentication-validation)
+- [Caching and reuse](#caching-and-reuse)
 - [Detailed CLI examples](#detailed-cli-examples)
 - [Result queries](#result-queries)
 - [Task validation](#task-validation)
@@ -194,6 +194,65 @@ Suppress validation output and rely on the exit code only, which is useful for C
 ```console
 anvil validate --tasks --processors --auth --config-file orgs.yaml --quiet
 ```
+
+## Caching and reuse
+
+Anvil uses narrowly scoped caches to avoid repeating expensive discovery,
+schema, loader, and boto3 setup work. These caches are intentionally scoped to
+the smallest useful lifetime so account, region, and run boundaries stay clear.
+
+### Loader and validation caches
+
+- **Task callables** are cached in-process with a bounded LRU cache after Anvil
+  resolves a stock task or plugin task by name.
+- **Task graph resolution** is cached for repeated identical task specs. The
+  cached representation is immutable, and each caller receives fresh
+  `ResolvedExecution` objects so a caller cannot mutate shared cached state.
+- **Processor callables** are cached in-process with a bounded LRU cache after
+  Anvil resolves a stock processor or plugin processor by name.
+- **JSON Schema files and the schema registry** are cached in-process because
+  packaged schema resources do not change during a running process.
+
+These caches improve repeated validation, graph, and run commands inside one
+Python process. A new process starts with empty loader and schema caches.
+
+### Run-scoped AWS caches
+
+- **Authentication checks** are cached per run by profile and inferred
+  authentication source. If multiple targets use the same AWS identity, the
+  first target performs the STS call and later or concurrent targets reuse the
+  outcome. Each target still receives its own `AuthResult`.
+- **Organization discovery** is cached per run by AWS Organization ID. Targets
+  that resolve to the same organization reuse the discovered management account
+  ID, active account map, and region statuses.
+- **Single-flight coordination** prevents concurrent preparation workers from
+  running the same auth check or organization discovery at the same time. If the
+  first discovery fails, waiters receive that error and the cache can be retried.
+
+Run-scoped caches are created for a single invocation of the target pipeline.
+They are not persisted to disk and do not carry AWS discovery data into a later
+Anvil command.
+
+### Session and client reuse
+
+- **Worker boto3 sessions** are cached per `SessionFactory`, thread, profile,
+  and region. This reduces repeated session construction while keeping profiles
+  and regions isolated.
+- **Assumed-role credentials** are acquired once for a member account execution
+  and reused to build region-scoped sessions. If credentials approach
+  expiration, Anvil refreshes them before continuing.
+- **Account-region client sessions** wrap one boto3 session for one account and
+  region. The wrapper lazily caches boto3 clients by service name and client
+  arguments so tasks in that account-region can reuse clients without sharing
+  clients across accounts or regions.
+
+### Task-local caches
+
+Individual tasks may build short-lived lookup dictionaries when that keeps AWS
+pagination or repeated lookups small. For example,
+`remove_missing_group_assignments` builds account and permission-set name maps
+inside one task invocation. These task-local caches disappear when the task
+returns.
 
 ## Detailed CLI examples
 
