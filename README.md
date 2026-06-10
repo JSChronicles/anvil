@@ -13,15 +13,14 @@
 <br />
 <div align="center">
     <img src="images/logo.png" alt="Logo" width="256" height="256">
-  </a>
 
   <h3 align="center">README</h3>
 
   <p align="center">
-    <a href="https://github.com/JSChronicles/anvil"><strong>Explore the docs »</strong></a>
+    <a href="https://github.com/JSChronicles/anvil"><strong>Explore the docs</strong></a>
     <br />
     <a href="https://github.com/JSChronicles/anvil/issues/new?labels=Bug%2CNeeds+Triage&projects=&template=bug.yaml&title=%5BBUG%5D+%3Ctitle%3E">Report Bug</a>
-    ·
+    |
     <a href="https://github.com/JSChronicles/anvil/issues/new?labels=enhancement%2Cfeature+request&projects=&template=feature.yaml&title=%5BFEATURE%5D%3A+">Request Feature</a>
   </p>
 </div>
@@ -41,8 +40,8 @@ Anvil is built for teams that need repeatable AWS workflows, such as inventory, 
   - Configure organizations, account lists, regions, tasks, task dependencies, dry runs, fail-fast behavior, and concurrency in one place.
 - Multi-account and multi-organization by default
   - Discover active accounts and enabled regions, support include/exclude filtering
-- Bounded parallel execution
-  - Control concurrency at the target, account, and region levels
+- Parallel execution and caching
+  - Control concurrency at the target, account, and region levels. See [Caching and reuse](./docs/README.md#caching-and-reuse).
 - Shared discovery and session reuse
   - Validate the organization, discover accounts, and check enabled regions, only once, before execution.
 - Task isolation
@@ -54,10 +53,6 @@ Anvil is built for teams that need repeatable AWS workflows, such as inventory, 
 - Structured output and safer operations
   - Record structured results at task, account, target, and engine levels.
 
-
-## Standalone Multi-Account Script Template
-
-
 ## Usage
 > [!TIP]
 > It is recommended to use the [foundry-anvil-template](https://github.com/JSChronicles/foundry-anvil-template).
@@ -65,7 +60,6 @@ Anvil is built for teams that need repeatable AWS workflows, such as inventory, 
 > The template exposes project-local tasks and processors without forking Anvil.
 >
 > If you do not need/want the full Anvil framework and only want a simple starting point for small AWS Organization tasks, see: [`templates/aws_multi_account_template.py`](./templates/multi_aws_account_task_template.py)
-
 
 
 1. When using the uv tool, there are several ways to run and install dependencies. Here are only a couple examples:
@@ -82,7 +76,7 @@ There are multiple global commands:
 ```console
 anvil graph     # Show the resolved task dependency graph
 anvil results   # Query JSONL results and rerun failures
-anvil tasks     # List available tasks
+anvil list      # List available tasks and processors
 anvil validate  # Validate tasks, processors, and AWS authentication
 anvil run       # Execute YAML-defined workflows
 ```
@@ -126,8 +120,8 @@ max_parallel_targets: 2
 organizations:
   - name: place
     profile: place-root
-    # Organizations support explicit regions, all by itself, glob selectors,
-    # and mixed glob plus explicit selectors.
+    # Organizations support explicit regions, all, glob selectors, and mixed
+    # glob plus explicit selectors.
     regions:
       - us-east-1
       - us-west-2
