@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 <!-- version list -->
 
+## v0.28.2 (2026-06-11)
+
+### Bug Fixes
+
+- Capture plugin discovery issues and lazy-load callables
+  ([#50](https://github.com/JSChronicles/anvil/pull/50),
+  [`adbf7ac`](https://github.com/JSChronicles/anvil/commit/adbf7ac8291a6fc38c584a47d1772a8a249710df))
+
+- Expose validation errors and tighten import errors
+  ([#50](https://github.com/JSChronicles/anvil/pull/50),
+  [`adbf7ac`](https://github.com/JSChronicles/anvil/commit/adbf7ac8291a6fc38c584a47d1772a8a249710df))
+
+### Documentation
+
+- Add caching section and minor README fixes ([#49](https://github.com/JSChronicles/anvil/pull/49),
+  [`ec09255`](https://github.com/JSChronicles/anvil/commit/ec092553fa055f9549393a545cc711f9640782ee))
+
+
 ## v0.28.1 (2026-06-09)
 
 ### Bug Fixes
