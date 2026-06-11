@@ -8,7 +8,8 @@ from functools import lru_cache
 from pathlib import Path
 
 from anvil._loader_utils import (
-    iter_plugin_modules,
+    DiscoveryIssue,
+    discover_plugin_modules,
     iter_stock_modules,
     load_plugin_callable,
     load_stock_callable,
@@ -40,11 +41,19 @@ class ProcessorSpec:
 
 @dataclass(frozen=True, slots=True)
 class ProcessorDescriptor:
-    """Discovered processor and its source package."""
+    """Discovered processor and lazy loader for its run callable."""
 
     name: str
-    run: Callable
+    load: Callable[[], Callable]
     source: str
+
+
+@dataclass(frozen=True, slots=True)
+class ProcessorDiscoveryResult:
+    """Discovered processors and non-fatal discovery issues."""
+
+    processors: list[ProcessorDescriptor]
+    issues: list[DiscoveryIssue]
 
 
 @dataclass(frozen=True, slots=True)
@@ -276,34 +285,40 @@ def load_processor_callable(processor_name: str) -> Callable:
         return _load_plugin_processor(processor_name)
 
 
-def discover_processors() -> list[ProcessorDescriptor]:
-    """Discover stock and plugin processors without executing them."""
+def discover_processors() -> ProcessorDiscoveryResult:
+    """Discover processors and report plugin packages that cannot be inspected."""
     processors: list[ProcessorDescriptor] = []
 
     for module in iter_stock_modules(
         package_name="anvil.processors", load=_load_core_processor
     ):
         processors.append(
-            ProcessorDescriptor(name=module.name, run=module.load, source=module.source)
+            ProcessorDescriptor(
+                name=module.name, load=module.load, source=module.source
+            )
         )
 
-    for module in iter_plugin_modules(
+    plugin_result = discover_plugin_modules(
         entry_point_group=PROCESSOR_ENTRY_POINT_GROUP,
         load=_load_plugin_processor,
         logger=__LOGGER__,
         skip_log_label="processor plugin",
-    ):
+    )
+    for module in plugin_result.modules:
         processors.append(
-            ProcessorDescriptor(name=module.name, run=module.load, source=module.source)
+            ProcessorDescriptor(
+                name=module.name, load=module.load, source=module.source
+            )
         )
 
-    return processors
+    return ProcessorDiscoveryResult(processors=processors, issues=plugin_result.issues)
 
 
 def list_processors() -> list[ProcessorDescriptor]:
     """Return processors sorted by source and name."""
     return sorted(
-        discover_processors(), key=lambda processor: (processor.source, processor.name)
+        discover_processors().processors,
+        key=lambda processor: (processor.source, processor.name),
     )
 
 

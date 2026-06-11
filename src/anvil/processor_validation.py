@@ -2,7 +2,8 @@
 Processor validation for Anvil.
 
 This module performs structural validation of post-run processor definitions.
-It does not execute processors against result data.
+It loads processor modules to inspect run(...) signatures, but does not execute
+processors against result data.
 """
 
 from __future__ import annotations
@@ -20,7 +21,14 @@ class ProcessorValidationError(ValueError):
 
 
 def validate_processors(processors: list[ProcessorDescriptor]) -> None:
-    """Validate discovered processors without running them."""
+    """Validate discovered processors without executing them."""
+    errors = processor_validation_errors(processors)
+    if errors:
+        raise ProcessorValidationError("\n  - " + "\n  - ".join(errors))
+
+
+def processor_validation_errors(processors: list[ProcessorDescriptor]) -> list[str]:
+    """Return structural validation errors for processor definitions."""
     errors: list[str] = []
     seen_names: set[str] = set()
 
@@ -38,12 +46,12 @@ def validate_processors(processors: list[ProcessorDescriptor]) -> None:
 
             seen_names.add(processor.name)
 
-            if not callable(processor.run):
+            if not callable(processor.load):
                 raise ProcessorValidationError(
-                    f"processor '{processor.name}'.run is not callable"
+                    f"processor '{processor.name}'.load is not callable"
                 )
 
-            run = processor.run()
+            run = processor.load()
             if not callable(run):
                 raise ProcessorValidationError(
                     f"processor '{processor.name}' is missing required run() function"
@@ -54,8 +62,7 @@ def validate_processors(processors: list[ProcessorDescriptor]) -> None:
         except Exception as exc:
             errors.append(f"{processor.name} ({processor.source}): {exc}")
 
-    if errors:
-        raise ProcessorValidationError("\n  - " + "\n  - ".join(errors))
+    return errors
 
 
 def _validate_processor_run_signature(*, name: str, run: Callable) -> None:

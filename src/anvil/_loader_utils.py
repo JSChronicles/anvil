@@ -18,6 +18,23 @@ class DiscoveredModule:
     load: Callable[[], Callable]
 
 
+@dataclass(frozen=True, slots=True)
+class DiscoveryIssue:
+    """Problem encountered while discovering plugin modules."""
+
+    name: str
+    source: str
+    error: str
+
+
+@dataclass(frozen=True, slots=True)
+class ModuleDiscoveryResult:
+    """Discovered modules and non-fatal discovery issues."""
+
+    modules: list[DiscoveredModule]
+    issues: list[DiscoveryIssue]
+
+
 def _validate_run_callable(
     *,
     module: ModuleType,
@@ -78,10 +95,16 @@ def load_plugin_callable(
             import_failures.append(f"{entry_point.name}: package import failed ({exc})")
             continue
 
+        module_name = f"{pkg.__name__}.{name}"
         try:
-            module = importlib.import_module(f"{pkg.__name__}.{name}")
-        except ModuleNotFoundError:
-            continue
+            module = importlib.import_module(module_name)
+        except ModuleNotFoundError as exc:
+            if exc.name == module_name:
+                continue
+            raise error_type(
+                f"Plugin {kind} '{name}' in plugin "
+                f"'{entry_point.name}' failed during import: {exc}"
+            ) from exc
         except Exception as exc:
             raise error_type(
                 f"Plugin {kind} '{name}' in plugin "
@@ -132,14 +155,17 @@ def plugin_source(entry_point: EntryPoint) -> str:
     )
 
 
-def iter_plugin_modules(
+def discover_plugin_modules(
     *,
     entry_point_group: str,
     load: Callable[[str], Callable],
     logger: logging.Logger,
     skip_log_label: str,
-) -> Iterable[DiscoveredModule]:
-    """Yield public modules from plugin packages without importing each module."""
+) -> ModuleDiscoveryResult:
+    """Discover plugin modules and capture packages that cannot be imported."""
+    modules: list[DiscoveredModule] = []
+    issues: list[DiscoveryIssue] = []
+
     for entry_point in entry_points(group=entry_point_group):
         try:
             pkg = importlib.import_module(entry_point.value)
@@ -147,6 +173,13 @@ def iter_plugin_modules(
             logger.debug(
                 f"Skipping {skip_log_label} '{entry_point.name}' due to import error: "
                 f"{exc}"
+            )
+            issues.append(
+                DiscoveryIssue(
+                    name=entry_point.name,
+                    source=plugin_source(entry_point),
+                    error=f"package import failed ({exc})",
+                )
             )
             continue
 
@@ -156,6 +189,8 @@ def iter_plugin_modules(
             if name.startswith("_"):
                 continue
 
-            yield DiscoveredModule(
-                name=name, source=source, load=lambda n=name: load(n)
+            modules.append(
+                DiscoveredModule(name=name, source=source, load=lambda n=name: load(n))
             )
+
+    return ModuleDiscoveryResult(modules=modules, issues=issues)

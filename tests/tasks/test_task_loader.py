@@ -73,11 +73,11 @@ def test_list_tasks_sorted_by_source_then_name():
 
 
 def test_discover_tasks_includes_stock_tasks():
-    tasks = discover_tasks()
+    tasks = discover_tasks().tasks
     names = {task.name for task in tasks}
 
     assert "noop" in names
 
     noop = next(task for task in tasks if task.name == "noop")
     assert noop.source == "stock"
-    assert callable(noop.run)
+    assert callable(noop.load)

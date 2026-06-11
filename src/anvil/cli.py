@@ -13,10 +13,13 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
-from anvil.graph import render_graph
+
 import yaml
+
+from anvil._loader_utils import DiscoveryIssue
 from anvil.benchmark import BenchmarkRecorder
 from anvil.descriptors import ConfigBranch, LoadedConfig
+from anvil.graph import render_graph
 from anvil.processor_loader import (
     ProcessorDescriptor,
     ProcessorSpec,
@@ -27,7 +30,7 @@ from anvil.processor_loader import (
     run_configured_post_processors,
     run_processors,
 )
-from anvil.processor_validation import validate_processors
+from anvil.processor_validation import processor_validation_errors
 from anvil.result_query import (
     ResultFilters,
     build_rerun_targets,
@@ -45,14 +48,8 @@ from anvil.result_query import (
 )
 from anvil.results import EngineResult, EngineState
 from anvil.runner import run_auth_checks, run_multiple_targets
-from anvil.task_loader import (
-    ResolvedTask,
-    TaskDescriptor,
-    _load_task_callable,
-    discover_tasks,
-    list_tasks,
-)
-from anvil.task_validation import validate_tasks
+from anvil.task_loader import ResolvedTask, TaskDescriptor, discover_tasks, list_tasks
+from anvil.task_validation import task_validation_errors
 from anvil.validators import load_config_descriptors, validate_config_schema
 
 __LOGGER__ = logging.getLogger(__name__)
@@ -388,8 +385,18 @@ def _cmd_list(args: argparse.Namespace) -> int:
     return 0
 
 
-def _select_tasks(task_names: list[str]) -> list[TaskDescriptor]:
-    descriptors: list[TaskDescriptor] = discover_tasks()
+def _discovery_issue_messages(issues: list[DiscoveryIssue]) -> list[str]:
+    return [f"{issue.name} ({issue.source}): {issue.error}" for issue in issues]
+
+
+def _raise_validation_errors(errors: list[str]) -> None:
+    if errors:
+        raise ValueError("\n  - " + "\n  - ".join(errors))
+
+
+def _select_task_descriptors(
+    *, descriptors: list[TaskDescriptor], task_names: list[str]
+) -> list[TaskDescriptor]:
     descriptor_by_name = {descriptor.name: descriptor for descriptor in descriptors}
     unknown_names = [name for name in task_names if name not in descriptor_by_name]
 
@@ -403,20 +410,48 @@ def _select_tasks(task_names: list[str]) -> list[TaskDescriptor]:
     return [descriptor_by_name[name] for name in task_names]
 
 
+def _select_tasks(task_names: list[str]) -> list[TaskDescriptor]:
+    return _select_task_descriptors(
+        descriptors=discover_tasks().tasks, task_names=task_names
+    )
+
+
 def _validate_selected_tasks(task_names: list[str] | None) -> None:
-    descriptors = discover_tasks() if not task_names else _select_tasks(task_names)
+    discovery = discover_tasks()
+    errors: list[str] = []
+    descriptors = discovery.tasks
+
+    if task_names:
+        try:
+            descriptors = _select_task_descriptors(
+                descriptors=discovery.tasks, task_names=task_names
+            )
+        except ValueError as exc:
+            errors.append(str(exc))
+            errors.extend(_discovery_issue_messages(discovery.issues))
+            _raise_validation_errors(errors)
+    else:
+        errors.extend(_discovery_issue_messages(discovery.issues))
+
     resolved = []
     for descriptor in descriptors:
-        run = _load_task_callable(descriptor.name)
+        try:
+            run = descriptor.load()
+        except Exception as exc:
+            errors.append(f"{descriptor.name} ({descriptor.source}): {exc}")
+            continue
+
         resolved.append(
             ResolvedTask(name=descriptor.name, run=run, depends_on=[], optional=False)
         )
 
-    validate_tasks(resolved)
+    errors.extend(task_validation_errors(resolved))
+    _raise_validation_errors(errors)
 
 
-def _select_processors(processor_names: list[str]) -> list[ProcessorDescriptor]:
-    descriptors = discover_processors()
+def _select_processor_descriptors(
+    *, descriptors: list[ProcessorDescriptor], processor_names: list[str]
+) -> list[ProcessorDescriptor]:
     requested_names = set(processor_names)
     available_names = {descriptor.name for descriptor in descriptors}
     unknown_names = [name for name in processor_names if name not in available_names]
@@ -434,13 +469,31 @@ def _select_processors(processor_names: list[str]) -> list[ProcessorDescriptor]:
     ]
 
 
-def _validate_selected_processors(processor_names: list[str] | None) -> None:
-    processors = (
-        discover_processors()
-        if not processor_names
-        else _select_processors(processor_names)
+def _select_processors(processor_names: list[str]) -> list[ProcessorDescriptor]:
+    return _select_processor_descriptors(
+        descriptors=discover_processors().processors, processor_names=processor_names
     )
-    validate_processors(processors)
+
+
+def _validate_selected_processors(processor_names: list[str] | None) -> None:
+    discovery = discover_processors()
+    errors: list[str] = []
+    processors = discovery.processors
+
+    if processor_names:
+        try:
+            processors = _select_processor_descriptors(
+                descriptors=discovery.processors, processor_names=processor_names
+            )
+        except ValueError as exc:
+            errors.append(str(exc))
+            errors.extend(_discovery_issue_messages(discovery.issues))
+            _raise_validation_errors(errors)
+    else:
+        errors.extend(_discovery_issue_messages(discovery.issues))
+
+    errors.extend(processor_validation_errors(processors))
+    _raise_validation_errors(errors)
 
 
 def _validation_result(label: str, callback) -> ValidationResult:
@@ -463,11 +516,6 @@ def _print_validation_summary(results: list[ValidationResult]) -> None:
             for error_line in result.error.splitlines():
                 if error_line:
                     print(f"         {error_line}")
-
-    print()
-    print(
-        f"Result: {'Success' if all(result.succeeded for result in results) else 'Failed'}"
-    )
 
 
 def _cmd_validate(args: argparse.Namespace) -> int:
