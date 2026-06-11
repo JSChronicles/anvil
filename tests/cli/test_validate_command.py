@@ -128,15 +128,6 @@ def test_validate_selected_tasks_validates_all_when_no_names(monkeypatch):
     cli = _import_cli_or_skip()
     seen = {}
 
-    monkeypatch.setattr(
-        cli,
-        "discover_tasks",
-        lambda: [
-            cli.TaskDescriptor(name="count_vpc", run=lambda: None, source="stock"),
-            cli.TaskDescriptor(name="noop", run=lambda: None, source="stock"),
-        ],
-    )
-
     def fake_load_task_callable(task_name):
         def run(*, account_id, account_alias, session, dry_run, metadata, actions):
             return None
@@ -144,10 +135,29 @@ def test_validate_selected_tasks_validates_all_when_no_names(monkeypatch):
         seen.setdefault("loaded", []).append(task_name)
         return run
 
+    monkeypatch.setattr(
+        cli,
+        "discover_tasks",
+        lambda: SimpleNamespace(
+            tasks=[
+                cli.TaskDescriptor(
+                    name="count_vpc",
+                    load=lambda: fake_load_task_callable("count_vpc"),
+                    source="stock",
+                ),
+                cli.TaskDescriptor(
+                    name="noop",
+                    load=lambda: fake_load_task_callable("noop"),
+                    source="stock",
+                ),
+            ],
+            issues=[],
+        ),
+    )
+
     def fake_validate_tasks(tasks):
         seen["validated"] = [task.name for task in tasks]
 
-    monkeypatch.setattr(cli, "_load_task_callable", fake_load_task_callable)
     monkeypatch.setattr(cli, "validate_tasks", fake_validate_tasks)
 
     cli._validate_selected_tasks([])
@@ -160,15 +170,6 @@ def test_validate_selected_tasks_validates_selected_names(monkeypatch):
     cli = _import_cli_or_skip()
     seen = {}
 
-    monkeypatch.setattr(
-        cli,
-        "discover_tasks",
-        lambda: [
-            cli.TaskDescriptor(name="count_vpc", run=lambda: None, source="stock"),
-            cli.TaskDescriptor(name="noop", run=lambda: None, source="stock"),
-        ],
-    )
-
     def fake_load_task_callable(task_name):
         def run(*, account_id, account_alias, session, dry_run, metadata, actions):
             return None
@@ -176,10 +177,29 @@ def test_validate_selected_tasks_validates_selected_names(monkeypatch):
         seen.setdefault("loaded", []).append(task_name)
         return run
 
+    monkeypatch.setattr(
+        cli,
+        "discover_tasks",
+        lambda: SimpleNamespace(
+            tasks=[
+                cli.TaskDescriptor(
+                    name="count_vpc",
+                    load=lambda: fake_load_task_callable("count_vpc"),
+                    source="stock",
+                ),
+                cli.TaskDescriptor(
+                    name="noop",
+                    load=lambda: fake_load_task_callable("noop"),
+                    source="stock",
+                ),
+            ],
+            issues=[],
+        ),
+    )
+
     def fake_validate_tasks(tasks):
         seen["validated"] = [task.name for task in tasks]
 
-    monkeypatch.setattr(cli, "_load_task_callable", fake_load_task_callable)
     monkeypatch.setattr(cli, "validate_tasks", fake_validate_tasks)
 
     cli._validate_selected_tasks(["noop"])
@@ -193,13 +213,64 @@ def test_validate_selected_tasks_reports_unknown_names(monkeypatch):
     monkeypatch.setattr(
         cli,
         "discover_tasks",
-        lambda: [
-            cli.TaskDescriptor(name="count_vpc", run=lambda: None, source="stock")
-        ],
+        lambda: SimpleNamespace(
+            tasks=[
+                cli.TaskDescriptor(name="count_vpc", load=lambda: None, source="stock")
+            ],
+            issues=[],
+        ),
     )
 
     with pytest.raises(ValueError, match="Unknown task"):
         cli._validate_selected_tasks(["missing"])
+
+
+def test_validate_all_tasks_reports_plugin_discovery_issues(monkeypatch):
+    cli = _import_cli_or_skip()
+    monkeypatch.setattr(
+        cli,
+        "discover_tasks",
+        lambda: SimpleNamespace(
+            tasks=[],
+            issues=[
+                cli.DiscoveryIssue(
+                    name="broken-plugin",
+                    source="plugin: broken-package",
+                    error="package import failed (missing dependency)",
+                )
+            ],
+        ),
+    )
+
+    with pytest.raises(ValueError) as exc_info:
+        cli._validate_selected_tasks([])
+
+    assert "broken-plugin (plugin: broken-package)" in str(exc_info.value)
+    assert "package import failed (missing dependency)" in str(exc_info.value)
+
+
+def test_validate_selected_unknown_task_reports_plugin_discovery_issues(monkeypatch):
+    cli = _import_cli_or_skip()
+    monkeypatch.setattr(
+        cli,
+        "discover_tasks",
+        lambda: SimpleNamespace(
+            tasks=[],
+            issues=[
+                cli.DiscoveryIssue(
+                    name="broken-plugin",
+                    source="plugin: broken-package",
+                    error="package import failed (missing dependency)",
+                )
+            ],
+        ),
+    )
+
+    with pytest.raises(ValueError) as exc_info:
+        cli._validate_selected_tasks(["plugin_task"])
+
+    assert "Unknown task(s): plugin_task" in str(exc_info.value)
+    assert "broken-plugin (plugin: broken-package)" in str(exc_info.value)
 
 
 def test_validate_selected_processors_validates_all_when_no_names(monkeypatch):
@@ -208,11 +279,15 @@ def test_validate_selected_processors_validates_all_when_no_names(monkeypatch):
 
     processors = [
         cli.ProcessorDescriptor(
-            name="summary_report", run=lambda: None, source="stock"
+            name="summary_report", load=lambda: None, source="stock"
         ),
-        cli.ProcessorDescriptor(name="html_export", run=lambda: None, source="stock"),
+        cli.ProcessorDescriptor(name="html_export", load=lambda: None, source="stock"),
     ]
-    monkeypatch.setattr(cli, "discover_processors", lambda: processors)
+    monkeypatch.setattr(
+        cli,
+        "discover_processors",
+        lambda: SimpleNamespace(processors=processors, issues=[]),
+    )
 
     def fake_validate_processors(processors):
         seen["validated"] = [processor.name for processor in processors]
@@ -230,11 +305,15 @@ def test_validate_selected_processors_validates_selected_names(monkeypatch):
 
     processors = [
         cli.ProcessorDescriptor(
-            name="summary_report", run=lambda: None, source="stock"
+            name="summary_report", load=lambda: None, source="stock"
         ),
-        cli.ProcessorDescriptor(name="html_export", run=lambda: None, source="stock"),
+        cli.ProcessorDescriptor(name="html_export", load=lambda: None, source="stock"),
     ]
-    monkeypatch.setattr(cli, "discover_processors", lambda: processors)
+    monkeypatch.setattr(
+        cli,
+        "discover_processors",
+        lambda: SimpleNamespace(processors=processors, issues=[]),
+    )
 
     def fake_validate_processors(processors):
         seen["validated"] = [processor.name for processor in processors]
@@ -252,14 +331,18 @@ def test_validate_selected_processors_preserves_duplicate_discoveries(monkeypatc
 
     processors = [
         cli.ProcessorDescriptor(
-            name="summary_report", run=lambda: None, source="stock"
+            name="summary_report", load=lambda: None, source="stock"
         ),
         cli.ProcessorDescriptor(
-            name="summary_report", run=lambda: None, source="plugin"
+            name="summary_report", load=lambda: None, source="plugin"
         ),
-        cli.ProcessorDescriptor(name="html_export", run=lambda: None, source="stock"),
+        cli.ProcessorDescriptor(name="html_export", load=lambda: None, source="stock"),
     ]
-    monkeypatch.setattr(cli, "discover_processors", lambda: processors)
+    monkeypatch.setattr(
+        cli,
+        "discover_processors",
+        lambda: SimpleNamespace(processors=processors, issues=[]),
+    )
 
     def fake_validate_processors(processors):
         seen["validated"] = [
@@ -281,15 +364,72 @@ def test_validate_selected_processors_reports_unknown_names(monkeypatch):
     monkeypatch.setattr(
         cli,
         "discover_processors",
-        lambda: [
-            cli.ProcessorDescriptor(
-                name="summary_report", run=lambda: None, source="stock"
-            )
-        ],
+        lambda: SimpleNamespace(
+            processors=[
+                cli.ProcessorDescriptor(
+                    name="summary_report", load=lambda: None, source="stock"
+                )
+            ],
+            issues=[],
+        ),
     )
 
     with pytest.raises(ValueError, match="Unknown processor"):
         cli._validate_selected_processors(["missing"])
+
+
+def test_validate_all_processors_reports_plugin_discovery_issues(monkeypatch):
+    cli = _import_cli_or_skip()
+    monkeypatch.setattr(
+        cli,
+        "discover_processors",
+        lambda: SimpleNamespace(
+            processors=[],
+            issues=[
+                cli.DiscoveryIssue(
+                    name="broken-plugin",
+                    source="plugin: broken-package",
+                    error="package import failed (missing dependency)",
+                )
+            ],
+        ),
+    )
+
+    with pytest.raises(ValueError) as exc_info:
+        cli._validate_selected_processors([])
+
+    assert "broken-plugin (plugin: broken-package)" in str(exc_info.value)
+    assert "package import failed (missing dependency)" in str(exc_info.value)
+
+
+def test_validate_selected_known_processor_ignores_unrelated_discovery_issues(
+    monkeypatch,
+):
+    cli = _import_cli_or_skip()
+
+    def run(*, context, output, metadata):
+        return None
+
+    monkeypatch.setattr(
+        cli,
+        "discover_processors",
+        lambda: SimpleNamespace(
+            processors=[
+                cli.ProcessorDescriptor(
+                    name="summary_report", load=lambda: run, source="stock"
+                )
+            ],
+            issues=[
+                cli.DiscoveryIssue(
+                    name="broken-plugin",
+                    source="plugin: broken-package",
+                    error="package import failed (missing dependency)",
+                )
+            ],
+        ),
+    )
+
+    cli._validate_selected_processors(["summary_report"])
 
 
 def test_validate_aggregates_failures_and_successes(monkeypatch, capsys):
@@ -324,7 +464,7 @@ def test_validate_aggregates_failures_and_successes(monkeypatch, capsys):
     assert "[OK]     Tasks" in output
     assert "[ERROR]  Processors" in output
     assert "[OK]     Authentication" in output
-    assert "Result: Failed" in output
+    assert "Result:" not in output
 
 
 def test_validate_treats_nonzero_auth_exit_code_as_failure(monkeypatch, capsys):
@@ -344,7 +484,7 @@ def test_validate_treats_nonzero_auth_exit_code_as_failure(monkeypatch, capsys):
     assert cli._cmd_validate(args) == 1
     output = capsys.readouterr().out
     assert "[ERROR]  Authentication" in output
-    assert "Result: Failed" in output
+    assert "Result:" not in output
 
 
 def test_validate_combined_categories_report_auth_failure(monkeypatch, capsys):
@@ -369,7 +509,7 @@ def test_validate_combined_categories_report_auth_failure(monkeypatch, capsys):
     assert "[OK]     Tasks" in output
     assert "[OK]     Processors" in output
     assert "[ERROR]  Authentication" in output
-    assert "Result: Failed" in output
+    assert "Result:" not in output
 
 
 def test_validate_tasks_and_processors_report_success(monkeypatch, capsys):
@@ -391,7 +531,7 @@ def test_validate_tasks_and_processors_report_success(monkeypatch, capsys):
     output = capsys.readouterr().out
     assert "[OK]     Tasks" in output
     assert "[OK]     Processors" in output
-    assert "Result: Success" in output
+    assert "Result:" not in output
 
 
 def test_validate_task_failure_reports_failed_result(monkeypatch, capsys):
@@ -417,7 +557,7 @@ def test_validate_task_failure_reports_failed_result(monkeypatch, capsys):
     output = capsys.readouterr().out
     assert "[ERROR]  Tasks" in output
     assert "task 'count_vpc' is missing required run() parameters" in output
-    assert "Result: Failed" in output
+    assert "Result:" not in output
 
 
 def test_validate_auth_uses_quiet_auth_check(monkeypatch):
@@ -494,4 +634,4 @@ def test_validate_returns_success_when_all_categories_pass(monkeypatch, capsys):
     monkeypatch.setattr(cli, "_validate_selected_processors", lambda _: None)
 
     assert cli._cmd_validate(args) == 0
-    assert "Result: Success" in capsys.readouterr().out
+    assert "Result:" not in capsys.readouterr().out

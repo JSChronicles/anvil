@@ -67,13 +67,13 @@ def test_discover_tasks_includes_real_plugin_entry_point(monkeypatch, tmp_path):
     monkeypatch.syspath_prepend(str(tmp_path))
     importlib.invalidate_caches()
 
-    descriptors = task_loader.discover_tasks()
+    descriptors = task_loader.discover_tasks().tasks
     descriptor = next(
         task for task in descriptors if task.name == "discoverable_plugin_task"
     )
 
     assert descriptor.source == "plugin: anvil-test-task-discovery-plugin"
-    assert descriptor.run()() == {"source": "plugin-task"}
+    assert descriptor.load()() == {"source": "plugin-task"}
 
 
 def test_discover_processors_includes_real_plugin_entry_point(monkeypatch, tmp_path):
@@ -93,7 +93,7 @@ def test_discover_processors_includes_real_plugin_entry_point(monkeypatch, tmp_p
     importlib.invalidate_caches()
     processor_loader.load_processor_callable.cache_clear()
 
-    descriptors = processor_loader.discover_processors()
+    descriptors = processor_loader.discover_processors().processors
     descriptor = next(
         processor
         for processor in descriptors
@@ -101,6 +101,6 @@ def test_discover_processors_includes_real_plugin_entry_point(monkeypatch, tmp_p
     )
 
     assert descriptor.source == "plugin: anvil-test-processor-plugin"
-    assert descriptor.run()(
+    assert descriptor.load()(
         context=None, output="report.md", metadata={"ok": True}
     ) == {"output": "report.md", "metadata": {"ok": True}}

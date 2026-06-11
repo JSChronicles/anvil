@@ -7,7 +7,8 @@ from dataclasses import dataclass
 from functools import lru_cache
 
 from anvil._loader_utils import (
-    iter_plugin_modules,
+    DiscoveryIssue,
+    discover_plugin_modules,
     iter_stock_modules,
     load_plugin_callable,
     load_stock_callable,
@@ -47,9 +48,19 @@ class TaskConfigError(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class TaskDescriptor:
+    """Discovered task and lazy loader for its run callable."""
+
     name: str
-    run: Callable
+    load: Callable[[], Callable]
     source: str
+
+
+@dataclass(frozen=True, slots=True)
+class TaskDiscoveryResult:
+    """Discovered tasks and non-fatal discovery issues."""
+
+    tasks: list[TaskDescriptor]
+    issues: list[DiscoveryIssue]
 
 
 @dataclass(frozen=True, slots=True)
@@ -251,28 +262,30 @@ def resolve_tasks(*, task_specs: Sequence[TaskSpecInput]) -> ResolvedExecution:
     return _build_resolved_execution(ordered, adjacency)
 
 
-def discover_tasks() -> list[TaskDescriptor]:
+def discover_tasks() -> TaskDiscoveryResult:
+    """Discover tasks and report plugin packages that cannot be inspected."""
     tasks: dict[str, TaskDescriptor] = {}
 
     for module in iter_stock_modules(package_name="anvil.tasks", load=_load_core_task):
         name = module.name
-        tasks[name] = TaskDescriptor(name=name, run=module.load, source=module.source)
+        tasks[name] = TaskDescriptor(name=name, load=module.load, source=module.source)
 
-    for module in iter_plugin_modules(
+    plugin_result = discover_plugin_modules(
         entry_point_group=TASK_ENTRY_POINT_GROUP,
         load=_load_plugin_task,
         logger=__LOGGER__,
         skip_log_label="plugin",
-    ):
+    )
+    for module in plugin_result.modules:
         if module.name in tasks:
             continue
 
         tasks[module.name] = TaskDescriptor(
-            name=module.name, run=module.load, source=module.source
+            name=module.name, load=module.load, source=module.source
         )
 
-    return list(tasks.values())
+    return TaskDiscoveryResult(tasks=list(tasks.values()), issues=plugin_result.issues)
 
 
 def list_tasks() -> list[TaskDescriptor]:
-    return sorted(discover_tasks(), key=lambda task: (task.source, task.name))
+    return sorted(discover_tasks().tasks, key=lambda task: (task.source, task.name))

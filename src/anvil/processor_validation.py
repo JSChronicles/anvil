@@ -2,7 +2,8 @@
 Processor validation for Anvil.
 
 This module performs structural validation of post-run processor definitions.
-It does not execute processors against result data.
+It loads processor modules to inspect run(...) signatures, but does not execute
+processors against result data.
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ class ProcessorValidationError(ValueError):
 
 
 def validate_processors(processors: list[ProcessorDescriptor]) -> None:
-    """Validate discovered processors without running them."""
+    """Validate discovered processors without executing them."""
     errors: list[str] = []
     seen_names: set[str] = set()
 
@@ -38,12 +39,12 @@ def validate_processors(processors: list[ProcessorDescriptor]) -> None:
 
             seen_names.add(processor.name)
 
-            if not callable(processor.run):
+            if not callable(processor.load):
                 raise ProcessorValidationError(
-                    f"processor '{processor.name}'.run is not callable"
+                    f"processor '{processor.name}'.load is not callable"
                 )
 
-            run = processor.run()
+            run = processor.load()
             if not callable(run):
                 raise ProcessorValidationError(
                     f"processor '{processor.name}' is missing required run() function"

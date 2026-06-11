@@ -96,10 +96,10 @@ def test_cmd_list_tasks_groups_by_source(monkeypatch, capsys):
         cli,
         "list_tasks",
         lambda: [
-            cli.TaskDescriptor(name="count_vpc", run=lambda: None, source="stock"),
-            cli.TaskDescriptor(name="noop", run=lambda: None, source="stock"),
+            cli.TaskDescriptor(name="count_vpc", load=lambda: None, source="stock"),
+            cli.TaskDescriptor(name="noop", load=lambda: None, source="stock"),
             cli.TaskDescriptor(
-                name="custom_task", run=lambda: None, source="plugin: my-plugin"
+                name="custom_task", load=lambda: None, source="plugin: my-plugin"
             ),
         ],
     )
@@ -124,10 +124,10 @@ def test_cmd_list_processors_groups_by_source(monkeypatch, capsys):
         "list_processors",
         lambda: [
             cli.ProcessorDescriptor(
-                name="summary_json", run=lambda: None, source="stock"
+                name="summary_json", load=lambda: None, source="stock"
             ),
             cli.ProcessorDescriptor(
-                name="custom_report", run=lambda: None, source="plugin: my-plugin"
+                name="custom_report", load=lambda: None, source="plugin: my-plugin"
             ),
         ],
     )

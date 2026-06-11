@@ -31,7 +31,7 @@ def test_validate_processors_accepts_valid_processor():
         return None
 
     validate_processors(
-        [ProcessorDescriptor(name="summary", run=lambda: run, source="stock")]
+        [ProcessorDescriptor(name="summary", load=lambda: run, source="stock")]
     )
 
 
@@ -42,8 +42,8 @@ def test_validate_processors_rejects_duplicate_names():
     with pytest.raises(ProcessorValidationError, match="duplicate processor name"):
         validate_processors(
             [
-                ProcessorDescriptor(name="summary", run=lambda: run, source="stock"),
-                ProcessorDescriptor(name="summary", run=lambda: run, source="plugin"),
+                ProcessorDescriptor(name="summary", load=lambda: run, source="stock"),
+                ProcessorDescriptor(name="summary", load=lambda: run, source="plugin"),
             ]
         )
 
@@ -54,7 +54,7 @@ def test_validate_processors_rejects_missing_contract_parameter():
 
     with pytest.raises(ProcessorValidationError, match="metadata"):
         validate_processors(
-            [ProcessorDescriptor(name="summary", run=lambda: run, source="stock")]
+            [ProcessorDescriptor(name="summary", load=lambda: run, source="stock")]
         )
 
 
