@@ -3,6 +3,8 @@ from __future__ import annotations
 import importlib
 from pathlib import Path
 
+import pytest
+
 from anvil import processor_loader, task_loader
 
 
@@ -52,6 +54,30 @@ def test_resolve_tasks_loads_real_plugin_entry_point(monkeypatch, tmp_path):
 
     assert execution.ordered[0].name == "real_plugin_task"
     assert execution.ordered[0].run() == {"source": "plugin-task"}
+
+
+def test_resolve_tasks_reports_plugin_dependency_import_error(monkeypatch, tmp_path):
+    _write_plugin_distribution(
+        root=tmp_path,
+        distribution_name="anvil-test-broken-task-plugin",
+        package_name="anvil_test_broken_task_plugin",
+        entry_point_group=task_loader.TASK_ENTRY_POINT_GROUP,
+        entry_point_name="test-broken-task-plugin",
+        module_name="broken_plugin_task",
+        module_body="import missing_dependency\n\ndef run(**kwargs):\n    return None\n",
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    importlib.invalidate_caches()
+    task_loader._load_task_callable.cache_clear()
+    task_loader._resolve_tasks_cached.cache_clear()
+
+    with pytest.raises(task_loader.TaskConfigError) as exc_info:
+        task_loader.resolve_tasks(task_specs=[{"name": "broken_plugin_task"}])
+
+    error = str(exc_info.value)
+    assert "Plugin task 'broken_plugin_task'" in error
+    assert "failed during import" in error
+    assert "missing_dependency" in error
 
 
 def test_discover_tasks_includes_real_plugin_entry_point(monkeypatch, tmp_path):

@@ -155,10 +155,11 @@ def test_validate_selected_tasks_validates_all_when_no_names(monkeypatch):
         ),
     )
 
-    def fake_validate_tasks(tasks):
+    def fake_task_validation_errors(tasks):
         seen["validated"] = [task.name for task in tasks]
+        return []
 
-    monkeypatch.setattr(cli, "validate_tasks", fake_validate_tasks)
+    monkeypatch.setattr(cli, "task_validation_errors", fake_task_validation_errors)
 
     cli._validate_selected_tasks([])
 
@@ -197,10 +198,11 @@ def test_validate_selected_tasks_validates_selected_names(monkeypatch):
         ),
     )
 
-    def fake_validate_tasks(tasks):
+    def fake_task_validation_errors(tasks):
         seen["validated"] = [task.name for task in tasks]
+        return []
 
-    monkeypatch.setattr(cli, "validate_tasks", fake_validate_tasks)
+    monkeypatch.setattr(cli, "task_validation_errors", fake_task_validation_errors)
 
     cli._validate_selected_tasks(["noop"])
 
@@ -289,10 +291,13 @@ def test_validate_selected_processors_validates_all_when_no_names(monkeypatch):
         lambda: SimpleNamespace(processors=processors, issues=[]),
     )
 
-    def fake_validate_processors(processors):
+    def fake_processor_validation_errors(processors):
         seen["validated"] = [processor.name for processor in processors]
+        return []
 
-    monkeypatch.setattr(cli, "validate_processors", fake_validate_processors)
+    monkeypatch.setattr(
+        cli, "processor_validation_errors", fake_processor_validation_errors
+    )
 
     cli._validate_selected_processors([])
 
@@ -315,10 +320,13 @@ def test_validate_selected_processors_validates_selected_names(monkeypatch):
         lambda: SimpleNamespace(processors=processors, issues=[]),
     )
 
-    def fake_validate_processors(processors):
+    def fake_processor_validation_errors(processors):
         seen["validated"] = [processor.name for processor in processors]
+        return []
 
-    monkeypatch.setattr(cli, "validate_processors", fake_validate_processors)
+    monkeypatch.setattr(
+        cli, "processor_validation_errors", fake_processor_validation_errors
+    )
 
     cli._validate_selected_processors(["html_export"])
 
@@ -344,12 +352,15 @@ def test_validate_selected_processors_preserves_duplicate_discoveries(monkeypatc
         lambda: SimpleNamespace(processors=processors, issues=[]),
     )
 
-    def fake_validate_processors(processors):
+    def fake_processor_validation_errors(processors):
         seen["validated"] = [
             (processor.name, processor.source) for processor in processors
         ]
+        return []
 
-    monkeypatch.setattr(cli, "validate_processors", fake_validate_processors)
+    monkeypatch.setattr(
+        cli, "processor_validation_errors", fake_processor_validation_errors
+    )
 
     cli._validate_selected_processors(["summary_report"])
 

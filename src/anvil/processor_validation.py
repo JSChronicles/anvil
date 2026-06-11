@@ -22,6 +22,13 @@ class ProcessorValidationError(ValueError):
 
 def validate_processors(processors: list[ProcessorDescriptor]) -> None:
     """Validate discovered processors without executing them."""
+    errors = processor_validation_errors(processors)
+    if errors:
+        raise ProcessorValidationError("\n  - " + "\n  - ".join(errors))
+
+
+def processor_validation_errors(processors: list[ProcessorDescriptor]) -> list[str]:
+    """Return structural validation errors for processor definitions."""
     errors: list[str] = []
     seen_names: set[str] = set()
 
@@ -55,8 +62,7 @@ def validate_processors(processors: list[ProcessorDescriptor]) -> None:
         except Exception as exc:
             errors.append(f"{processor.name} ({processor.source}): {exc}")
 
-    if errors:
-        raise ProcessorValidationError("\n  - " + "\n  - ".join(errors))
+    return errors
 
 
 def _validate_processor_run_signature(*, name: str, run: Callable) -> None:

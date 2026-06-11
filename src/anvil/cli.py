@@ -30,7 +30,7 @@ from anvil.processor_loader import (
     run_configured_post_processors,
     run_processors,
 )
-from anvil.processor_validation import validate_processors
+from anvil.processor_validation import processor_validation_errors
 from anvil.result_query import (
     ResultFilters,
     build_rerun_targets,
@@ -49,7 +49,7 @@ from anvil.result_query import (
 from anvil.results import EngineResult, EngineState
 from anvil.runner import run_auth_checks, run_multiple_targets
 from anvil.task_loader import ResolvedTask, TaskDescriptor, discover_tasks, list_tasks
-from anvil.task_validation import validate_tasks
+from anvil.task_validation import task_validation_errors
 from anvil.validators import load_config_descriptors, validate_config_schema
 
 __LOGGER__ = logging.getLogger(__name__)
@@ -389,18 +389,6 @@ def _discovery_issue_messages(issues: list[DiscoveryIssue]) -> list[str]:
     return [f"{issue.name} ({issue.source}): {issue.error}" for issue in issues]
 
 
-def _validation_error_messages(error: Exception) -> list[str]:
-    messages: list[str] = []
-    for line in str(error).splitlines():
-        message = line.strip()
-        if not message:
-            continue
-        if message.startswith("- "):
-            message = message[2:].strip()
-        messages.append(message)
-    return messages
-
-
 def _raise_validation_errors(errors: list[str]) -> None:
     if errors:
         raise ValueError("\n  - " + "\n  - ".join(errors))
@@ -439,7 +427,7 @@ def _validate_selected_tasks(task_names: list[str] | None) -> None:
                 descriptors=discovery.tasks, task_names=task_names
             )
         except ValueError as exc:
-            errors.extend(_validation_error_messages(exc))
+            errors.append(str(exc))
             errors.extend(_discovery_issue_messages(discovery.issues))
             _raise_validation_errors(errors)
     else:
@@ -457,11 +445,7 @@ def _validate_selected_tasks(task_names: list[str] | None) -> None:
             ResolvedTask(name=descriptor.name, run=run, depends_on=[], optional=False)
         )
 
-    try:
-        validate_tasks(resolved)
-    except Exception as exc:
-        errors.extend(_validation_error_messages(exc))
-
+    errors.extend(task_validation_errors(resolved))
     _raise_validation_errors(errors)
 
 
@@ -502,17 +486,13 @@ def _validate_selected_processors(processor_names: list[str] | None) -> None:
                 descriptors=discovery.processors, processor_names=processor_names
             )
         except ValueError as exc:
-            errors.extend(_validation_error_messages(exc))
+            errors.append(str(exc))
             errors.extend(_discovery_issue_messages(discovery.issues))
             _raise_validation_errors(errors)
     else:
         errors.extend(_discovery_issue_messages(discovery.issues))
 
-    try:
-        validate_processors(processors)
-    except Exception as exc:
-        errors.extend(_validation_error_messages(exc))
-
+    errors.extend(processor_validation_errors(processors))
     _raise_validation_errors(errors)
 
 

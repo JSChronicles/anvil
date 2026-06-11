@@ -25,6 +25,13 @@ class TaskValidationError(ValueError):
 
 
 def validate_tasks(tasks: list) -> None:
+    errors = task_validation_errors(tasks)
+    if errors:
+        raise TaskValidationError("\n  - " + "\n  - ".join(errors))
+
+
+def task_validation_errors(tasks: list) -> list[str]:
+    """Return structural validation errors for task definitions."""
     errors: list[str] = []
     seen_names: set[str] = set()
 
@@ -49,8 +56,7 @@ def validate_tasks(tasks: list) -> None:
         except TaskValidationError as exc:
             errors.append(str(exc))
 
-    if errors:
-        raise TaskValidationError("\n  - " + "\n  - ".join(errors))
+    return errors
 
 
 def _validate_task_run_signature(task) -> None:

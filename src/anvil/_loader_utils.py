@@ -95,10 +95,16 @@ def load_plugin_callable(
             import_failures.append(f"{entry_point.name}: package import failed ({exc})")
             continue
 
+        module_name = f"{pkg.__name__}.{name}"
         try:
-            module = importlib.import_module(f"{pkg.__name__}.{name}")
-        except ModuleNotFoundError:
-            continue
+            module = importlib.import_module(module_name)
+        except ModuleNotFoundError as exc:
+            if exc.name == module_name:
+                continue
+            raise error_type(
+                f"Plugin {kind} '{name}' in plugin "
+                f"'{entry_point.name}' failed during import: {exc}"
+            ) from exc
         except Exception as exc:
             raise error_type(
                 f"Plugin {kind} '{name}' in plugin "
