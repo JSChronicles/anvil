@@ -61,7 +61,7 @@ __LOGGER__.info(f"Account {account_id} processed")
 
 Rules:
 
-- Use module-level loggers: `logger = logging.getLogger(__name__)`.
+- Use module-level loggers: `__LOGGER__ = logging.getLogger(__name__)`.
 - Use f-strings for logging messages.
 - Include useful context in log messages.
 - Do not log and suppress errors unless controlled recovery is intentional.
