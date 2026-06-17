@@ -325,6 +325,7 @@ def _build_execution_context(
         metadata=target.metadata,
         fail_fast=target.fail_fast,
         max_parallel_regions=target.max_parallel_regions,
+        assume_role_in_management=target.assume_role_in_management,
         benchmark_enabled=benchmark_enabled,
     )
 

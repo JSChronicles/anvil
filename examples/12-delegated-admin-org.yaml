@@ -1,0 +1,11 @@
+schema_version: 1
+
+organizations:
+  - name: security
+    profile: delegated-admin-security
+    role_name: SecurityAuditRole
+    assume_role_in_management: true
+    regions:
+      - us-east-1
+    tasks:
+      - name: noop

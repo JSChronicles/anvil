@@ -6,6 +6,10 @@ organizations:
     profile: place-root
     # Organizations support explicit regions, all by itself, glob selectors,
     # and mixed glob plus explicit selectors.
+    # Delegated administrator workflows can set assume_role_in_management: true
+    # to make the management/payer account assume role_name just like member
+    # accounts. The role must exist in all member accounts and in the
+    # management/payer account.
     regions:
       - us-east-1
       - us-west-2

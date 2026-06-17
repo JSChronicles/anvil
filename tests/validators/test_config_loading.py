@@ -53,6 +53,30 @@ def test_load_config_descriptors_reads_max_parallel_regions():
     assert loaded.targets[0].max_parallel_regions == 4
 
 
+def test_load_config_descriptors_defaults_assume_role_in_management_to_false():
+    validators = _import_validators_or_skip()
+
+    loaded = validators.load_config_descriptors(
+        config={"schema_version": 1, "organizations": [{"name": "org-a"}]}
+    )
+
+    assert loaded.targets[0].assume_role_in_management is False
+
+
+def test_load_config_descriptors_reads_assume_role_in_management():
+    validators = _import_validators_or_skip()
+
+    loaded = validators.load_config_descriptors(
+        config={
+            "schema_version": 1,
+            "organizations": [{"name": "org-a", "assume_role_in_management": True}],
+        }
+    )
+
+    assert loaded.targets[0].assume_role_in_management is True
+    assert loaded.targets[0].role_name == "OrganizationAccountAccessRole"
+
+
 def test_load_config_descriptors_reads_post_run_processors():
     validators = _import_validators_or_skip()
 
@@ -133,6 +157,35 @@ def test_validate_config_schema_accepts_max_parallel_regions_for_accounts():
             ],
         }
     )
+
+
+def test_validate_config_schema_accepts_assume_role_in_management_for_organizations():
+    validators = _import_validators_or_skip()
+
+    validators.validate_config_schema(
+        config={
+            "schema_version": 1,
+            "organizations": [{"name": "org-a", "assume_role_in_management": True}],
+        }
+    )
+
+
+def test_validate_config_schema_rejects_assume_role_in_management_for_accounts():
+    validators = _import_validators_or_skip()
+
+    with pytest.raises(ValueError, match="assume_role_in_management"):
+        validators.validate_config_schema(
+            config={
+                "schema_version": 1,
+                "accounts": [
+                    {
+                        "name": "group-a",
+                        "include": ["111111111111"],
+                        "assume_role_in_management": True,
+                    }
+                ],
+            }
+        )
 
 
 def test_validate_config_schema_accepts_post_run_for_organizations():

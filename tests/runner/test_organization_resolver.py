@@ -36,13 +36,16 @@ class FailingSessionFactory:
         raise AssertionError("preflight base_session should be reused")
 
 
-def _context(*, regions: list[str] | None = None) -> ExecutionContext:
+def _context(
+    *, regions: list[str] | None = None, assume_role_in_management: bool = False
+) -> ExecutionContext:
     return ExecutionContext(
         regions=regions or ["us-east-1"],
         role_name="TestRole",
         dry_run=True,
         tasks=[],
         metadata={},
+        assume_role_in_management=assume_role_in_management,
     )
 
 
@@ -154,7 +157,7 @@ def test_filter_accounts_intersects_include_and_exclude_filters():
     assert list(excluded) == ["222222222222"]
 
 
-def test_resolve_accounts_uses_preflight_data_and_builds_account_modes():
+def test_resolve_accounts_uses_default_management_account_direct_mode():
     discovered_accounts = {
         "111111111111": {
             "account_number": "111111111111",
@@ -186,6 +189,55 @@ def test_resolve_accounts_uses_preflight_data_and_builds_account_modes():
     assert accounts[1]._assume_role is True
     assert accounts[0]._regions == ["us-east-1"]
     assert accounts[1]._regions == ["us-east-1"]
+
+
+def test_resolve_accounts_uses_explicit_management_account_direct_mode():
+    resolver = OrganizationResolver(
+        descriptor=_target(assume_role_in_management=False),
+        context=_context(assume_role_in_management=False),
+        management_account_id="111111111111",
+        base_session=object(),
+        discovered_accounts={
+            "111111111111": {
+                "account_number": "111111111111",
+                "account_alias": "management",
+            },
+            "222222222222": {
+                "account_number": "222222222222",
+                "account_alias": "member",
+            },
+        },
+        region_statuses={"us-east-1": "ENABLED_BY_DEFAULT"},
+    )
+
+    accounts = resolver.resolve_accounts()
+
+    assert [account._assume_role for account in accounts] == [False, True]
+
+
+def test_resolve_accounts_assumes_role_in_management_when_configured():
+    resolver = OrganizationResolver(
+        descriptor=_target(assume_role_in_management=True),
+        context=_context(assume_role_in_management=True),
+        management_account_id="111111111111",
+        base_session=object(),
+        discovered_accounts={
+            "111111111111": {
+                "account_number": "111111111111",
+                "account_alias": "management",
+            },
+            "222222222222": {
+                "account_number": "222222222222",
+                "account_alias": "member",
+            },
+        },
+        region_statuses={"us-east-1": "ENABLED_BY_DEFAULT"},
+    )
+
+    accounts = resolver.resolve_accounts()
+
+    assert accounts[0].is_management is True
+    assert [account._assume_role for account in accounts] == [True, True]
 
 
 def test_resolve_accounts_expands_all_region_selector():
