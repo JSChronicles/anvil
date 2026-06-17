@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 <!-- version list -->
 
+## v0.29.0 (2026-06-17)
+
+### Features
+
+- Add assume_role_in_management for organizations
+  ([#52](https://github.com/JSChronicles/anvil/pull/52),
+  [`a74c830`](https://github.com/JSChronicles/anvil/commit/a74c8309bc0d33c80c90ec8ec27de4adeffbdc94))
+
+
 ## v0.28.2 (2026-06-11)
 
 ### Bug Fixes
