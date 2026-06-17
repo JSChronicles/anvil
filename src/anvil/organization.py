@@ -97,12 +97,15 @@ class OrganizationResolver:
 
         for info in target_accounts.values():
             account_id = info["account_number"]
+            is_management = account_id == management_account_id
             accounts.append(
                 Account(
                     account_id=account_id,
                     account_alias=info["account_alias"],
-                    is_management=account_id == management_account_id,
-                    assume_role=account_id != management_account_id,
+                    is_management=is_management,
+                    assume_role=(
+                        not is_management or self.context.assume_role_in_management
+                    ),
                     base_session=base_session,
                     context=self.context,
                     regions=effective_regions,

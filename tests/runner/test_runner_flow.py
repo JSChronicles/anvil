@@ -524,3 +524,50 @@ def test_prepare_target_carries_max_parallel_regions_into_context(monkeypatch):
 
     assert prepared.context is not None
     assert prepared.context.max_parallel_regions == 3
+
+
+def test_prepare_target_carries_assume_role_in_management_into_context(monkeypatch):
+    monkeypatch.setattr(
+        "anvil.runner._run_cached_auth_check_for_target",
+        lambda target, auth_cache: AuthResult(
+            target_name=target.name,
+            status=ExecutionStatus.SUCCESS,
+            source="test",
+            started_at="start",
+            ended_at="end",
+            duration_seconds=0.0,
+            message="ok",
+        ),
+    )
+    monkeypatch.setattr(
+        "anvil.runner.resolve_tasks",
+        lambda task_specs: ResolvedExecution(ordered=[], adjacency={}),
+    )
+    monkeypatch.setattr(
+        "anvil.runner._preflight_organization",
+        lambda **kwargs: (
+            object(),
+            "o-shared",
+            "999999999999",
+            {},
+            {"us-east-1": "ENABLED_BY_DEFAULT"},
+        ),
+    )
+
+    prepared = prepare_target(
+        index=0,
+        target=TargetDescriptor(
+            config_branch=ConfigBranch.ORGANIZATIONS,
+            name="org-a",
+            assume_role_in_management=True,
+            tasks=[],
+        ),
+        cli_dry_run=None,
+        cli_include=None,
+        cli_exclude=None,
+        organization_cache=OrganizationRunCache(),
+        auth_cache=AuthCheckCache(),
+    )
+
+    assert prepared.context is not None
+    assert prepared.context.assume_role_in_management is True

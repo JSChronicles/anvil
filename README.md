@@ -102,6 +102,28 @@ organizations:
     dry_run: true
 ```
 
+For delegated-administrator patterns, keep the base session on the
+delegated-admin profile and set `assume_role_in_management: true` so Anvil
+assumes `role_name` in the management/payer account just like it would in the
+rest of the member accounts. That role must exist in all member accounts and in
+the management/payer account; delegated-admin StackSets usually do not deploy
+into the management account, so that role often needs to be created separately
+there.
+
+```yaml
+schema_version: 1
+
+organizations:
+  - name: security
+    profile: delegated-admin-security
+    role_name: SecurityAuditRole
+    assume_role_in_management: true
+    regions:
+      - us-east-1
+    tasks:
+      - name: noop
+```
+
 ------------------------------
 
 Run a more detailed YAML:
