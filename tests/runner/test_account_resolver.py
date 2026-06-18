@@ -11,10 +11,10 @@ class FakeSessionFactory:
         return type("_BaseSession", (), {"profile_name": kwargs["profile_name"]})()
 
 
-def _context() -> ExecutionContext:
+def _context(*, role_name: str | None = None) -> ExecutionContext:
     return ExecutionContext(
         regions=["us-east-1"],
-        role_name=None,
+        role_name=role_name,
         dry_run=True,
         tasks=[],
         metadata={},
@@ -29,7 +29,7 @@ def test_resolve_accounts_uses_assume_role_strategy_when_role_name_is_configured
         role_name="SecurityAccessRole",
         include=["111111111111", "222222222222"],
     )
-    context = _context()
+    context = _context(role_name="SecurityAccessRole")
 
     accounts = AccountResolver(
         descriptor=descriptor,

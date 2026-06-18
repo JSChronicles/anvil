@@ -239,6 +239,110 @@ def test_prepare_target_reuses_same_org_discovery_cache(monkeypatch):
     assert prepared_b.region_statuses == region_statuses
 
 
+def test_prepare_target_keeps_base_session_account_out_of_org_cache(monkeypatch):
+    discovered_accounts = {
+        "111111111111": {"account_number": "111111111111", "account_alias": "payer"},
+        "222222222222": {
+            "account_number": "222222222222",
+            "account_alias": "delegated-admin",
+        },
+    }
+    region_statuses = {"us-east-1": "ENABLED_BY_DEFAULT"}
+    call_counts = {"accounts": 0, "regions": 0}
+    base_account_ids = {
+        "management-profile": "111111111111",
+        "delegated-profile": "222222222222",
+    }
+
+    monkeypatch.setattr(
+        "anvil.runner._run_cached_auth_check_for_target",
+        lambda target, auth_cache: AuthResult(
+            target_name=target.name,
+            status=ExecutionStatus.SUCCESS,
+            source="test",
+            started_at="start",
+            ended_at="end",
+            duration_seconds=0.0,
+            message="ok",
+        ),
+    )
+    monkeypatch.setattr(
+        "anvil.runner.resolve_tasks",
+        lambda task_specs: ResolvedExecution(ordered=[], adjacency={}),
+    )
+
+    class FakeSessionFactory:
+        def create_base_session(self, **kwargs):
+            return type("_BaseSession", (), {"profile_name": kwargs["profile_name"]})()
+
+    monkeypatch.setattr("anvil.runner.SessionFactory", FakeSessionFactory)
+    monkeypatch.setattr(
+        "anvil.runner.OrganizationResolver.describe_organization",
+        staticmethod(lambda session: ("o-shared", "111111111111")),
+    )
+    monkeypatch.setattr(
+        "anvil.runner.OrganizationResolver.describe_base_session_account",
+        staticmethod(lambda session: base_account_ids[session.profile_name]),
+    )
+
+    def fake_discover_accounts(session):
+        call_counts["accounts"] += 1
+        return discovered_accounts
+
+    def fake_discover_regions(session):
+        call_counts["regions"] += 1
+        return region_statuses
+
+    monkeypatch.setattr(
+        "anvil.runner.OrganizationResolver.discover_accounts",
+        staticmethod(fake_discover_accounts),
+    )
+    monkeypatch.setattr(
+        "anvil.runner.OrganizationResolver.discover_region_statuses",
+        staticmethod(fake_discover_regions),
+    )
+
+    organization_cache = OrganizationRunCache()
+    auth_cache = AuthCheckCache()
+
+    prepared_management = prepare_target(
+        index=0,
+        target=TargetDescriptor(
+            config_branch=ConfigBranch.ORGANIZATIONS,
+            name="management-auth",
+            profile="management-profile",
+            tasks=[],
+        ),
+        cli_dry_run=None,
+        cli_include=None,
+        cli_exclude=None,
+        organization_cache=organization_cache,
+        auth_cache=auth_cache,
+    )
+    prepared_delegated = prepare_target(
+        index=1,
+        target=TargetDescriptor(
+            config_branch=ConfigBranch.ORGANIZATIONS,
+            name="delegated-auth",
+            profile="delegated-profile",
+            tasks=[],
+        ),
+        cli_dry_run=None,
+        cli_include=None,
+        cli_exclude=None,
+        organization_cache=organization_cache,
+        auth_cache=auth_cache,
+    )
+
+    assert call_counts == {"accounts": 1, "regions": 1}
+    assert prepared_management.management_account_id == "111111111111"
+    assert prepared_management.base_session_account_id == "111111111111"
+    assert prepared_delegated.management_account_id == "111111111111"
+    assert prepared_delegated.base_session_account_id == "222222222222"
+    assert prepared_management.discovered_accounts == discovered_accounts
+    assert prepared_delegated.discovered_accounts == discovered_accounts
+
+
 def test_prepare_target_uses_bootstrap_region_for_region_selector(monkeypatch):
     created_session_regions: list[str] = []
 

@@ -190,34 +190,6 @@ def test_resolve_accounts_uses_default_management_account_direct_mode():
     assert accounts[1]._regions == ["us-east-1"]
 
 
-def test_resolve_accounts_uses_explicit_management_account_direct_mode():
-    resolver = OrganizationResolver(
-        descriptor=_target(),
-        context=_context(),
-        management_account_id="111111111111",
-        base_session_account_id="111111111111",
-        base_session=object(),
-        discovered_accounts={
-            "111111111111": {
-                "account_number": "111111111111",
-                "account_alias": "management",
-            },
-            "222222222222": {
-                "account_number": "222222222222",
-                "account_alias": "member",
-            },
-        },
-        region_statuses={"us-east-1": "ENABLED_BY_DEFAULT"},
-    )
-
-    accounts = resolver.resolve_accounts()
-
-    assert [account.access_strategy for account in accounts] == [
-        AccountAccessStrategy.BASE_SESSION,
-        AccountAccessStrategy.ASSUME_ROLE,
-    ]
-
-
 def test_resolve_accounts_uses_base_session_account_direct_mode_for_delegated_admin():
     resolver = OrganizationResolver(
         descriptor=_target(),
