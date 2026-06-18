@@ -87,6 +87,7 @@ def test_run_multiple_targets_reuses_same_profile_auth_during_preparation(monkey
             object(),
             "o-shared",
             "999999999999",
+            "999999999999",
             {
                 "999999999999": {
                     "account_number": "999999999999",
@@ -171,6 +172,10 @@ def test_prepare_target_reuses_same_org_discovery_cache(monkeypatch):
         "anvil.runner.OrganizationResolver.describe_organization",
         staticmethod(lambda session: ("o-shared", "999999999999")),
     )
+    monkeypatch.setattr(
+        "anvil.runner.OrganizationResolver.describe_base_session_account",
+        staticmethod(lambda session: "999999999999"),
+    )
 
     def fake_discover_accounts(session):
         call_counts["accounts"] += 1
@@ -234,6 +239,110 @@ def test_prepare_target_reuses_same_org_discovery_cache(monkeypatch):
     assert prepared_b.region_statuses == region_statuses
 
 
+def test_prepare_target_keeps_base_session_account_out_of_org_cache(monkeypatch):
+    discovered_accounts = {
+        "111111111111": {"account_number": "111111111111", "account_alias": "payer"},
+        "222222222222": {
+            "account_number": "222222222222",
+            "account_alias": "delegated-admin",
+        },
+    }
+    region_statuses = {"us-east-1": "ENABLED_BY_DEFAULT"}
+    call_counts = {"accounts": 0, "regions": 0}
+    base_account_ids = {
+        "management-profile": "111111111111",
+        "delegated-profile": "222222222222",
+    }
+
+    monkeypatch.setattr(
+        "anvil.runner._run_cached_auth_check_for_target",
+        lambda target, auth_cache: AuthResult(
+            target_name=target.name,
+            status=ExecutionStatus.SUCCESS,
+            source="test",
+            started_at="start",
+            ended_at="end",
+            duration_seconds=0.0,
+            message="ok",
+        ),
+    )
+    monkeypatch.setattr(
+        "anvil.runner.resolve_tasks",
+        lambda task_specs: ResolvedExecution(ordered=[], adjacency={}),
+    )
+
+    class FakeSessionFactory:
+        def create_base_session(self, **kwargs):
+            return type("_BaseSession", (), {"profile_name": kwargs["profile_name"]})()
+
+    monkeypatch.setattr("anvil.runner.SessionFactory", FakeSessionFactory)
+    monkeypatch.setattr(
+        "anvil.runner.OrganizationResolver.describe_organization",
+        staticmethod(lambda session: ("o-shared", "111111111111")),
+    )
+    monkeypatch.setattr(
+        "anvil.runner.OrganizationResolver.describe_base_session_account",
+        staticmethod(lambda session: base_account_ids[session.profile_name]),
+    )
+
+    def fake_discover_accounts(session):
+        call_counts["accounts"] += 1
+        return discovered_accounts
+
+    def fake_discover_regions(session):
+        call_counts["regions"] += 1
+        return region_statuses
+
+    monkeypatch.setattr(
+        "anvil.runner.OrganizationResolver.discover_accounts",
+        staticmethod(fake_discover_accounts),
+    )
+    monkeypatch.setattr(
+        "anvil.runner.OrganizationResolver.discover_region_statuses",
+        staticmethod(fake_discover_regions),
+    )
+
+    organization_cache = OrganizationRunCache()
+    auth_cache = AuthCheckCache()
+
+    prepared_management = prepare_target(
+        index=0,
+        target=TargetDescriptor(
+            config_branch=ConfigBranch.ORGANIZATIONS,
+            name="management-auth",
+            profile="management-profile",
+            tasks=[],
+        ),
+        cli_dry_run=None,
+        cli_include=None,
+        cli_exclude=None,
+        organization_cache=organization_cache,
+        auth_cache=auth_cache,
+    )
+    prepared_delegated = prepare_target(
+        index=1,
+        target=TargetDescriptor(
+            config_branch=ConfigBranch.ORGANIZATIONS,
+            name="delegated-auth",
+            profile="delegated-profile",
+            tasks=[],
+        ),
+        cli_dry_run=None,
+        cli_include=None,
+        cli_exclude=None,
+        organization_cache=organization_cache,
+        auth_cache=auth_cache,
+    )
+
+    assert call_counts == {"accounts": 1, "regions": 1}
+    assert prepared_management.management_account_id == "111111111111"
+    assert prepared_management.base_session_account_id == "111111111111"
+    assert prepared_delegated.management_account_id == "111111111111"
+    assert prepared_delegated.base_session_account_id == "222222222222"
+    assert prepared_management.discovered_accounts == discovered_accounts
+    assert prepared_delegated.discovered_accounts == discovered_accounts
+
+
 def test_prepare_target_uses_bootstrap_region_for_region_selector(monkeypatch):
     created_session_regions: list[str] = []
 
@@ -263,6 +372,10 @@ def test_prepare_target_uses_bootstrap_region_for_region_selector(monkeypatch):
     monkeypatch.setattr(
         "anvil.runner.OrganizationResolver.describe_organization",
         staticmethod(lambda session: ("o-shared", "999999999999")),
+    )
+    monkeypatch.setattr(
+        "anvil.runner.OrganizationResolver.describe_base_session_account",
+        staticmethod(lambda session: "999999999999"),
     )
     monkeypatch.setattr(
         "anvil.runner.OrganizationResolver.discover_accounts",
@@ -477,6 +590,7 @@ def test_run_prepared_target_uses_cached_org_preflight(monkeypatch):
         base_session=base_session,
         organization_id="o-shared",
         management_account_id="999999999999",
+        base_session_account_id="999999999999",
         discovered_accounts=discovered_accounts,
         region_statuses=region_statuses,
     )
@@ -524,50 +638,3 @@ def test_prepare_target_carries_max_parallel_regions_into_context(monkeypatch):
 
     assert prepared.context is not None
     assert prepared.context.max_parallel_regions == 3
-
-
-def test_prepare_target_carries_assume_role_in_management_into_context(monkeypatch):
-    monkeypatch.setattr(
-        "anvil.runner._run_cached_auth_check_for_target",
-        lambda target, auth_cache: AuthResult(
-            target_name=target.name,
-            status=ExecutionStatus.SUCCESS,
-            source="test",
-            started_at="start",
-            ended_at="end",
-            duration_seconds=0.0,
-            message="ok",
-        ),
-    )
-    monkeypatch.setattr(
-        "anvil.runner.resolve_tasks",
-        lambda task_specs: ResolvedExecution(ordered=[], adjacency={}),
-    )
-    monkeypatch.setattr(
-        "anvil.runner._preflight_organization",
-        lambda **kwargs: (
-            object(),
-            "o-shared",
-            "999999999999",
-            {},
-            {"us-east-1": "ENABLED_BY_DEFAULT"},
-        ),
-    )
-
-    prepared = prepare_target(
-        index=0,
-        target=TargetDescriptor(
-            config_branch=ConfigBranch.ORGANIZATIONS,
-            name="org-a",
-            assume_role_in_management=True,
-            tasks=[],
-        ),
-        cli_dry_run=None,
-        cli_include=None,
-        cli_exclude=None,
-        organization_cache=OrganizationRunCache(),
-        auth_cache=AuthCheckCache(),
-    )
-
-    assert prepared.context is not None
-    assert prepared.context.assume_role_in_management is True

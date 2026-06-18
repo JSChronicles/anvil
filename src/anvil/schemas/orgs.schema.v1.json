@@ -61,11 +61,6 @@
           "role_name": {
             "$ref": "common.schema.v1.json#/$defs/baseTargetProperties/role_name"
           },
-          "assume_role_in_management": {
-            "type": "boolean",
-            "default": false,
-            "description": "If true, the management/payer account uses the same configured role-assumption path as member accounts. This supports delegated-administrator broker workflows."
-          },
           "tasks": {
             "$ref": "common.schema.v1.json#/$defs/baseTargetProperties/tasks"
           },

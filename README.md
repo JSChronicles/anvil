@@ -103,12 +103,10 @@ organizations:
 ```
 
 For delegated-administrator patterns, keep the base session on the
-delegated-admin profile and set `assume_role_in_management: true` so Anvil
-assumes `role_name` in the management/payer account just like it would in the
-rest of the member accounts. That role must exist in all member accounts and in
-the management/payer account; delegated-admin StackSets usually do not deploy
-into the management account, so that role often needs to be created separately
-there.
+delegated-admin profile. Anvil uses that base session directly for the
+delegated-admin account if it appears in Organizations discovery, and assumes
+`role_name` in every other selected account, including the management/payer
+account.
 
 ```yaml
 schema_version: 1
@@ -117,7 +115,6 @@ organizations:
   - name: security
     profile: delegated-admin-security
     role_name: SecurityAuditRole
-    assume_role_in_management: true
     regions:
       - us-east-1
     tasks:

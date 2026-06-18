@@ -110,6 +110,7 @@ class PreparedTarget:
     base_session: Session | None = None
     organization_id: str | None = None
     management_account_id: str | None = None
+    base_session_account_id: str | None = None
     discovered_accounts: dict[str, dict[str, str]] | None = None
     region_statuses: dict[str, str] | None = None
     benchmark: dict[str, object] | None = None
@@ -325,7 +326,6 @@ def _build_execution_context(
         metadata=target.metadata,
         fail_fast=target.fail_fast,
         max_parallel_regions=target.max_parallel_regions,
-        assume_role_in_management=target.assume_role_in_management,
         benchmark_enabled=benchmark_enabled,
     )
 
@@ -337,7 +337,7 @@ def _preflight_organization(
     session_factory: SessionFactory,
     organization_cache: OrganizationRunCache,
     benchmark: dict[str, object] | None = None,
-) -> tuple[Session, str, str, dict[str, dict[str, str]], dict[str, str]]:
+) -> tuple[Session, str, str, str, dict[str, dict[str, str]], dict[str, str]]:
     sink = BenchmarkRecorder(data=benchmark)
 
     with sink.phase("create_base_session_seconds"):
@@ -349,6 +349,11 @@ def _preflight_organization(
     with sink.phase("describe_organization_seconds"):
         organization_id, management_account_id = (
             OrganizationResolver.describe_organization(base_session)
+        )
+
+    with sink.phase("describe_base_session_account_seconds"):
+        base_session_account_id = OrganizationResolver.describe_base_session_account(
+            base_session
         )
 
     def discover_organization() -> OrganizationRunCacheEntry:
@@ -376,6 +381,7 @@ def _preflight_organization(
         base_session,
         organization_id,
         lookup.entry.management_account_id,
+        base_session_account_id,
         lookup.entry.discovered_accounts,
         lookup.entry.region_statuses,
     )
@@ -430,6 +436,7 @@ def prepare_target(
         base_session: Session | None = None
         organization_id: str | None = None
         management_account_id: str | None = None
+        base_session_account_id: str | None = None
         discovered_accounts: dict[str, dict[str, str]] | None = None
         region_statuses: dict[str, str] | None = None
         if effective_target.is_organization_config:
@@ -437,6 +444,7 @@ def prepare_target(
                 base_session,
                 organization_id,
                 management_account_id,
+                base_session_account_id,
                 discovered_accounts,
                 region_statuses,
             ) = _preflight_organization(
@@ -456,6 +464,7 @@ def prepare_target(
         base_session=base_session,
         organization_id=organization_id,
         management_account_id=management_account_id,
+        base_session_account_id=base_session_account_id,
         discovered_accounts=discovered_accounts,
         region_statuses=region_statuses,
         benchmark=recorder.data,
@@ -474,6 +483,7 @@ def run_prepared_target(*, prepared_target: PreparedTarget) -> TargetExecutionOu
             descriptor=target,
             context=context,
             management_account_id=prepared_target.management_account_id,
+            base_session_account_id=prepared_target.base_session_account_id,
             session_factory=prepared_target.session_factory,
             base_session=prepared_target.base_session,
             discovered_accounts=prepared_target.discovered_accounts,

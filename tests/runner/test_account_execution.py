@@ -9,6 +9,7 @@ from anvil.account import (
     ASSUMED_CREDENTIAL_REFRESH_BUFFER,
     MINIMUM_ASSUMED_CREDENTIAL_REFRESH_WINDOW,
     Account,
+    AccountAccessStrategy,
 )
 from anvil.execution_context import ExecutionContext
 from anvil.results import ExecutionStatus
@@ -107,7 +108,7 @@ def _account(
     *,
     tasks: list[ResolvedTask],
     session_factory: RecordingSessionFactory | None = None,
-    assume_role: bool = False,
+    access_strategy: AccountAccessStrategy = AccountAccessStrategy.DIRECT_PROFILE,
     regions: list[str] | None = None,
     max_parallel_regions: int = 1,
 ) -> Account:
@@ -115,8 +116,8 @@ def _account(
     return Account(
         account_id="123456789012",
         account_alias="test-account",
-        is_management=not assume_role,
-        assume_role=assume_role,
+        is_management=access_strategy is AccountAccessStrategy.BASE_SESSION,
+        access_strategy=access_strategy,
         base_session=BaseSession(),
         context=_context(
             tasks=tasks,
@@ -216,7 +217,7 @@ def test_assume_role_path_reuses_assumed_credentials_for_regions():
     account = _account(
         tasks=[],
         session_factory=session_factory,
-        assume_role=True,
+        access_strategy=AccountAccessStrategy.ASSUME_ROLE,
         regions=["us-east-1", "us-west-2"],
     )
 
@@ -243,7 +244,7 @@ def test_assume_role_path_refreshes_expiring_credentials_before_region():
     account = _account(
         tasks=[],
         session_factory=session_factory,
-        assume_role=True,
+        access_strategy=AccountAccessStrategy.ASSUME_ROLE,
         regions=["us-east-1"],
     )
 
@@ -286,7 +287,7 @@ def test_assume_role_parallel_regions_refresh_credentials_once():
     account = _account(
         tasks=[ResolvedTask("blocking", blocking_task, depends_on=[], optional=False)],
         session_factory=session_factory,
-        assume_role=True,
+        access_strategy=AccountAccessStrategy.ASSUME_ROLE,
         regions=["us-east-1", "us-west-2"],
         max_parallel_regions=2,
     )
@@ -349,7 +350,7 @@ def test_sequential_regions_use_adaptive_refresh_window(monkeypatch):
     account = _account(
         tasks=[ResolvedTask("task", task, depends_on=[], optional=False)],
         session_factory=session_factory,
-        assume_role=True,
+        access_strategy=AccountAccessStrategy.ASSUME_ROLE,
         regions=["us-east-1", "us-west-2"],
     )
 
@@ -495,7 +496,7 @@ def test_parallel_account_cancelled_before_regions_start_is_interrupted():
         account_id="123456789012",
         account_alias="test-account",
         is_management=True,
-        assume_role=False,
+        access_strategy=AccountAccessStrategy.BASE_SESSION,
         base_session=BaseSession(),
         context=context,
         regions=["us-east-1", "us-west-2"],
