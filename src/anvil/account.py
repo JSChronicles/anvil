@@ -13,6 +13,7 @@ from concurrent.futures import (
     wait,
 )
 from dataclasses import dataclass, field
+from enum import StrEnum
 
 import boto3
 from boto3.session import Session
@@ -27,6 +28,16 @@ __LOGGER__ = logging.getLogger(__name__)
 
 MINIMUM_ASSUMED_CREDENTIAL_REFRESH_WINDOW = datetime.timedelta(minutes=5)
 ASSUMED_CREDENTIAL_REFRESH_BUFFER = datetime.timedelta(minutes=2)
+
+
+class AccountAccessStrategy(StrEnum):
+    """
+    Credential path used to access an executable account.
+    """
+
+    BASE_SESSION = "base_session"
+    ASSUME_ROLE = "assume_role"
+    DIRECT_PROFILE = "direct_profile"
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,7 +63,7 @@ class Account:
 
     Owns:
     - account identity
-    - management vs member behavior
+    - access strategy
     - execution lifecycle
 
     Does NOT own:
@@ -67,7 +78,7 @@ class Account:
         account_id: str,
         account_alias: str,
         is_management: bool,
-        assume_role: bool,
+        access_strategy: AccountAccessStrategy,
         base_session: boto3.Session,
         context: ExecutionContext,
         regions: list[str],
@@ -76,7 +87,7 @@ class Account:
         self.account_id: str = account_id
         self.account_alias: str = account_alias
         self.is_management: bool = is_management
-        self._assume_role: bool = assume_role
+        self.access_strategy: AccountAccessStrategy = access_strategy
         self._base_session: Session = base_session
         self._context: ExecutionContext = context
         self._regions: list[str] = regions
@@ -101,13 +112,14 @@ class Account:
             recorder = BenchmarkRecorder(enabled=self._context.benchmark_enabled)
             recorder.update(
                 {
+                    "access_strategy": self.access_strategy.value,
                     "assume_role_seconds": 0.0,
                     "assume_role_refresh_count": 0,
                     "direct_access_validation_seconds": 0.0,
                 }
             )
 
-            if self._assume_role:
+            if self.access_strategy is AccountAccessStrategy.ASSUME_ROLE:
                 with recorder.phase("assume_role_seconds"):
                     assumed_credential_state = _AssumedCredentialState(
                         credentials=self._get_assumed_role_credentials()
@@ -569,18 +581,19 @@ class Account:
         """
         Build the execution session for one account-region pair.
 
-        Management accounts use the org/profile-backed worker session directly.
+        Base-session and direct-profile accounts use the profile-backed worker
+        session directly.
         Assume-role execution builds a regional session from the already-assumed
         temporary credentials.
         """
-        if not self._assume_role:
+        if self.access_strategy is not AccountAccessStrategy.ASSUME_ROLE:
             return self._session_factory.get_worker_session(
                 profile_name=self._base_session.profile_name, region_name=region
             )
 
         if assumed_credential_state is None:
             raise ValueError(
-                "Expected assumed credentials for member account execution"
+                "Expected assumed credentials for assume-role account execution"
             )
 
         assumed_credentials = self._get_valid_assumed_role_credentials(

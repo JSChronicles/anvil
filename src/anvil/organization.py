@@ -5,7 +5,7 @@ import logging
 import boto3
 from boto3.session import Session
 
-from anvil.account import Account
+from anvil.account import Account, AccountAccessStrategy
 from anvil.descriptors import TargetDescriptor
 from anvil.execution_context import ExecutionContext
 from anvil.regions import get_bootstrap_region, resolve_region_selectors
@@ -25,6 +25,7 @@ class OrganizationResolver:
         descriptor: TargetDescriptor,
         context: ExecutionContext,
         management_account_id: str | None = None,
+        base_session_account_id: str | None = None,
         session_factory: SessionFactory | None = None,
         base_session: Session | None = None,
         discovered_accounts: dict[str, dict[str, str]] | None = None,
@@ -33,6 +34,7 @@ class OrganizationResolver:
         self.descriptor = descriptor
         self.context = context
         self._management_account_id: str | None = management_account_id
+        self._base_session_account_id: str | None = base_session_account_id
         self._session_factory = session_factory or SessionFactory()
         self._base_session = base_session
         self._discovered_accounts = discovered_accounts
@@ -63,9 +65,15 @@ class OrganizationResolver:
         else:
             _, management_account_id = self.describe_organization(base_session)
 
+        if self._base_session_account_id is not None:
+            base_session_account_id = self._base_session_account_id
+        else:
+            base_session_account_id = self.describe_base_session_account(base_session)
+
         return self._build_accounts(
             base_session=base_session,
             management_account_id=management_account_id,
+            base_session_account_id=base_session_account_id,
             effective_regions=effective_regions,
             discovered_accounts=self._discovered_accounts,
         )
@@ -79,11 +87,20 @@ class OrganizationResolver:
         org = org_client.describe_organization()["Organization"]
         return org["Id"], org["MasterAccountId"]
 
+    @staticmethod
+    def describe_base_session_account(session: boto3.Session) -> str:
+        """
+        Return the AWS account ID backing the base session credentials.
+        """
+        sts_client = session.client("sts", config=BOTO_CONFIG)
+        return sts_client.get_caller_identity()["Account"]
+
     def _build_accounts(
         self,
         *,
         base_session: boto3.Session,
         management_account_id: str,
+        base_session_account_id: str,
         effective_regions: list[str],
         discovered_accounts: dict[str, dict[str, str]] | None = None,
     ) -> list[Account]:
@@ -98,14 +115,17 @@ class OrganizationResolver:
         for info in target_accounts.values():
             account_id = info["account_number"]
             is_management = account_id == management_account_id
+            access_strategy = (
+                AccountAccessStrategy.BASE_SESSION
+                if account_id == base_session_account_id
+                else AccountAccessStrategy.ASSUME_ROLE
+            )
             accounts.append(
                 Account(
                     account_id=account_id,
                     account_alias=info["account_alias"],
                     is_management=is_management,
-                    assume_role=(
-                        not is_management or self.context.assume_role_in_management
-                    ),
+                    access_strategy=access_strategy,
                     base_session=base_session,
                     context=self.context,
                     regions=effective_regions,

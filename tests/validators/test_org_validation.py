@@ -40,16 +40,6 @@ def test_accounts_assume_role_mode_allows_multiple_accounts():
     assert descriptor.include == ["111111111111", "222222222222"]
 
 
-def test_accounts_reject_assume_role_in_management():
-    with pytest.raises(ValueError, match="only supported for organizations"):
-        TargetDescriptor(
-            config_branch=ConfigBranch.ACCOUNTS,
-            name="account-group",
-            include=["111111111111"],
-            assume_role_in_management=True,
-        )
-
-
 def test_max_parallel_regions_defaults_to_one():
     descriptor = TargetDescriptor(config_branch=ConfigBranch.ORGANIZATIONS, name="org")
 

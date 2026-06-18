@@ -4,7 +4,7 @@ import logging
 
 from boto3.session import Session
 
-from anvil.account import Account
+from anvil.account import Account, AccountAccessStrategy
 from anvil.descriptors import TargetDescriptor
 from anvil.execution_context import ExecutionContext
 from anvil.session import SessionFactory
@@ -42,12 +42,17 @@ class AccountResolver:
         accounts: list[Account] = []
 
         for account_id in self.descriptor.include or []:
+            access_strategy = (
+                AccountAccessStrategy.ASSUME_ROLE
+                if self.descriptor.role_name is not None
+                else AccountAccessStrategy.DIRECT_PROFILE
+            )
             accounts.append(
                 Account(
                     account_id=account_id,
                     account_alias=account_id,
                     is_management=False,
-                    assume_role=self.descriptor.role_name is not None,
+                    access_strategy=access_strategy,
                     base_session=base_session,
                     context=self.context,
                     regions=list(self.context.regions),

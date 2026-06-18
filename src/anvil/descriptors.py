@@ -33,7 +33,6 @@ class TargetDescriptor:
     max_parallel_regions: int = 1
     fail_fast: bool = False
     dry_run: bool = False
-    assume_role_in_management: bool = False
 
     include: list[str] | None = None
     exclude: list[str] | None = None
@@ -90,11 +89,6 @@ class TargetDescriptor:
             return
 
         if self.config_branch is ConfigBranch.ACCOUNTS:
-            if self.assume_role_in_management:
-                raise ValueError(
-                    "assume_role_in_management is only supported for organizations"
-                )
-
             account_region_selectors = [
                 region for region in self.regions if is_region_selector(region)
             ]

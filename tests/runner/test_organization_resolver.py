@@ -4,6 +4,7 @@ import pytest
 
 from anvil.descriptors import ConfigBranch, TargetDescriptor
 from anvil.execution_context import ExecutionContext
+from anvil.account import AccountAccessStrategy
 from anvil.organization import OrganizationResolver
 
 
@@ -36,16 +37,13 @@ class FailingSessionFactory:
         raise AssertionError("preflight base_session should be reused")
 
 
-def _context(
-    *, regions: list[str] | None = None, assume_role_in_management: bool = False
-) -> ExecutionContext:
+def _context(*, regions: list[str] | None = None) -> ExecutionContext:
     return ExecutionContext(
         regions=regions or ["us-east-1"],
         role_name="TestRole",
         dry_run=True,
         tasks=[],
         metadata={},
-        assume_role_in_management=assume_role_in_management,
     )
 
 
@@ -171,6 +169,7 @@ def test_resolve_accounts_uses_default_management_account_direct_mode():
         descriptor=_target(regions=["us-east-1", "us-west-2"]),
         context=_context(regions=["us-east-1", "us-west-2"]),
         management_account_id="111111111111",
+        base_session_account_id="111111111111",
         session_factory=FailingSessionFactory(),
         base_session=base_session,
         discovered_accounts=discovered_accounts,
@@ -184,18 +183,19 @@ def test_resolve_accounts_uses_default_management_account_direct_mode():
         "222222222222",
     ]
     assert accounts[0].is_management is True
-    assert accounts[0]._assume_role is False
+    assert accounts[0].access_strategy is AccountAccessStrategy.BASE_SESSION
     assert accounts[1].is_management is False
-    assert accounts[1]._assume_role is True
+    assert accounts[1].access_strategy is AccountAccessStrategy.ASSUME_ROLE
     assert accounts[0]._regions == ["us-east-1"]
     assert accounts[1]._regions == ["us-east-1"]
 
 
 def test_resolve_accounts_uses_explicit_management_account_direct_mode():
     resolver = OrganizationResolver(
-        descriptor=_target(assume_role_in_management=False),
-        context=_context(assume_role_in_management=False),
+        descriptor=_target(),
+        context=_context(),
         management_account_id="111111111111",
+        base_session_account_id="111111111111",
         base_session=object(),
         discovered_accounts={
             "111111111111": {
@@ -212,14 +212,18 @@ def test_resolve_accounts_uses_explicit_management_account_direct_mode():
 
     accounts = resolver.resolve_accounts()
 
-    assert [account._assume_role for account in accounts] == [False, True]
+    assert [account.access_strategy for account in accounts] == [
+        AccountAccessStrategy.BASE_SESSION,
+        AccountAccessStrategy.ASSUME_ROLE,
+    ]
 
 
-def test_resolve_accounts_assumes_role_in_management_when_configured():
+def test_resolve_accounts_uses_base_session_account_direct_mode_for_delegated_admin():
     resolver = OrganizationResolver(
-        descriptor=_target(assume_role_in_management=True),
-        context=_context(assume_role_in_management=True),
+        descriptor=_target(),
+        context=_context(),
         management_account_id="111111111111",
+        base_session_account_id="222222222222",
         base_session=object(),
         discovered_accounts={
             "111111111111": {
@@ -237,7 +241,39 @@ def test_resolve_accounts_assumes_role_in_management_when_configured():
     accounts = resolver.resolve_accounts()
 
     assert accounts[0].is_management is True
-    assert [account._assume_role for account in accounts] == [True, True]
+    assert [account.access_strategy for account in accounts] == [
+        AccountAccessStrategy.ASSUME_ROLE,
+        AccountAccessStrategy.BASE_SESSION,
+    ]
+
+
+def test_resolve_accounts_uses_base_session_account_direct_for_management_auth():
+    resolver = OrganizationResolver(
+        descriptor=_target(),
+        context=_context(),
+        management_account_id="111111111111",
+        base_session_account_id="111111111111",
+        base_session=object(),
+        discovered_accounts={
+            "111111111111": {
+                "account_number": "111111111111",
+                "account_alias": "management",
+            },
+            "222222222222": {
+                "account_number": "222222222222",
+                "account_alias": "member",
+            },
+        },
+        region_statuses={"us-east-1": "ENABLED_BY_DEFAULT"},
+    )
+
+    accounts = resolver.resolve_accounts()
+
+    assert accounts[0].is_management is True
+    assert [account.access_strategy for account in accounts] == [
+        AccountAccessStrategy.BASE_SESSION,
+        AccountAccessStrategy.ASSUME_ROLE,
+    ]
 
 
 def test_resolve_accounts_expands_all_region_selector():
@@ -245,6 +281,7 @@ def test_resolve_accounts_expands_all_region_selector():
         descriptor=_target(regions=["all"]),
         context=_context(regions=["all"]),
         management_account_id="111111111111",
+        base_session_account_id="111111111111",
         base_session=object(),
         discovered_accounts={
             "111111111111": {
@@ -269,6 +306,7 @@ def test_resolve_accounts_expands_glob_and_explicit_region_selectors(caplog):
         descriptor=_target(regions=["us-*", "ca-central-1"]),
         context=_context(regions=["us-*", "ca-central-1"]),
         management_account_id="111111111111",
+        base_session_account_id="111111111111",
         base_session=object(),
         discovered_accounts={
             "111111111111": {
@@ -296,6 +334,7 @@ def test_resolve_accounts_rejects_glob_matching_no_known_regions():
         descriptor=_target(regions=["moon-*"]),
         context=_context(regions=["moon-*"]),
         management_account_id="111111111111",
+        base_session_account_id="111111111111",
         base_session=object(),
         discovered_accounts={},
         region_statuses={"us-east-1": "ENABLED_BY_DEFAULT"},
@@ -310,6 +349,7 @@ def test_resolve_accounts_raises_when_no_effective_regions_remain():
         descriptor=_target(regions=["us-east-1"]),
         context=_context(regions=["us-east-1"]),
         management_account_id="111111111111",
+        base_session_account_id="111111111111",
         base_session=object(),
         discovered_accounts={},
         region_statuses={"us-west-2": "ENABLED"},
@@ -324,6 +364,7 @@ def test_resolve_accounts_raises_when_selector_matches_only_disabled_regions(cap
         descriptor=_target(regions=["ap-*"]),
         context=_context(regions=["ap-*"]),
         management_account_id="111111111111",
+        base_session_account_id="111111111111",
         base_session=object(),
         discovered_accounts={},
         region_statuses={"ap-south-1": "DISABLED", "us-east-1": "ENABLED"},

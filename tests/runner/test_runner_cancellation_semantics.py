@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 
-from anvil.account import Account
+from anvil.account import Account, AccountAccessStrategy
 from anvil.descriptors import ConfigBranch
 from anvil.execution_context import ExecutionContext
 from anvil.executor import execute_accounts
@@ -90,7 +90,7 @@ def test_account_cancelled_before_finishing_is_interrupted():
         account_id="123456789012",
         account_alias="test-account",
         is_management=True,
-        assume_role=False,
+        access_strategy=AccountAccessStrategy.BASE_SESSION,
         base_session=_base_session(),
         context=context,
         regions=["us-east-1"],
@@ -125,7 +125,7 @@ def test_account_success_still_reports_success():
         account_id="123456789012",
         account_alias="test-account",
         is_management=True,
-        assume_role=False,
+        access_strategy=AccountAccessStrategy.BASE_SESSION,
         base_session=_base_session(),
         context=context,
         regions=["us-east-1"],

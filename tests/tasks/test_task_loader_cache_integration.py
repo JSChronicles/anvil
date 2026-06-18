@@ -58,7 +58,14 @@ def test_graph_and_run_paths_behave_the_same_with_cached_resolution(
     monkeypatch.setattr(
         runner,
         "_preflight_organization",
-        lambda **kwargs: (object(), "o-example", "123456789012", {}, ["us-east-1"]),
+        lambda **kwargs: (
+            object(),
+            "o-example",
+            "123456789012",
+            "123456789012",
+            {},
+            ["us-east-1"],
+        ),
     )
 
     observed_tasks: list[list[str]] = []
