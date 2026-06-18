@@ -638,5 +638,3 @@ def test_prepare_target_carries_max_parallel_regions_into_context(monkeypatch):
 
     assert prepared.context is not None
     assert prepared.context.max_parallel_regions == 3
-
-

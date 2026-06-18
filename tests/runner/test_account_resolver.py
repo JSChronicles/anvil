@@ -13,11 +13,7 @@ class FakeSessionFactory:
 
 def _context(*, role_name: str | None = None) -> ExecutionContext:
     return ExecutionContext(
-        regions=["us-east-1"],
-        role_name=role_name,
-        dry_run=True,
-        tasks=[],
-        metadata={},
+        regions=["us-east-1"], role_name=role_name, dry_run=True, tasks=[], metadata={}
     )
 
 
@@ -32,9 +28,7 @@ def test_resolve_accounts_uses_assume_role_strategy_when_role_name_is_configured
     context = _context(role_name="SecurityAccessRole")
 
     accounts = AccountResolver(
-        descriptor=descriptor,
-        context=context,
-        session_factory=FakeSessionFactory(),
+        descriptor=descriptor, context=context, session_factory=FakeSessionFactory()
     ).resolve_accounts()
 
     assert [account.account_id for account in accounts] == [
@@ -57,9 +51,7 @@ def test_resolve_accounts_uses_direct_profile_strategy_without_role_name():
     context = _context()
 
     accounts = AccountResolver(
-        descriptor=descriptor,
-        context=context,
-        session_factory=FakeSessionFactory(),
+        descriptor=descriptor, context=context, session_factory=FakeSessionFactory()
     ).resolve_accounts()
 
     assert [account.account_id for account in accounts] == ["111111111111"]

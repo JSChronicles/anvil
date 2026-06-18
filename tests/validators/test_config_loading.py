@@ -142,9 +142,7 @@ def test_validate_config_schema_rejects_assume_role_in_management_for_organizati
         validators.validate_config_schema(
             config={
                 "schema_version": 1,
-                "organizations": [
-                    {"name": "org-a", "assume_role_in_management": True}
-                ],
+                "organizations": [{"name": "org-a", "assume_role_in_management": True}],
             }
         )
 
