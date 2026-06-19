@@ -155,12 +155,20 @@ class TargetDescriptor:
             if not isinstance(metadata, dict):
                 raise ValueError(f"post_run entry #{index} metadata must be a mapping")
 
+            run_on_failure = raw_spec.get("run_on_failure", False)
+            if not isinstance(run_on_failure, bool):
+                raise ValueError(
+                    f"post_run entry #{index} run_on_failure must be a boolean"
+                )
+
             normalized_spec: dict[str, object] = {
                 "processor": processor.strip(),
                 "metadata": dict(metadata),
             }
             if output is not None:
                 normalized_spec["output"] = output
+            if run_on_failure:
+                normalized_spec["run_on_failure"] = run_on_failure
 
             normalized.append(normalized_spec)
 

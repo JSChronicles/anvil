@@ -513,6 +513,34 @@ one or more JSONL paths, and `--json` or `--jsonl` for structured filtered
 output. `--status failed` matches any non-success status. Without
 `--results-file`, Anvil queries every `results.jsonl` file under `./results`.
 
+### HTML result reports
+
+Anvil includes a stock `html_report` processor that writes a self-contained
+HTML file from the full per-target JSON result files. The report flattens those
+results into generic status rows, shows status summary cards, filters for
+target, account, region, task, record type, and status, and expandable raw JSON
+for task-specific `result` payloads.
+
+Generate a report from a completed run directory:
+
+```console
+anvil results --results-dir ./results/orgs/2026-05-01T183012Z --processor html_report --output report.html
+```
+
+Attach the report to a target config and run it even when the target has
+failures:
+
+```yaml
+post_run:
+  - processor: html_report
+    output: reports/status.html
+    run_on_failure: true
+```
+
+By default, target `post_run` processors run only after successful targets.
+Set `run_on_failure: true` on processors that are designed to handle failed
+target results.
+
 ## Task validation
 
 Anvil includes a task validation mode that checks discovered tasks for structural correctness without executing them. This helps catch task-definition issues before a run begins.

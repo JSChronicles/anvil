@@ -37,6 +37,7 @@ class ProcessorSpec:
     processor: str
     output: str | None = None
     metadata: dict[str, object] = field(default_factory=dict)
+    run_on_failure: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,11 +100,16 @@ def _parse_processor_specs(
             metadata[key] = value
 
         output = raw_spec.get("output")
+        run_on_failure = raw_spec.get("run_on_failure", False)
+        if not isinstance(run_on_failure, bool):
+            raise ProcessorConfigError("processor run_on_failure must be a boolean")
+
         specs.append(
             ProcessorSpec(
                 processor=str(raw_spec["processor"]),
                 output=output if isinstance(output, str) else None,
                 metadata=metadata,
+                run_on_failure=run_on_failure,
             )
         )
 
@@ -211,8 +217,13 @@ def run_configured_post_processors(
             continue
 
         target, specs = target_entry
-        if not specs or target_result.has_failures:
+        if not specs:
             continue
+
+        if target_result.has_failures:
+            specs = [spec for spec in specs if spec.run_on_failure]
+            if not specs:
+                continue
 
         context = ProcessorRunContext(
             config_branch=config_branch,
@@ -243,7 +254,10 @@ def run_configured_post_processors(
             )
             resolved_specs.append(
                 ProcessorSpec(
-                    processor=spec.processor, output=output, metadata=spec.metadata
+                    processor=spec.processor,
+                    output=output,
+                    metadata=spec.metadata,
+                    run_on_failure=spec.run_on_failure,
                 )
             )
 

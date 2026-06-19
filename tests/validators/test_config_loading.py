@@ -187,6 +187,28 @@ def test_validate_config_schema_accepts_post_run_for_organizations():
     )
 
 
+def test_validate_config_schema_accepts_post_run_run_on_failure():
+    validators = _import_validators_or_skip()
+
+    validators.validate_config_schema(
+        config={
+            "schema_version": 1,
+            "organizations": [
+                {
+                    "name": "org-a",
+                    "post_run": [
+                        {
+                            "processor": "html_report",
+                            "output": "reports/status.html",
+                            "run_on_failure": True,
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+
+
 def test_validate_config_schema_accepts_post_run_for_accounts():
     validators = _import_validators_or_skip()
 
@@ -248,6 +270,28 @@ def test_validate_config_schema_rejects_invalid_post_run_output():
                     {
                         "name": "org-a",
                         "post_run": [{"processor": "summary_json", "output": False}],
+                    }
+                ],
+            }
+        )
+
+
+def test_validate_config_schema_rejects_invalid_post_run_run_on_failure():
+    validators = _import_validators_or_skip()
+
+    with pytest.raises(ValueError, match="post_run"):
+        validators.validate_config_schema(
+            config={
+                "schema_version": 1,
+                "organizations": [
+                    {
+                        "name": "org-a",
+                        "post_run": [
+                            {
+                                "processor": "html_report",
+                                "run_on_failure": "yes",
+                            }
+                        ],
                     }
                 ],
             }

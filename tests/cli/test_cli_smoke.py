@@ -537,6 +537,61 @@ def test_run_configured_post_processors_skips_failed_targets(monkeypatch):
     )
 
 
+def test_run_configured_post_processors_runs_failure_opt_in(monkeypatch):
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from anvil.descriptors import ConfigBranch, LoadedConfig, TargetDescriptor
+    import anvil.processor_loader as processor_loader
+
+    seen = {}
+    target = TargetDescriptor(
+        config_branch=ConfigBranch.ORGANIZATIONS,
+        name="org-a",
+        post_run=[
+            {"processor": "success_only"},
+            {
+                "processor": "html_report",
+                "output": "reports/status.html",
+                "run_on_failure": True,
+            },
+        ],
+    )
+    loaded_config = LoadedConfig(branch=ConfigBranch.ORGANIZATIONS, targets=[target])
+    target_result = SimpleNamespace(target_name="org-a", has_failures=True)
+    written_results = SimpleNamespace(
+        run_dir=Path("results/orgs/run"),
+        summary_path=Path("results/orgs/run/summary.json"),
+        summary={"state": "completed_with_failures"},
+        target_result_paths={
+            "org-a": Path("results/orgs/run/organizations/org-a.json")
+        },
+    )
+
+    def fake_run_processors(*, specs, context):
+        seen["specs"] = specs
+        seen["context"] = context
+
+    monkeypatch.setattr(processor_loader, "run_processors", fake_run_processors)
+
+    processor_loader.run_configured_post_processors(
+        config_branch=loaded_config.branch,
+        targets=loaded_config.targets,
+        target_results=[target_result],
+        run_dir=written_results.run_dir,
+        summary_path=written_results.summary_path,
+        summary=written_results.summary,
+        target_result_paths=written_results.target_result_paths,
+    )
+
+    assert [spec.processor for spec in seen["specs"]] == ["html_report"]
+    assert seen["specs"][0].output == str(
+        Path("results/orgs/run/reports/org-a-status.html")
+    )
+    assert seen["specs"][0].run_on_failure is True
+    assert seen["context"].target_result is target_result
+
+
 def test_cmd_results_processor_runs_historical_context(monkeypatch):
     from pathlib import Path
     from types import SimpleNamespace
