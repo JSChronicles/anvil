@@ -4,8 +4,14 @@ max_parallel_targets: 2
 organizations:
   - name: place
     profile: place-root
-    # Organizations support explicit regions, all by itself, glob selectors,
-    # and mixed glob plus explicit selectors.
+    # Organization region selectors support these forms:
+    # - Explicit region list: [us-east-1, us-west-2]
+    # - Special all selector by itself: [all]
+    # - Broad glob selector: [us-*]
+    # - Narrow glob selector: [us-*-1]
+    # - Mixed glob plus explicit selectors: [us-*, ca-central-1]
+    # The special all selector must be lowercase and cannot be mixed with
+    # other region values.
     # Anvil uses the base-session account directly when it appears in
     # Organizations discovery, and assumes role_name in every other selected
     # account.
@@ -50,8 +56,10 @@ organizations:
   - name: audit
     profile: audit-root
     # Example alternatives:
+    # regions: [us-east-1, us-west-2]
     # regions: [all]
     # regions: [us-*]
+    # regions: [us-*-1]
     # regions: [us-*, ca-central-1]
     regions:
       - us-west-2

@@ -121,6 +121,50 @@ organizations:
       - name: noop
 ```
 
+Built-in post-run processors:
+
+Use `html_report` when you want a self-contained, human-readable report for a
+completed target:
+
+```yaml
+schema_version: 1
+
+organizations:
+  - name: smoke
+    profile: root
+    regions:
+      - us-east-1
+    tasks:
+      - name: noop
+    post_run:
+      - processor: html_report
+        output: reports/smoke.html
+        run_on_failure: true
+```
+
+Use `sarif_report` when `detect_` tasks return `sarif_findings` and you want a
+SARIF 2.1.0 report for code-scanning or security tooling:
+
+```yaml
+schema_version: 1
+
+organizations:
+  - name: lambda-runtime-audit
+    profile: root
+    regions:
+      - us-*
+    tasks:
+      - name: detect_deprecated_lambda_runtimes
+    metadata:
+      runtimes:
+        - python3.8
+        - nodejs16.x
+    post_run:
+      - processor: sarif_report
+        output: reports/lambda-runtimes.sarif
+        run_on_failure: true
+```
+
 ------------------------------
 
 Run a more detailed YAML:

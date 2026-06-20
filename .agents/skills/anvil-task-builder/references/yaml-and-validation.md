@@ -34,20 +34,27 @@ regions:
   - us-west-2
 ```
 
-`organizations:` configs can also use region selectors. `all` must be the only
-region value:
+For `organizations:` configs, prefer selectors when the user wants broad
+multi-region coverage. Use `all` when they want every enabled region discovered
+for each account. `all` must be lowercase and must be the only region value:
 
 ```yaml
 regions:
   - all
 ```
 
-Organization region globs can be used alone, combined with other globs, or mixed
-with explicit regions:
+Use region globs when the user wants multiple similar regions without listing
+each one. Organization region globs can be used alone, combined with other
+globs, or mixed with explicit regions:
 
 ```yaml
 regions:
   - us-*
+```
+
+```yaml
+regions:
+  - us-*-1
 ```
 
 ```yaml
