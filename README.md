@@ -121,7 +121,13 @@ organizations:
       - name: noop
 ```
 
-Built-in post-run processors:
+### Processors
+
+Processors run after a target finishes and turn Anvil results into reports or
+integration artifacts. Use them for formats that should stay outside task logic,
+such as HTML, SARIF, Markdown, JSON summaries, tickets, or notification payloads.
+Target `post_run` processor output is written under the run's `reports`
+directory, so `output: smoke.html` becomes `<run_dir>/reports/smoke.html`.
 
 Use `html_report` when you want a self-contained, human-readable report for a
 completed target:
@@ -138,7 +144,7 @@ organizations:
       - name: noop
     post_run:
       - processor: html_report
-        output: reports/smoke.html
+        output: smoke.html
         run_on_failure: true
 ```
 
@@ -161,7 +167,7 @@ organizations:
         - nodejs16.x
     post_run:
       - processor: sarif_report
-        output: reports/lambda-runtimes.sarif
+        output: lambda-runtimes.sarif
         run_on_failure: true
 ```
 
