@@ -121,6 +121,27 @@ organizations:
       - name: noop
 ```
 
+### Results
+
+`anvil results` queries completed run output without rerunning AWS work. Use it
+to filter historical JSONL results by target, account, region, task, or status,
+emit JSON/JSONL for automation, rerun failed work, or run a processor against a
+completed results directory. When a run has failures, Anvil prints ready-to-use
+`anvil results` commands that point at the affected run's `results.jsonl` file
+so you can inspect or rerun the failed accounts.
+
+### Validation
+
+Use `anvil validate` before a run to perform one or more checks without running
+tasks:
+
+```console
+anvil validate --tasks --processors --auth --config-file ./yaml/orgs.yaml
+```
+
+`--tasks` and `--processors` validate discovery and callable signatures.
+`--auth` validates AWS access for the configured targets.
+
 ### Processors
 
 Processors run after a target finishes and turn Anvil results into reports or
