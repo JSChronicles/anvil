@@ -130,6 +130,9 @@ completed results directory. When a run has failures, Anvil prints ready-to-use
 `anvil results` commands that point at the affected run's `results.jsonl` file
 so you can inspect or rerun the failed accounts.
 
+See more at [Common result queries](./docs/README.md#common-result-queries)
+and [Rerun failures](./docs/README.md#rerun-failures).
+
 ### Validation
 
 Use `anvil validate` before a run to perform one or more checks without running
@@ -141,6 +144,8 @@ anvil validate --tasks --processors --auth --config-file ./yaml/orgs.yaml
 
 `--tasks` and `--processors` validate discovery and callable signatures.
 `--auth` validates AWS access for the configured targets.
+
+See more at [Task validation](./docs/README.md#task-validation).
 
 ### Processors
 
@@ -191,6 +196,8 @@ organizations:
         output: lambda-runtimes.sarif
         run_on_failure: true
 ```
+
+See more at [HTML result reports](./docs/README.md#html-result-reports).
 
 ------------------------------
 
