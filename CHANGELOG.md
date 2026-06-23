@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 <!-- version list -->
 
+## v0.29.2 (2026-06-23)
+
+### Bug Fixes
+
+- Base session
+  ([`1b8fd06`](https://github.com/JSChronicles/anvil/commit/1b8fd0688d4eda0f31629f17432a2ae847817918))
+
+
 ## v0.29.1 (2026-06-18)
 
 ### Bug Fixes
