@@ -54,6 +54,11 @@
           "default": {},
           "additionalProperties": true,
           "description": "Free-form processor-specific configuration."
+        },
+        "run_on_failure": {
+          "type": "boolean",
+          "default": false,
+          "description": "If true, run this processor even when the target has failures."
         }
       }
     },
@@ -146,7 +151,7 @@
     "post_run": {
       "type": "array",
       "minItems": 1,
-      "description": "Post-run processors executed after this target successfully completes.",
+      "description": "Post-run processors executed after this target completes. By default processors run only for successful targets; set run_on_failure on an entry to also run it for failed targets.",
       "items": {
         "$ref": "#/$defs/postRunEntry"
       }

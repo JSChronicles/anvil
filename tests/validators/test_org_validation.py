@@ -92,6 +92,18 @@ def test_post_run_normalizes_processor_and_metadata():
     ]
 
 
+def test_post_run_normalizes_run_on_failure():
+    descriptor = TargetDescriptor(
+        config_branch=ConfigBranch.ORGANIZATIONS,
+        name="org",
+        post_run=[{"processor": "html_report", "run_on_failure": True}],
+    )
+
+    assert descriptor.post_run == [
+        {"processor": "html_report", "metadata": {}, "run_on_failure": True}
+    ]
+
+
 def test_regions_rejects_all_mixed_with_other_regions():
     with pytest.raises(ValueError, match="'all' must be the only region value"):
         TargetDescriptor(

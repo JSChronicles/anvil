@@ -29,7 +29,7 @@
 
 Anvil is a declarative AWS execution engine for running Python tasks across large account and region fleets. Describe the work in YAML, keep task logic in plain Python modules, and let the engine handle authentication, role assumption, dependency ordering, bounded concurrency, and structured results so repeatable AWS work can run faster without turning orchestration into custom scripts.
 
-For more, see the [documentation](./docs/README.md).
+For more, see the [documentation](https://opsfoundry.dev/).
 
 ### Why Anvil?
 
@@ -41,7 +41,7 @@ Anvil is built for teams that need repeatable AWS workflows, such as inventory, 
 - Multi-account and multi-organization by default
   - Discover active accounts and enabled regions, support include/exclude filtering
 - Parallel execution and caching
-  - Control concurrency at the target, account, and region levels. See [Caching and reuse](./docs/README.md#caching-and-reuse).
+  - Control concurrency at the target, account, and region levels. See [Caching and reuse](https://opsfoundry.dev/anvil/execution-model/#cache-and-reuse-boundaries).
 - Shared discovery and session reuse
   - Validate the organization, discover accounts, and check enabled regions, only once, before execution.
 - Task isolation
@@ -59,7 +59,7 @@ Anvil is built for teams that need repeatable AWS workflows, such as inventory, 
 >
 > The template exposes project-local tasks and processors without forking Anvil.
 >
-> If you do not need/want the full Anvil framework and only want a simple starting point for small AWS Organization tasks, see: [`templates/aws_multi_account_template.py`](./templates/multi_aws_account_task_template.py)
+> If you do not need/want the full Anvil framework and only want a simple starting point for small AWS Organization tasks, see: [`templates/aws_multi_account_template.py`](https://opsfoundry.dev/anvil/examples/#standalone-multi-account-script-template)
 
 
 1. When using the uv tool, there are several ways to run and install dependencies. Here are only a couple examples:
@@ -120,6 +120,84 @@ organizations:
     tasks:
       - name: noop
 ```
+
+### Results
+
+`anvil results` queries completed run output without rerunning AWS work. Use it
+to filter historical JSONL results by target, account, region, task, or status,
+emit JSON/JSONL for automation, rerun failed work, or run a processor against a
+completed results directory. When a run has failures, Anvil prints ready-to-use
+`anvil results` commands that point at the affected run's `results.jsonl` file
+so you can inspect or rerun the failed accounts.
+
+See more at [Common result queries](https://opsfoundry.dev/anvil/cli/#results)
+and [Rerun failures](https://opsfoundry.dev/anvil/cli/#rerun-failures).
+
+### Validation
+
+Use `anvil validate` before a run to perform one or more checks without running
+tasks:
+
+```console
+anvil validate --tasks --processors --auth --config-file ./yaml/orgs.yaml
+```
+
+`--tasks` and `--processors` validate discovery and callable signatures.
+`--auth` validates AWS access for the configured targets.
+
+See more at [Task validation](https://opsfoundry.dev/anvil/task-contract/#task-validation).
+
+### Processors
+
+Processors run after a target finishes and turn Anvil results into reports or
+integration artifacts. Use them for formats that should stay outside task logic,
+such as HTML, SARIF, Markdown, JSON summaries, tickets, or notification payloads.
+Target `post_run` processor output is written under the run's `reports`
+directory, so `output: smoke.html` becomes `<run_dir>/reports/smoke.html`.
+
+Use `html_report` when you want a self-contained, human-readable report for a
+completed target:
+
+```yaml
+schema_version: 1
+
+organizations:
+  - name: smoke
+    profile: root
+    regions:
+      - us-east-1
+    tasks:
+      - name: noop
+    post_run:
+      - processor: html_report
+        output: smoke.html
+        run_on_failure: true
+```
+
+Use `sarif_report` when `detect_` tasks return `sarif_findings` and you want a
+SARIF 2.1.0 report for code-scanning or security tooling:
+
+```yaml
+schema_version: 1
+
+organizations:
+  - name: lambda-runtime-audit
+    profile: root
+    regions:
+      - us-*
+    tasks:
+      - name: detect_deprecated_lambda_runtimes
+    metadata:
+      runtimes:
+        - python3.8
+        - nodejs16.x
+    post_run:
+      - processor: sarif_report
+        output: lambda-runtimes.sarif
+        run_on_failure: true
+```
+
+See more at [HTML result reports](https://opsfoundry.dev/anvil/cli/#processors).
 
 ------------------------------
 

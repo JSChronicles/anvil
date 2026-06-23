@@ -1,6 +1,6 @@
 ---
 name: anvil-task-builder
-description: Builds and maintains Anvil task modules, workflows, schemas, runner behavior, and plugin templates. Use when user asks to "create an Anvil task", "edit this task", "add dry-run behavior", "record actions", "return task results", "update Anvil YAML", "modify schemas", "change account execution", or "update plugin templates".
+description: Builds and maintains Anvil task modules, workflows, schemas, runner behavior, SARIF-compatible detect_ tasks, and plugin templates. Use when user asks to "create an Anvil task", "edit this task", "add dry-run behavior", "record actions", "return task results", "create a SARIF task", "create a detect task", "update Anvil YAML", "modify schemas", "change account execution", or "update plugin templates".
 ---
 
 # Anvil Task Builder
@@ -42,6 +42,7 @@ Load only the reference files needed for the current task:
 - For dry-run behavior, action recording, logging, and result shape, read `references/dry-run-and-actions.md`.
 - For task granularity, inventory task boundaries, performance, and region concurrency, read `references/task-granularity.md`.
 - For AWS read-only and mutating task implementation patterns, read `references/aws-task-patterns.md`.
+- For SARIF-compatible `detect_` tasks and `sarif_findings` output, read `references/sarif-detection-tasks.md`.
 - For YAML examples, dependencies, optional tasks, and validation commands, read `references/yaml-and-validation.md`.
 
 ## Review Behavior
