@@ -55,10 +55,7 @@ def _runtime_rule() -> dict[str, object]:
 
 
 def _location_uri(*, account_id: str, region_name: str, function_name: str) -> str:
-    return (
-        "anvil/aws/"
-        f"{account_id}/{region_name}/lambda/functions/{function_name}.json"
-    )
+    return f"anvil/aws/{account_id}/{region_name}/lambda/functions/{function_name}.json"
 
 
 def _finding_for_function(
@@ -104,11 +101,7 @@ def _finding_for_function(
 
 
 def _detect_deprecated_runtimes(
-    lambda_client,
-    *,
-    account_id: str,
-    region_name: str,
-    deprecated_runtimes: set[str],
+    lambda_client, *, account_id: str, region_name: str, deprecated_runtimes: set[str]
 ) -> tuple[list[dict[str, object]], int]:
     findings: list[dict[str, object]] = []
     checked_count = 0

@@ -32,9 +32,7 @@ def run(
     return {"output": str(output_path), "record_count": len(records)}
 
 
-def _metadata_string(
-    *, metadata: dict[str, object], key: str, default: str
-) -> str:
+def _metadata_string(*, metadata: dict[str, object], key: str, default: str) -> str:
     value = metadata.get(key, default)
     if isinstance(value, str) and value.strip():
         return value.strip()
@@ -160,11 +158,7 @@ def _string_value(value: object) -> str:
 def _build_html(
     *, title: str, records: list[dict[str, object]], summary: dict[str, object]
 ) -> str:
-    payload = {
-        "records": records,
-        "summary": summary,
-        "cards": _summary_cards(records),
-    }
+    payload = {"records": records, "summary": summary, "cards": _summary_cards(records)}
     escaped_title = html.escape(title)
     data_json = _json_for_script(payload)
 
@@ -590,12 +584,7 @@ def _summary_cards(records: list[dict[str, object]]) -> list[dict[str, object]]:
 
     return [
         {"label": "Records", "value": len(records), "mark": "ALL"},
-        {
-            "label": "Succeeded",
-            "value": success_count,
-            "tone": "success",
-            "mark": "OK",
-        },
+        {"label": "Succeeded", "value": success_count, "tone": "success", "mark": "OK"},
         {
             "label": "Unsuccessful",
             "value": unsuccessful_count,

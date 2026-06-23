@@ -287,10 +287,7 @@ def test_validate_config_schema_rejects_invalid_post_run_run_on_failure():
                     {
                         "name": "org-a",
                         "post_run": [
-                            {
-                                "processor": "html_report",
-                                "run_on_failure": "yes",
-                            }
+                            {"processor": "html_report", "run_on_failure": "yes"}
                         ],
                     }
                 ],

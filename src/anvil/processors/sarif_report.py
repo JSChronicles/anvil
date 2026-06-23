@@ -23,11 +23,7 @@ def run(
     """Write a SARIF 2.1.0 report from explicit task sarif_findings records."""
     output_path = Path(output) if output is not None else _default_output_path(context)
     sarif_results, rules = _collect_sarif_results(context=context)
-    payload = _build_sarif(
-        metadata=metadata,
-        rules=rules,
-        results=sarif_results,
-    )
+    payload = _build_sarif(metadata=metadata, rules=rules, results=sarif_results)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
@@ -93,8 +89,7 @@ def _target_result_dicts(*, context: ProcessorRunContext) -> list[dict[str, obje
         return [_target_result_dict(context.target_result)]
 
     return [
-        _target_result_dict(target_result)
-        for target_result in context.target_results
+        _target_result_dict(target_result) for target_result in context.target_results
     ]
 
 
@@ -107,9 +102,7 @@ def _target_result_dict(
     return target_result
 
 
-def _account_results(
-    *, target_result: dict[str, object]
-) -> list[dict[str, object]]:
+def _account_results(*, target_result: dict[str, object]) -> list[dict[str, object]]:
     account_results = target_result.get("account_results", [])
     if not isinstance(account_results, list):
         return []
@@ -154,9 +147,7 @@ def _convert_finding(
         ),
     }
     if isinstance(fingerprint, str) and fingerprint.strip():
-        result["partialFingerprints"] = {
-            "anvilResourceFinding": fingerprint.strip()
-        }
+        result["partialFingerprints"] = {"anvilResourceFinding": fingerprint.strip()}
 
     return result, rule
 
@@ -225,9 +216,7 @@ def _location(raw_location: object) -> dict[str, object]:
         raise RuntimeError("sarif_report requires every location to be a mapping")
 
     uri = _required_string(raw_location, "uri", "finding.location")
-    physical_location: dict[str, object] = {
-        "artifactLocation": {"uri": uri},
-    }
+    physical_location: dict[str, object] = {"artifactLocation": {"uri": uri}}
 
     region = _region(raw_location)
     if region:
@@ -279,11 +268,7 @@ def _result_properties(
     if isinstance(raw_properties, dict):
         properties.update(raw_properties)
 
-    return {
-        key: value
-        for key, value in properties.items()
-        if value is not None
-    }
+    return {key: value for key, value in properties.items() if value is not None}
 
 
 def _build_sarif(
@@ -307,24 +292,14 @@ def _build_sarif(
     if isinstance(automation_category, str) and automation_category.strip():
         run["automationDetails"] = {"id": automation_category.strip()}
 
-    return {
-        "version": SARIF_VERSION,
-        "$schema": SARIF_SCHEMA,
-        "runs": [run],
-    }
+    return {"version": SARIF_VERSION, "$schema": SARIF_SCHEMA, "runs": [run]}
 
 
 def _strip_internal_rule_fields(rule: dict[str, object]) -> dict[str, object]:
-    return {
-        key: value
-        for key, value in rule.items()
-        if key != "level"
-    }
+    return {key: value for key, value in rule.items() if key != "level"}
 
 
-def _required_string(
-    mapping: dict[str, object], key: str, label: str
-) -> str:
+def _required_string(mapping: dict[str, object], key: str, label: str) -> str:
     value = mapping.get(key)
     if not isinstance(value, str) or not value.strip():
         raise RuntimeError(f"sarif_report requires {label}.{key} to be a string")
@@ -332,9 +307,7 @@ def _required_string(
     return value.strip()
 
 
-def _metadata_string(
-    *, metadata: dict[str, object], key: str, default: str
-) -> str:
+def _metadata_string(*, metadata: dict[str, object], key: str, default: str) -> str:
     value = metadata.get(key, default)
     if isinstance(value, str) and value.strip():
         return value.strip()
