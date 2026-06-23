@@ -29,7 +29,7 @@
 
 Anvil is a declarative AWS execution engine for running Python tasks across large account and region fleets. Describe the work in YAML, keep task logic in plain Python modules, and let the engine handle authentication, role assumption, dependency ordering, bounded concurrency, and structured results so repeatable AWS work can run faster without turning orchestration into custom scripts.
 
-For more, see the [documentation](./docs/README.md).
+For more, see the [documentation](https://opsfoundry.dev/).
 
 ### Why Anvil?
 
@@ -41,7 +41,7 @@ Anvil is built for teams that need repeatable AWS workflows, such as inventory, 
 - Multi-account and multi-organization by default
   - Discover active accounts and enabled regions, support include/exclude filtering
 - Parallel execution and caching
-  - Control concurrency at the target, account, and region levels. See [Caching and reuse](./docs/README.md#caching-and-reuse).
+  - Control concurrency at the target, account, and region levels. See [Caching and reuse](https://opsfoundry.dev/anvil/execution-model/#cache-and-reuse-boundaries).
 - Shared discovery and session reuse
   - Validate the organization, discover accounts, and check enabled regions, only once, before execution.
 - Task isolation
@@ -59,7 +59,7 @@ Anvil is built for teams that need repeatable AWS workflows, such as inventory, 
 >
 > The template exposes project-local tasks and processors without forking Anvil.
 >
-> If you do not need/want the full Anvil framework and only want a simple starting point for small AWS Organization tasks, see: [`templates/aws_multi_account_template.py`](./templates/multi_aws_account_task_template.py)
+> If you do not need/want the full Anvil framework and only want a simple starting point for small AWS Organization tasks, see: [`templates/aws_multi_account_template.py`](https://opsfoundry.dev/anvil/examples/#standalone-multi-account-script-template)
 
 
 1. When using the uv tool, there are several ways to run and install dependencies. Here are only a couple examples:
@@ -130,8 +130,8 @@ completed results directory. When a run has failures, Anvil prints ready-to-use
 `anvil results` commands that point at the affected run's `results.jsonl` file
 so you can inspect or rerun the failed accounts.
 
-See more at [Common result queries](./docs/README.md#common-result-queries)
-and [Rerun failures](./docs/README.md#rerun-failures).
+See more at [Common result queries](https://opsfoundry.dev/anvil/cli/#results)
+and [Rerun failures](https://opsfoundry.dev/anvil/cli/#rerun-failures).
 
 ### Validation
 
@@ -145,7 +145,7 @@ anvil validate --tasks --processors --auth --config-file ./yaml/orgs.yaml
 `--tasks` and `--processors` validate discovery and callable signatures.
 `--auth` validates AWS access for the configured targets.
 
-See more at [Task validation](./docs/README.md#task-validation).
+See more at [Task validation](https://opsfoundry.dev/anvil/task-contract/#task-validation).
 
 ### Processors
 
@@ -197,7 +197,7 @@ organizations:
         run_on_failure: true
 ```
 
-See more at [HTML result reports](./docs/README.md#html-result-reports).
+See more at [HTML result reports](https://opsfoundry.dev/anvil/cli/#processors).
 
 ------------------------------
 

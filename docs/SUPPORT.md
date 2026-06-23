@@ -10,7 +10,7 @@ If you encounter a bug, have a feature request, or need help with something spec
 
 ### Documentation
 
-Before reaching out for help, please review our [README](https://github.com/JSChronicles/anvil/blob/main/docs/README.md). It may cover some common questions and issues.
+Before reaching out for help, please review the [Anvil documentation](https://opsfoundry.dev/anvil/). It may cover some common questions and issues.
 
 
 ## Contributing
@@ -19,4 +19,3 @@ We welcome contributions from others! Please read our [Contributing Guidelines](
 
 
 Thank you for your support and contributions!
-
