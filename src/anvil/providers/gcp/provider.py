@@ -23,6 +23,8 @@ class GcpExecutionTargetData:
 
     project_id: str
     locations: list[str]
+    credentials_path: str | None
+    quota_project_id: str | None
     session_factory: "GcpSessionFactory"
 
 
@@ -33,12 +35,26 @@ class GcpSession:
     project_id: str
     location: str
     credentials: object
+    quota_project_id: str | None = None
+
+    @property
+    def region_name(self) -> str:
+        """Compatibility alias used by existing task call signatures."""
+
+        return self.location
 
 
 class GcpSessionFactory:
     """Create GCP credentials lazily so provider validation has no SDK dependency."""
 
-    def create_session(self, *, project_id: str, location: str) -> GcpSession:
+    def create_session(
+        self,
+        *,
+        project_id: str,
+        location: str,
+        credentials_path: str | None = None,
+        quota_project_id: str | None = None,
+    ) -> GcpSession:
         """Create a GCP session for a project/location pair."""
 
         try:
@@ -49,11 +65,28 @@ class GcpSessionFactory:
                 "when building a GCP runtime session."
             ) from error
 
-        credentials, _ = google.auth.default(
-            scopes=["https://www.googleapis.com/auth/cloud-platform"]
-        )
+        try:
+            scopes = ["https://www.googleapis.com/auth/cloud-platform"]
+            if credentials_path is not None:
+                credentials, _ = google.auth.load_credentials_from_file(
+                    credentials_path,
+                    scopes=scopes,
+                    quota_project_id=quota_project_id,
+                )
+            else:
+                credentials, _ = google.auth.default(
+                    scopes=scopes, quota_project_id=quota_project_id
+                )
+        except Exception as error:
+            raise RuntimeError(
+                "GCP provider could not build a runtime session from configured "
+                f"credentials: {error}"
+            ) from error
         return GcpSession(
-            project_id=project_id, location=location, credentials=credentials
+            project_id=project_id,
+            location=location,
+            credentials=credentials,
+            quota_project_id=quota_project_id,
         )
 
 
@@ -67,7 +100,10 @@ class GcpExecutionRuntime:
         """Build a lazy GCP session for one location."""
 
         return self._data.session_factory.create_session(
-            project_id=self._data.project_id, location=region
+            project_id=self._data.project_id,
+            location=region,
+            credentials_path=self._data.credentials_path,
+            quota_project_id=self._data.quota_project_id,
         )
 
     def record_region_outcome(
@@ -146,7 +182,11 @@ class GcpProvider:
 
         project_ids = include or target.include or []
         execution_targets = [
-            self._execution_target(project_id=project_id, locations=regions)
+            self._execution_target(
+                project_id=project_id,
+                locations=regions,
+                provider_options=target.provider_options,
+            )
             for project_id in project_ids
         ]
         return ProviderExecutionPlan(execution_targets=execution_targets)
@@ -171,11 +211,21 @@ class GcpProvider:
         return GcpExecutionRuntime(data=execution_target.provider_data)
 
     def _execution_target(
-        self, *, project_id: str, locations: list[str]
+        self,
+        *,
+        project_id: str,
+        locations: list[str],
+        provider_options: dict[str, object],
     ) -> ExecutionTarget:
         data = GcpExecutionTargetData(
             project_id=project_id,
             locations=list(locations),
+            credentials_path=self._string_option(
+                provider_options=provider_options, option_name="credentials_path"
+            ),
+            quota_project_id=self._string_option(
+                provider_options=provider_options, option_name="quota_project_id"
+            ),
             session_factory=self._session_factory,
         )
         return ExecutionTarget(
@@ -186,6 +236,12 @@ class GcpProvider:
             metadata={"project_id": project_id},
             provider_data=data,
         )
+
+    def _string_option(
+        self, *, provider_options: dict[str, object], option_name: str
+    ) -> str | None:
+        option = provider_options.get(option_name)
+        return option if isinstance(option, str) else None
 
 
 def create_provider() -> GcpProvider:

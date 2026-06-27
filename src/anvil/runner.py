@@ -3,9 +3,17 @@ from __future__ import annotations
 import datetime
 import logging
 import threading
+import time
 from collections import deque
 from collections.abc import Callable
-from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
+from concurrent.futures import (
+    FIRST_COMPLETED,
+    CancelledError,
+    Future,
+    ThreadPoolExecutor,
+    as_completed,
+    wait,
+)
 from dataclasses import dataclass, field, replace
 
 from boto3.session import Session
@@ -13,19 +21,29 @@ from boto3.session import Session
 from anvil.benchmark import BenchmarkRecorder
 from anvil.account import Account
 from anvil.account_resolver import AccountResolver
+from anvil.actions import ActionRecorder
 from anvil.auth import AuthSource, auth_check, infer_auth_source
 from anvil.descriptors import ConfigBranch, TargetDescriptor
 from anvil.execution_context import ExecutionContext
 from anvil.executor import execute_accounts
 from anvil.organization import OrganizationResolver
 from anvil.providers.aws import AwsProvider
-from anvil.providers.base import ProviderExecutionPlan
+from anvil.provider_loader import list_providers
+from anvil.providers.base import (
+    ExecutionTarget,
+    Provider,
+    ProviderAuthResult,
+    ProviderExecutionPlan,
+    ProviderExecutionRuntime,
+)
 from anvil.results import (
+    AccountResult,
     AuthResult,
     EngineResult,
     EngineState,
     ExecutionStatus,
     TargetResult,
+    TaskResult,
 )
 from anvil.session import SessionFactory
 from anvil.task_loader import ResolvedExecution, ResolvedTask, resolve_tasks
@@ -41,6 +59,17 @@ STATE_PRECEDENCE: dict[EngineState, int] = {
 }
 
 DEFAULT_AUTH_CHECK_MAX_WORKERS = 4
+
+
+def _load_provider(provider_name: str) -> Provider:
+    if provider_name == "aws":
+        return AwsProvider()
+
+    for descriptor in list_providers():
+        if descriptor.name == provider_name:
+            return descriptor.load()
+
+    raise ValueError(f"Unknown provider '{provider_name}'")
 
 
 @dataclass(slots=True)
@@ -267,21 +296,59 @@ def _run_cached_auth_check_for_target(
     )
 
 
-def _ensure_runtime_supported_providers(
-    *, targets: list[TargetDescriptor], command_name: str
-) -> None:
-    unsupported_providers = sorted(
-        {target.provider for target in targets if target.provider != "aws"}
+def _auth_result_from_provider_result(
+    *,
+    target_name: str,
+    provider_result: ProviderAuthResult,
+    started_at: str,
+    started_perf: float,
+) -> AuthResult:
+    ended_at = datetime.datetime.now(datetime.UTC).isoformat()
+    return AuthResult(
+        target_name=target_name,
+        status=provider_result.status,
+        source=provider_result.source,
+        started_at=started_at,
+        ended_at=ended_at,
+        duration_seconds=time.perf_counter() - started_perf,
+        message=provider_result.message,
+        remediation=provider_result.remediation,
     )
-    if not unsupported_providers:
-        return
 
-    provider_list = ", ".join(unsupported_providers)
-    raise ValueError(
-        f"{command_name} currently supports provider 'aws' only. "
-        f"Provider(s) {provider_list} are validation-only until provider dispatch "
-        "is wired."
+
+def _run_provider_auth_check_for_target(*, target: TargetDescriptor) -> AuthResult:
+    provider = _load_provider(target.provider)
+    started_perf = time.perf_counter()
+    started_at = datetime.datetime.now(datetime.UTC).isoformat()
+    try:
+        provider_result = provider.auth_check(target)
+    except ValueError as error:
+        ended_at = datetime.datetime.now(datetime.UTC).isoformat()
+        return AuthResult(
+            target_name=target.name,
+            status=ExecutionStatus.ERROR,
+            source=target.provider,
+            started_at=started_at,
+            ended_at=ended_at,
+            duration_seconds=time.perf_counter() - started_perf,
+            message=str(error),
+        )
+
+    return _auth_result_from_provider_result(
+        target_name=target.name,
+        provider_result=provider_result,
+        started_at=started_at,
+        started_perf=started_perf,
     )
+
+
+def _run_dispatched_auth_check_for_target(
+    *, target: TargetDescriptor, auth_cache: AuthCheckCache
+) -> AuthResult:
+    if target.provider == "aws":
+        return _run_cached_auth_check_for_target(target=target, auth_cache=auth_cache)
+
+    return _run_provider_auth_check_for_target(target=target)
 
 
 def _resolve_effective_account_filters(
@@ -423,7 +490,8 @@ def prepare_target(
     session_factory = SessionFactory()
 
     with recorder.phase("prepare_target_seconds"):
-        auth_result: AuthResult = _run_cached_auth_check_for_target(
+        provider = _load_provider(target.provider)
+        auth_result: AuthResult = _run_dispatched_auth_check_for_target(
             target=target, auth_cache=auth_cache
         )
 
@@ -446,10 +514,13 @@ def prepare_target(
 
         with recorder.phase("resolve_tasks_seconds"):
             execution: ResolvedExecution = resolve_tasks(
-                task_specs=effective_target.tasks
+                task_specs=effective_target.tasks,
+                provider_name=effective_target.provider,
             )
             tasks: list[ResolvedTask] = execution.ordered
 
+        regions = provider.default_regions(effective_target)
+        effective_target = replace(effective_target, regions=regions)
         context: ExecutionContext = _build_execution_context(
             target=effective_target, tasks=tasks, benchmark_enabled=benchmark_enabled
         )
@@ -460,7 +531,7 @@ def prepare_target(
         base_session_account_id: str | None = None
         discovered_accounts: dict[str, dict[str, str]] | None = None
         region_statuses: dict[str, str] | None = None
-        if effective_target.is_organization_config:
+        if effective_target.provider == "aws" and effective_target.is_organization_config:
             (
                 base_session,
                 organization_id,
@@ -492,72 +563,349 @@ def prepare_target(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class _ProviderRegionOutcome:
+    region: str
+    task_results: list[TaskResult]
+    failed: bool
+    interrupted: bool
+    duration_seconds: float
+
+
+def _task_order(context: ExecutionContext) -> dict[str, int]:
+    return {task.name: index for index, task in enumerate(context.tasks)}
+
+
+def _execute_provider_region(
+    *,
+    execution_target: ExecutionTarget,
+    runtime: ProviderExecutionRuntime,
+    context: ExecutionContext,
+    region: str,
+) -> _ProviderRegionOutcome:
+    region_started = time.perf_counter()
+    session = runtime.build_session(region=region)
+    actions = ActionRecorder(actions=[])
+    task_results: list[TaskResult] = []
+    region_task_results: dict[str, TaskResult] = {}
+    optional_map = {task.name: task.optional for task in context.tasks}
+    interrupted = False
+
+    for task in context.tasks:
+        if context.cancel_event.is_set():
+            interrupted = True
+            break
+
+        dependency_failed = any(
+            region_task_results[dependency].status.is_error
+            for dependency in task.depends_on
+            if dependency in region_task_results
+        )
+        if dependency_failed:
+            now_at = datetime.datetime.now(datetime.UTC).isoformat()
+            blocked_result = TaskResult(
+                task_name=task.name,
+                region=region,
+                status=ExecutionStatus.ERROR,
+                started_at=now_at,
+                ended_at=now_at,
+                duration_seconds=0.0,
+                error="Blocked: dependency failed",
+            )
+            region_task_results[task.name] = blocked_result
+            task_results.append(blocked_result)
+            if not task.optional:
+                break
+            continue
+
+        task_started_perf = time.perf_counter()
+        task_started_at = datetime.datetime.now(datetime.UTC).isoformat()
+        try:
+            result = task.run(
+                account_id=execution_target.id,
+                account_alias=execution_target.name,
+                session=session,
+                dry_run=context.dry_run,
+                metadata=context.metadata,
+                actions=actions,
+            )
+        except Exception as error:
+            task_ended_perf = time.perf_counter()
+            task_ended_at = datetime.datetime.now(datetime.UTC).isoformat()
+            task_result = TaskResult(
+                task_name=task.name,
+                region=region,
+                status=ExecutionStatus.ERROR,
+                started_at=task_started_at,
+                ended_at=task_ended_at,
+                duration_seconds=task_ended_perf - task_started_perf,
+                error=str(error),
+            )
+            region_task_results[task.name] = task_result
+            task_results.append(task_result)
+            if not task.optional:
+                break
+            continue
+
+        task_ended_perf = time.perf_counter()
+        task_ended_at = datetime.datetime.now(datetime.UTC).isoformat()
+        task_result = TaskResult(
+            task_name=task.name,
+            region=region,
+            status=ExecutionStatus.SUCCESS,
+            started_at=task_started_at,
+            ended_at=task_ended_at,
+            duration_seconds=task_ended_perf - task_started_perf,
+            result=result,
+        )
+        region_task_results[task.name] = task_result
+        task_results.append(task_result)
+
+    failed = any(
+        result.status.is_error and not optional_map.get(result.task_name, False)
+        for result in region_task_results.values()
+    )
+    duration_seconds = time.perf_counter() - region_started
+    runtime.record_region_outcome(
+        region=region,
+        duration_seconds=duration_seconds,
+        failed=failed,
+        interrupted=interrupted,
+    )
+    return _ProviderRegionOutcome(
+        region=region,
+        task_results=task_results,
+        failed=failed,
+        interrupted=interrupted,
+        duration_seconds=duration_seconds,
+    )
+
+
+def _execute_provider_execution_target(
+    *,
+    provider: Provider,
+    target: TargetDescriptor,
+    execution_target: ExecutionTarget,
+    context: ExecutionContext,
+) -> AccountResult:
+    started_perf = time.perf_counter()
+    started_at = datetime.datetime.now(datetime.UTC).isoformat()
+    task_results: list[TaskResult] = []
+    runtime: ProviderExecutionRuntime | None = None
+    try:
+        runtime = provider.prepare_execution_runtime(
+            target=target, execution_target=execution_target, context=context
+        )
+        region_outcomes = [
+            _execute_provider_region(
+                execution_target=execution_target,
+                runtime=runtime,
+                context=context,
+                region=region,
+            )
+            for region in context.regions
+        ]
+        for outcome in region_outcomes:
+            task_results.extend(outcome.task_results)
+
+        region_order = {region: index for index, region in enumerate(context.regions)}
+        task_order = _task_order(context)
+        task_results.sort(
+            key=lambda result: (
+                region_order.get(result.region, len(region_order)),
+                task_order.get(result.task_name, len(task_order)),
+            )
+        )
+
+        interrupted = any(outcome.interrupted for outcome in region_outcomes)
+        failed = any(outcome.failed for outcome in region_outcomes)
+        status = (
+            ExecutionStatus.INTERRUPTED
+            if interrupted
+            else ExecutionStatus.ERROR
+            if failed
+            else ExecutionStatus.SUCCESS
+        )
+        error = None
+    except Exception as runtime_error:
+        status = ExecutionStatus.ERROR
+        error = str(runtime_error)
+    finally:
+        if runtime is not None:
+            runtime.close()
+
+    ended_at = datetime.datetime.now(datetime.UTC).isoformat()
+    return AccountResult(
+        account_id=execution_target.id,
+        account_alias=execution_target.name,
+        status=status,
+        started_at=started_at,
+        ended_at=ended_at,
+        duration_seconds=time.perf_counter() - started_perf,
+        tasks=task_results,
+        error=error,
+    )
+
+
+def _execute_provider_targets(
+    *,
+    provider: Provider,
+    target: TargetDescriptor,
+    context: ExecutionContext,
+    execution_targets: list[ExecutionTarget],
+    benchmark_data: dict[str, object] | None,
+) -> TargetResult:
+    account_results: list[AccountResult] = []
+    with ThreadPoolExecutor(max_workers=target.max_workers) as executor:
+        futures: dict[Future[AccountResult], ExecutionTarget] = {
+            executor.submit(
+                _execute_provider_execution_target,
+                provider=provider,
+                target=target,
+                execution_target=execution_target,
+                context=context,
+            ): execution_target
+            for execution_target in execution_targets
+        }
+        fail_fast_triggered = False
+
+        for future in as_completed(futures):
+            try:
+                account_result = future.result()
+            except CancelledError:
+                continue
+
+            account_results.append(account_result)
+            if (
+                context.fail_fast
+                and account_result.status.is_unsuccessful
+                and not fail_fast_triggered
+            ):
+                context.cancel_event.set()
+                fail_fast_triggered = True
+                for pending in futures:
+                    if not pending.done():
+                        pending.cancel()
+
+    account_results.sort(
+        key=lambda result: (result.account_alias.lower(), result.account_id)
+    )
+    return TargetResult.create(
+        config_branch=target.config_branch,
+        target_name=target.name,
+        dry_run=context.dry_run,
+        account_results=account_results,
+        benchmark=benchmark_data,
+    )
+
+
 def run_prepared_target(*, prepared_target: PreparedTarget) -> TargetExecutionOutcome:
     if prepared_target.context is None:
         raise ValueError("Prepared target is not runnable.")
 
     target: TargetDescriptor = prepared_target.effective_target
     context: ExecutionContext = prepared_target.context
-    aws_provider = AwsProvider()
+    benchmark_data = (
+        dict(prepared_target.benchmark)
+        if prepared_target.benchmark is not None
+        else None
+    )
+    sink = BenchmarkRecorder(data=benchmark_data)
 
-    try:
-        benchmark_data = (
-            dict(prepared_target.benchmark)
-            if prepared_target.benchmark is not None
-            else None
-        )
-        sink = BenchmarkRecorder(data=benchmark_data)
-        with sink.phase("resolve_accounts_seconds"):
-            execution_plan: ProviderExecutionPlan = (
-                aws_provider.resolve_execution_targets(
-                    target=target,
-                    regions=context.regions,
-                    include=target.include,
-                    exclude=target.exclude,
-                    session_factory=prepared_target.session_factory,
-                    base_session=prepared_target.base_session,
-                    organization_id=prepared_target.organization_id,
-                    management_account_id=prepared_target.management_account_id,
-                    base_session_account_id=prepared_target.base_session_account_id,
-                    discovered_accounts=prepared_target.discovered_accounts,
-                    region_statuses=prepared_target.region_statuses,
-                    organization_resolver_cls=OrganizationResolver,
-                    account_resolver_cls=AccountResolver,
+    if target.provider == "aws":
+        try:
+            aws_provider = AwsProvider()
+            with sink.phase("resolve_accounts_seconds"):
+                execution_plan: ProviderExecutionPlan = (
+                    aws_provider.resolve_execution_targets(
+                        target=target,
+                        regions=context.regions,
+                        include=target.include,
+                        exclude=target.exclude,
+                        session_factory=prepared_target.session_factory,
+                        base_session=prepared_target.base_session,
+                        organization_id=prepared_target.organization_id,
+                        management_account_id=prepared_target.management_account_id,
+                        base_session_account_id=prepared_target.base_session_account_id,
+                        discovered_accounts=prepared_target.discovered_accounts,
+                        region_statuses=prepared_target.region_statuses,
+                        organization_resolver_cls=OrganizationResolver,
+                        account_resolver_cls=AccountResolver,
+                    )
                 )
-            )
-            accounts: list[Account] = aws_provider.accounts_from_execution_targets(
-                execution_targets=execution_plan.execution_targets, context=context
+                accounts: list[Account] = aws_provider.accounts_from_execution_targets(
+                    execution_targets=execution_plan.execution_targets, context=context
+                )
+
+            sink.update(
+                {
+                    "resolved_account_count": len(accounts),
+                    "max_workers": target.max_workers,
+                    "max_parallel_regions": context.max_parallel_regions,
+                    "account_region_limit": (
+                        target.max_workers * context.max_parallel_regions
+                    ),
+                }
             )
 
+            account_region_limit = target.max_workers * context.max_parallel_regions
+            __LOGGER__.info(
+                f"Target '{target.name}' concurrency: "
+                f"max_workers={target.max_workers}, "
+                f"max_parallel_regions={context.max_parallel_regions}, "
+                f"account_region_limit={account_region_limit}"
+            )
+            target_result: TargetResult = execute_accounts(
+                name=target.name,
+                config_branch=target.config_branch,
+                max_workers=target.max_workers,
+                context=context,
+                accounts=accounts,
+                benchmark_enabled=sink.enabled,
+                benchmark=benchmark_data,
+            )
+        except ValueError as error:
+            target_result = TargetResult.create(
+                config_branch=target.config_branch,
+                target_name=target.name,
+                dry_run=context.dry_run,
+                account_results=[],
+                error=str(error),
+            )
+
+        return TargetExecutionOutcome(
+            index=prepared_target.index,
+            target_result=target_result,
+            cancelled=context.cancel_event.is_set(),
+        )
+
+    provider = _load_provider(target.provider)
+    try:
+        with sink.phase("resolve_execution_targets_seconds"):
+            execution_plan = provider.resolve_execution_targets(
+                target=target,
+                regions=context.regions,
+                include=target.include,
+                exclude=target.exclude,
+            )
         sink.update(
             {
-                "resolved_account_count": len(accounts),
+                "resolved_execution_target_count": len(
+                    execution_plan.execution_targets
+                ),
                 "max_workers": target.max_workers,
                 "max_parallel_regions": context.max_parallel_regions,
-                "account_region_limit": (
-                    target.max_workers * context.max_parallel_regions
-                ),
             }
         )
-
-        account_region_limit = target.max_workers * context.max_parallel_regions
-        __LOGGER__.info(
-            f"Target '{target.name}' concurrency: "
-            f"max_workers={target.max_workers}, "
-            f"max_parallel_regions={context.max_parallel_regions}, "
-            f"account_region_limit={account_region_limit}"
-        )
-        target_result: TargetResult = execute_accounts(
-            name=target.name,
-            config_branch=target.config_branch,
-            max_workers=target.max_workers,
+        target_result = _execute_provider_targets(
+            provider=provider,
+            target=target,
+            execution_targets=execution_plan.execution_targets,
+            benchmark_data=benchmark_data,
             context=context,
-            accounts=accounts,
-            benchmark_enabled=sink.enabled,
-            benchmark=benchmark_data,
         )
-    except ValueError as error:
-        target_result: TargetResult = TargetResult.create(
+    except Exception as error:
+        target_result = TargetResult.create(
             config_branch=target.config_branch,
             target_name=target.name,
             dry_run=context.dry_run,
@@ -594,9 +942,6 @@ def run_auth_checks(*, targets: list[TargetDescriptor]) -> EngineResult:
     """
     Run authentication checks only. Does not resolve tasks or execute targets.
     """
-    _ensure_runtime_supported_providers(
-        targets=targets, command_name="Authentication validation"
-    )
     config_branch: ConfigBranch = (
         targets[0].config_branch if targets else ConfigBranch.ORGANIZATIONS
     )
@@ -608,7 +953,9 @@ def run_auth_checks(*, targets: list[TargetDescriptor]) -> EngineResult:
     ) as executor:
         futures: list[Future[AuthResult]] = [
             executor.submit(
-                _run_cached_auth_check_for_target, target=target, auth_cache=auth_cache
+                _run_dispatched_auth_check_for_target,
+                target=target,
+                auth_cache=auth_cache,
             )
             for target in targets
         ]
@@ -751,7 +1098,6 @@ def run_multiple_targets(
     cli_exclude: list[str] | None,
     benchmark_enabled: bool = False,
 ) -> EngineResult:
-    _ensure_runtime_supported_providers(targets=targets, command_name="Execution")
     config_branch: ConfigBranch = (
         targets[0].config_branch if targets else ConfigBranch.ORGANIZATIONS
     )

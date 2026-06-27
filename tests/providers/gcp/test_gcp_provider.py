@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import builtins
+import sys
+from types import SimpleNamespace
 from dataclasses import dataclass
 
 import pytest
@@ -22,10 +24,24 @@ class FakeSession:
 
 class FakeSessionFactory:
     def __init__(self) -> None:
-        self.calls: list[dict[str, str]] = []
+        self.calls: list[dict[str, str | None]] = []
 
-    def create_session(self, *, project_id: str, location: str) -> FakeSession:
-        self.calls.append({"project_id": project_id, "location": location})
+    def create_session(
+        self,
+        *,
+        project_id: str,
+        location: str,
+        credentials_path: str | None = None,
+        quota_project_id: str | None = None,
+    ) -> FakeSession:
+        self.calls.append(
+            {
+                "project_id": project_id,
+                "location": location,
+                "credentials_path": credentials_path,
+                "quota_project_id": quota_project_id,
+            }
+        )
         return FakeSession(project_id=project_id, location=location)
 
 
@@ -33,6 +49,8 @@ def _target(**overrides) -> TargetDescriptor:
     values = {
         "config_branch": ConfigBranch.ACCOUNTS,
         "name": "gcp-projects",
+        "provider": "gcp",
+        "mode": "projects",
         "include": ["project-a"],
     }
     values.update(overrides)
@@ -69,7 +87,7 @@ def test_gcp_provider_rejects_organization_targets():
 def test_gcp_resolves_explicit_project_targets_deterministically():
     session_factory = FakeSessionFactory()
     provider = GcpProvider(session_factory=session_factory)
-    target = _target(include=["project-b"], role_name="descriptor-compat")
+    target = _target(include=["project-b"])
 
     plan = provider.resolve_execution_targets(
         target=target,
@@ -96,7 +114,12 @@ def test_gcp_resolves_explicit_project_targets_deterministically():
 def test_gcp_runtime_uses_injected_session_factory():
     session_factory = FakeSessionFactory()
     provider = GcpProvider(session_factory=session_factory)
-    target = _target()
+    target = _target(
+        provider_options={
+            "credentials_path": "credentials.json",
+            "quota_project_id": "billing-project",
+        }
+    )
     execution_target = provider.resolve_execution_targets(
         target=target, regions=["us-central1"], include=target.include, exclude=None
     ).execution_targets[0]
@@ -109,7 +132,12 @@ def test_gcp_runtime_uses_injected_session_factory():
         project_id="project-a", location="us-central1"
     )
     assert session_factory.calls == [
-        {"project_id": "project-a", "location": "us-central1"}
+        {
+            "project_id": "project-a",
+            "location": "us-central1",
+            "credentials_path": "credentials.json",
+            "quota_project_id": "billing-project",
+        }
     ]
 
 
@@ -127,3 +155,75 @@ def test_gcp_session_factory_imports_sdk_only_when_session_is_built(monkeypatch)
         GcpSessionFactory().create_session(
             project_id="project-a", location="us-central1"
         )
+
+
+def test_gcp_session_factory_uses_credentials_file_and_quota_project(monkeypatch):
+    calls: list[dict[str, object]] = []
+
+    def fake_load_credentials_from_file(
+        credentials_path, *, scopes, quota_project_id
+    ):
+        calls.append(
+            {
+                "credentials_path": credentials_path,
+                "scopes": scopes,
+                "quota_project_id": quota_project_id,
+            }
+        )
+        return object(), "loaded-project"
+
+    fake_auth = SimpleNamespace(
+        load_credentials_from_file=fake_load_credentials_from_file,
+        default=lambda **kwargs: (_ for _ in ()).throw(
+            AssertionError("google.auth.default should not be used")
+        ),
+    )
+    monkeypatch.setitem(sys.modules, "google", SimpleNamespace(auth=fake_auth))
+    monkeypatch.setitem(sys.modules, "google.auth", fake_auth)
+
+    session = GcpSessionFactory().create_session(
+        project_id="project-a",
+        location="us-central1",
+        credentials_path="credentials.json",
+        quota_project_id="billing-project",
+    )
+
+    assert session.quota_project_id == "billing-project"
+    assert calls == [
+        {
+            "credentials_path": "credentials.json",
+            "scopes": ["https://www.googleapis.com/auth/cloud-platform"],
+            "quota_project_id": "billing-project",
+        }
+    ]
+
+
+def test_gcp_session_factory_uses_default_credentials_with_quota_project(monkeypatch):
+    calls: list[dict[str, object]] = []
+
+    def fake_default(*, scopes, quota_project_id):
+        calls.append({"scopes": scopes, "quota_project_id": quota_project_id})
+        return object(), "default-project"
+
+    fake_auth = SimpleNamespace(
+        load_credentials_from_file=lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("load_credentials_from_file should not be used")
+        ),
+        default=fake_default,
+    )
+    monkeypatch.setitem(sys.modules, "google", SimpleNamespace(auth=fake_auth))
+    monkeypatch.setitem(sys.modules, "google.auth", fake_auth)
+
+    session = GcpSessionFactory().create_session(
+        project_id="project-a",
+        location="us-central1",
+        quota_project_id="billing-project",
+    )
+
+    assert session.quota_project_id == "billing-project"
+    assert calls == [
+        {
+            "scopes": ["https://www.googleapis.com/auth/cloud-platform"],
+            "quota_project_id": "billing-project",
+        }
+    ]

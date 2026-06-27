@@ -215,7 +215,12 @@ def test_load_config_descriptors_reads_azure_subscription_targets():
                         "11111111-2222-3333-4444-555555555555",
                         "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
                     ],
-                    "provider_options": {"tenant_id": "tenant-a"},
+                    "provider_options": {
+                        "tenant_id": "tenant-a",
+                        "client_id": "client-a",
+                        "client_secret": "secret-a",
+                        "subscription_id": "billing-sub",
+                    },
                 }
             ],
         }
@@ -228,7 +233,12 @@ def test_load_config_descriptors_reads_azure_subscription_targets():
         "11111111-2222-3333-4444-555555555555",
         "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
     ]
-    assert target.provider_options == {"tenant_id": "tenant-a"}
+    assert target.provider_options == {
+        "tenant_id": "tenant-a",
+        "client_id": "client-a",
+        "client_secret": "secret-a",
+        "subscription_id": "billing-sub",
+    }
 
 
 def test_load_config_descriptors_reads_gcp_project_targets():
@@ -552,6 +562,37 @@ def test_validate_config_schema_rejects_invalid_provider_option():
                         "mode": "projects",
                         "include": ["project-a"],
                         "provider_options": {"tenant_id": "wrong-cloud"},
+                    }
+                ],
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    ("provider_options", "message"),
+    [
+        ({"tenant_id": "tenant-a"}, "tenant_id.*client_secret"),
+        ({"subscription_id": "billing-sub"}, "subscription_id.*client_secret"),
+        ({"client_secret": "secret-a"}, "client_secret.*tenant_id.*client_id"),
+    ],
+)
+def test_load_config_descriptors_rejects_ambiguous_azure_provider_options(
+    provider_options,
+    message,
+):
+    validators = _import_validators_or_skip()
+
+    with pytest.raises(ValueError, match=message):
+        validators.load_config_descriptors(
+            config={
+                "schema_version": 1,
+                "accounts": [
+                    {
+                        "name": "azure-subscriptions",
+                        "provider": "azure",
+                        "mode": "subscriptions",
+                        "include": ["11111111-2222-3333-4444-555555555555"],
+                        "provider_options": provider_options,
                     }
                 ],
             }

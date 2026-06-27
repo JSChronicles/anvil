@@ -23,7 +23,7 @@ SUPPORTED_PROVIDER_MODES = {
 }
 SUPPORTED_PROVIDER_OPTIONS = {
     PROVIDER_AWS: {"profile", "role_name"},
-    PROVIDER_AZURE: {"tenant_id", "client_id"},
+    PROVIDER_AZURE: {"tenant_id", "client_id", "client_secret", "subscription_id"},
     PROVIDER_GCP: {"credentials_path", "quota_project_id"},
 }
 
@@ -193,6 +193,27 @@ class TargetDescriptor:
             if not isinstance(option_value, str) or not option_value.strip():
                 raise ValueError(
                     f"provider_options.{option_name} must be a non-empty string"
+                )
+
+        if self.provider == PROVIDER_AZURE:
+            tenant_id = self.provider_options.get("tenant_id")
+            client_id = self.provider_options.get("client_id")
+            client_secret = self.provider_options.get("client_secret")
+            subscription_id = self.provider_options.get("subscription_id")
+            if tenant_id is not None and client_secret is None:
+                raise ValueError(
+                    "Azure provider_options.tenant_id is only supported with "
+                    "client_secret"
+                )
+            if subscription_id is not None and client_secret is None:
+                raise ValueError(
+                    "Azure provider_options.subscription_id is only supported with "
+                    "client_secret"
+                )
+            if client_secret is not None and (tenant_id is None or client_id is None):
+                raise ValueError(
+                    "Azure provider_options.client_secret requires tenant_id and "
+                    "client_id"
                 )
 
     def _normalize_provider_option_aliases(self) -> None:

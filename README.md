@@ -121,20 +121,20 @@ Current supported provider modes:
   include/exclude AWS account IDs, and supports region selectors such as `all`
   and glob patterns.
 - AWS `accounts`: runs against explicit AWS account IDs in `include`.
-- Azure `subscriptions`: validates explicit Azure subscription IDs in `include`
-  as the provider config shape.
-- GCP `projects`: validates explicit GCP project IDs in `include` as the
-  provider config shape.
+- Azure `subscriptions`: runs explicit Azure subscription IDs in `include` for
+  universal tasks when an Azure runtime session can be built.
+- GCP `projects`: runs explicit GCP project IDs in `include` for universal
+  tasks when a GCP runtime session can be built.
 
 Azure management group discovery and GCP organization/folder discovery are
 intentionally deferred. The schema rejects those modes until provider discovery
 support is implemented.
 
-This branch keeps Azure and GCP validation-only until provider dispatch is
-wired into `anvil run` and `anvil validate --auth`. Those runtime paths reject
-non-AWS providers before AWS auth, session, or account resolution code runs.
-Azure/GCP `provider_options` are accepted placeholders for the future runtime
-session factories.
+Azure/GCP management group, organization, and folder discovery are still
+deferred. Azure/GCP runtime session creation requires the provider's optional
+SDKs and credentials; failures are reported as provider-specific runtime errors
+without entering AWS auth, session, or account resolution code. Azure/GCP
+`provider_options` are passed into the provider runtime session factories.
 
 ```yaml
 schema_version: 1
@@ -149,6 +149,9 @@ accounts:
       - 11111111-2222-3333-4444-555555555555
     provider_options:
       tenant_id: example-tenant-id
+      client_id: example-client-id
+      client_secret: example-client-secret
+      subscription_id: example-runtime-subscription-id
     tasks:
       - name: noop
 ```
@@ -165,6 +168,7 @@ accounts:
     include:
       - anvil-dev-project
     provider_options:
+      credentials_path: /secure/path/to/credentials.json
       quota_project_id: anvil-billing-project
     tasks:
       - name: noop
