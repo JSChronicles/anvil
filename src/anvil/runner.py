@@ -18,7 +18,8 @@ from anvil.descriptors import ConfigBranch, TargetDescriptor
 from anvil.execution_context import ExecutionContext
 from anvil.executor import execute_accounts
 from anvil.organization import OrganizationResolver
-from anvil.regions import get_bootstrap_region
+from anvil.providers.aws import AwsProvider
+from anvil.providers.base import ProviderExecutionPlan
 from anvil.results import (
     AuthResult,
     EngineResult,
@@ -339,11 +340,14 @@ def _preflight_organization(
     benchmark: dict[str, object] | None = None,
 ) -> tuple[Session, str, str, str, dict[str, dict[str, str]], dict[str, str]]:
     sink = BenchmarkRecorder(data=benchmark)
+    aws_provider = AwsProvider()
 
     with sink.phase("create_base_session_seconds"):
         base_session: Session = session_factory.create_base_session(
             profile_name=target.profile,
-            region_name=get_bootstrap_region(context.regions),
+            region_name=aws_provider.bootstrap_region(
+                configured_regions=context.regions
+            ),
         )
 
     with sink.phase("describe_organization_seconds"):
@@ -361,8 +365,8 @@ def _preflight_organization(
             discovered_accounts = OrganizationResolver.discover_accounts(base_session)
 
         with sink.phase("discover_region_statuses_seconds"):
-            region_statuses = OrganizationResolver.discover_region_statuses(
-                base_session
+            region_statuses = aws_provider.discover_region_statuses(
+                session=base_session
             )
 
         return OrganizationRunCacheEntry(
@@ -477,24 +481,7 @@ def run_prepared_target(*, prepared_target: PreparedTarget) -> TargetExecutionOu
 
     target: TargetDescriptor = prepared_target.effective_target
     context: ExecutionContext = prepared_target.context
-
-    if target.is_organization_config:
-        resolver = OrganizationResolver(
-            descriptor=target,
-            context=context,
-            management_account_id=prepared_target.management_account_id,
-            base_session_account_id=prepared_target.base_session_account_id,
-            session_factory=prepared_target.session_factory,
-            base_session=prepared_target.base_session,
-            discovered_accounts=prepared_target.discovered_accounts,
-            region_statuses=prepared_target.region_statuses,
-        )
-    else:
-        resolver = AccountResolver(
-            descriptor=target,
-            context=context,
-            session_factory=prepared_target.session_factory,
-        )
+    aws_provider = AwsProvider()
 
     try:
         benchmark_data = (
@@ -504,7 +491,26 @@ def run_prepared_target(*, prepared_target: PreparedTarget) -> TargetExecutionOu
         )
         sink = BenchmarkRecorder(data=benchmark_data)
         with sink.phase("resolve_accounts_seconds"):
-            accounts: list[Account] = resolver.resolve_accounts()
+            execution_plan: ProviderExecutionPlan = (
+                aws_provider.resolve_execution_targets(
+                    target=target,
+                    regions=context.regions,
+                    include=target.include,
+                    exclude=target.exclude,
+                    session_factory=prepared_target.session_factory,
+                    base_session=prepared_target.base_session,
+                    organization_id=prepared_target.organization_id,
+                    management_account_id=prepared_target.management_account_id,
+                    base_session_account_id=prepared_target.base_session_account_id,
+                    discovered_accounts=prepared_target.discovered_accounts,
+                    region_statuses=prepared_target.region_statuses,
+                    organization_resolver_cls=OrganizationResolver,
+                    account_resolver_cls=AccountResolver,
+                )
+            )
+            accounts: list[Account] = aws_provider.accounts_from_execution_targets(
+                execution_targets=execution_plan.execution_targets, context=context
+            )
 
         sink.update(
             {

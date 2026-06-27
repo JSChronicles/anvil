@@ -44,6 +44,15 @@ def test_list_cli_parses_processor_listing(monkeypatch):
 
     assert args.tasks is False
     assert args.processors is True
+    assert args.providers is False
+
+
+def test_list_cli_parses_provider_listing(monkeypatch):
+    args = _run_main_with_args(monkeypatch, ["anvil", "list", "--providers"])
+
+    assert args.tasks is False
+    assert args.processors is False
+    assert args.providers is True
 
 
 def test_list_cli_requires_selector(monkeypatch, capsys):
@@ -54,7 +63,10 @@ def test_list_cli_requires_selector(monkeypatch, capsys):
         cli.main()
 
     assert exc_info.value.code == 2
-    assert "One of --tasks or --processors is required." in capsys.readouterr().err
+    assert (
+        "One of --tasks, --processors, or --providers is required."
+        in capsys.readouterr().err
+    )
 
 
 def test_list_cli_rejects_multiple_selectors(monkeypatch, capsys):
@@ -65,7 +77,18 @@ def test_list_cli_rejects_multiple_selectors(monkeypatch, capsys):
         cli.main()
 
     assert exc_info.value.code == 2
-    assert "--tasks and --processors cannot be used together" in capsys.readouterr().err
+    assert "--tasks, --processors cannot be used together" in capsys.readouterr().err
+
+
+def test_list_cli_rejects_provider_with_other_selectors(monkeypatch, capsys):
+    cli = _import_cli_or_skip()
+    monkeypatch.setattr("sys.argv", ["anvil", "list", "--tasks", "--providers"])
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+
+    assert exc_info.value.code == 2
+    assert "--tasks, --providers cannot be used together" in capsys.readouterr().err
 
 
 def test_list_cli_removes_old_tasks_list_command(monkeypatch, capsys):
@@ -144,6 +167,32 @@ def test_cmd_list_processors_groups_by_source(monkeypatch, capsys):
     )
 
 
+def test_cmd_list_providers_groups_by_source(monkeypatch, capsys):
+    cli = _import_cli_or_skip()
+    monkeypatch.setattr(
+        cli,
+        "list_providers",
+        lambda: [
+            cli.ProviderDescriptor(
+                name="aws", display_name="AWS", load=lambda: None, source="stock"
+            ),
+            cli.ProviderDescriptor(
+                name="custom",
+                display_name="Custom",
+                load=lambda: None,
+                source="plugin: my-plugin",
+            ),
+        ],
+    )
+
+    args = SimpleNamespace(tasks=False, processors=False, providers=True)
+    assert cli._cmd_list(args) == 0
+
+    assert capsys.readouterr().out == (
+        "Available providers:\nstock:\n  - aws\n\nplugin: my-plugin:\n  - custom\n"
+    )
+
+
 def test_list_help_shows_new_flags_and_not_old_groups(monkeypatch, capsys):
     cli = _import_cli_or_skip()
     monkeypatch.setattr("sys.argv", ["anvil", "list", "--help"])
@@ -155,5 +204,6 @@ def test_list_help_shows_new_flags_and_not_old_groups(monkeypatch, capsys):
     output = capsys.readouterr().out
     assert "--tasks" in output
     assert "--processors" in output
+    assert "--providers" in output
     assert "tasks list" not in output
     assert "processors list" not in output

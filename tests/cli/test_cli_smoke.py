@@ -427,6 +427,57 @@ def test_cmd_results_outputs_jsonl_with_fields_and_limit(capsys):
             scratch_dir.rmdir()
 
 
+def test_cmd_results_limit_stops_after_enough_filtered_records(capsys, tmp_path):
+    from types import SimpleNamespace
+
+    cli = _import_cli_or_skip()
+    jsonl_path = tmp_path / "results.jsonl"
+    jsonl_path.write_text(
+        "\n".join(
+            [
+                (
+                    '{"record_type":"task","target":"org-a","account_id":'
+                    '"000000000000","account_alias":"skip","region":"us-east-1",'
+                    '"task":"count_vpcs","status":"success"}'
+                ),
+                (
+                    '{"record_type":"task","target":"org-a","account_id":'
+                    '"111111111111","account_alias":"dev","region":"us-east-1",'
+                    '"task":"count_vpcs","status":"error","error":"boom"}'
+                ),
+                (
+                    '{"record_type":"task","target":"org-a","account_id":'
+                    '"222222222222","account_alias":"prod","region":"us-west-2",'
+                    '"task":"count_vpcs","status":"error","error":"nope"}'
+                ),
+                "not-json",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    args = SimpleNamespace(
+        results_file=[jsonl_path],
+        type="task",
+        status="failed",
+        target=None,
+        account=None,
+        region=None,
+        task="count_vpcs",
+        fields="account_id",
+        limit=1,
+        json=False,
+        jsonl=True,
+        rerun=False,
+    )
+
+    assert cli._cmd_results(args) == 0
+    output = capsys.readouterr().out
+
+    assert '"account_id":"111111111111"' in output
+    assert "222222222222" not in output
+
+
 def test_cmd_results_rerun_rejects_report_only_flags():
     from types import SimpleNamespace
 

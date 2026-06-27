@@ -6,6 +6,28 @@ from enum import StrEnum
 from anvil.regions import ALL_REGION_SELECTOR, is_region_selector
 
 
+PROVIDER_AWS = "aws"
+PROVIDER_AZURE = "azure"
+PROVIDER_GCP = "gcp"
+
+MODE_AWS_ORGANIZATION = "organization"
+MODE_AWS_ACCOUNTS = "accounts"
+MODE_AZURE_SUBSCRIPTIONS = "subscriptions"
+MODE_GCP_PROJECTS = "projects"
+
+SUPPORTED_PROVIDERS = {PROVIDER_AWS, PROVIDER_AZURE, PROVIDER_GCP}
+SUPPORTED_PROVIDER_MODES = {
+    PROVIDER_AWS: {MODE_AWS_ORGANIZATION, MODE_AWS_ACCOUNTS},
+    PROVIDER_AZURE: {MODE_AZURE_SUBSCRIPTIONS},
+    PROVIDER_GCP: {MODE_GCP_PROJECTS},
+}
+SUPPORTED_PROVIDER_OPTIONS = {
+    PROVIDER_AWS: {"profile", "role_name"},
+    PROVIDER_AZURE: {"tenant_id", "client_id"},
+    PROVIDER_GCP: {"credentials_path", "quota_project_id"},
+}
+
+
 class ConfigBranch(StrEnum):
     ORGANIZATIONS = "organizations"
     ACCOUNTS = "accounts"
@@ -38,6 +60,9 @@ class TargetDescriptor:
     exclude: list[str] | None = None
 
     metadata: dict[str, object] = field(default_factory=dict)
+    provider: str = PROVIDER_AWS
+    mode: str | None = None
+    provider_options: dict[str, object] = field(default_factory=dict)
 
     @property
     def is_organization_config(self) -> bool:
@@ -48,6 +73,21 @@ class TargetDescriptor:
         return self.config_branch is ConfigBranch.ACCOUNTS
 
     def __post_init__(self) -> None:
+        if not isinstance(self.provider, str):
+            raise ValueError("provider must be a string")
+
+        normalized_provider = self.provider.strip().lower()
+        if normalized_provider not in SUPPORTED_PROVIDERS:
+            supported = ", ".join(sorted(SUPPORTED_PROVIDERS))
+            raise ValueError(
+                f"Unsupported provider '{self.provider}'. Supported providers: {supported}"
+            )
+        object.__setattr__(self, "provider", normalized_provider)
+
+        self._validate_provider_options()
+        self._normalize_provider_option_aliases()
+        self._normalize_mode()
+
         if self.max_workers < 1:
             raise ValueError("max_workers must be >= 1")
 
@@ -74,13 +114,18 @@ class TargetDescriptor:
 
         object.__setattr__(self, "regions", normalized_regions)
 
-        normalized_include = self._normalize_account_ids(self.include)
-        normalized_exclude = self._normalize_account_ids(self.exclude)
+        normalized_include = self._normalize_target_ids(self.include)
+        normalized_exclude = self._normalize_target_ids(self.exclude)
 
         object.__setattr__(self, "include", normalized_include)
         object.__setattr__(self, "exclude", normalized_exclude)
 
         if self.config_branch is ConfigBranch.ORGANIZATIONS:
+            if self.provider != PROVIDER_AWS:
+                raise ValueError(
+                    "organizations config entries currently support provider 'aws' only"
+                )
+
             if self.role_name is None:
                 object.__setattr__(self, "role_name", "OrganizationAccountAccessRole")
 
@@ -104,7 +149,11 @@ class TargetDescriptor:
             if self.exclude is not None:
                 raise ValueError("accounts config entries do not allow exclude")
 
-            if self.role_name is None and len(self.include) != 1:
+            if (
+                self.provider == PROVIDER_AWS
+                and self.role_name is None
+                and len(self.include) != 1
+            ):
                 raise ValueError(
                     "accounts config entries without role_name must include exactly "
                     "one account ID"
@@ -114,18 +163,120 @@ class TargetDescriptor:
 
         raise ValueError(f"Unsupported config branch: {self.config_branch}")
 
+    def _validate_provider_options(self) -> None:
+        if not isinstance(self.provider_options, dict):
+            raise ValueError("provider_options must be a mapping")
+
+        if self.provider != PROVIDER_AWS:
+            if self.profile is not None:
+                raise ValueError(
+                    f"profile is only supported for provider '{PROVIDER_AWS}'"
+                )
+            if self.role_name is not None:
+                raise ValueError(
+                    f"role_name is only supported for provider '{PROVIDER_AWS}'"
+                )
+
+        allowed_options = SUPPORTED_PROVIDER_OPTIONS[self.provider]
+        unknown_options = sorted(set(self.provider_options) - allowed_options)
+        if unknown_options:
+            unknown_display = ", ".join(unknown_options)
+            allowed_display = ", ".join(sorted(allowed_options)) or "(none)"
+            raise ValueError(
+                f"Unsupported provider_options for provider '{self.provider}': "
+                f"{unknown_display}. Supported options: {allowed_display}"
+            )
+
+        for option_name, option_value in self.provider_options.items():
+            if option_value is None:
+                continue
+            if not isinstance(option_value, str) or not option_value.strip():
+                raise ValueError(
+                    f"provider_options.{option_name} must be a non-empty string"
+                )
+
+    def _normalize_provider_option_aliases(self) -> None:
+        if self.provider != PROVIDER_AWS:
+            return
+
+        profile = self.provider_options.get("profile")
+        if profile is not None:
+            if not isinstance(profile, str) or not profile.strip():
+                raise ValueError("provider_options.profile must be a non-empty string")
+            if self.profile is not None and self.profile != profile:
+                raise ValueError(
+                    "profile and provider_options.profile must not conflict"
+                )
+            object.__setattr__(self, "profile", profile.strip())
+
+        role_name = self.provider_options.get("role_name")
+        if role_name is not None:
+            if not isinstance(role_name, str) or not role_name.strip():
+                raise ValueError("provider_options.role_name must be a non-empty string")
+            if self.role_name is not None and self.role_name != role_name:
+                raise ValueError(
+                    "role_name and provider_options.role_name must not conflict"
+                )
+            object.__setattr__(self, "role_name", role_name.strip())
+
+    def _normalize_mode(self) -> None:
+        mode = self.mode.strip().lower() if isinstance(self.mode, str) else None
+        if self.mode is not None and not mode:
+            raise ValueError("mode must be a non-empty string")
+
+        if mode is None:
+            if self.provider == PROVIDER_AWS:
+                mode = (
+                    MODE_AWS_ORGANIZATION
+                    if self.config_branch is ConfigBranch.ORGANIZATIONS
+                    else MODE_AWS_ACCOUNTS
+                )
+            elif self.provider == PROVIDER_AZURE:
+                mode = MODE_AZURE_SUBSCRIPTIONS
+            elif self.provider == PROVIDER_GCP:
+                mode = MODE_GCP_PROJECTS
+
+        if mode not in SUPPORTED_PROVIDER_MODES[self.provider]:
+            supported = ", ".join(sorted(SUPPORTED_PROVIDER_MODES[self.provider]))
+            raise ValueError(
+                f"Unsupported mode '{mode}' for provider '{self.provider}'. "
+                f"Supported modes: {supported}"
+            )
+
+        if self.config_branch is ConfigBranch.ORGANIZATIONS and (
+            self.provider != PROVIDER_AWS or mode != MODE_AWS_ORGANIZATION
+        ):
+            raise ValueError(
+                "organizations config entries currently support provider 'aws' "
+                "with mode 'organization' only"
+            )
+
+        if self.config_branch is ConfigBranch.ACCOUNTS:
+            expected_mode = {
+                PROVIDER_AWS: MODE_AWS_ACCOUNTS,
+                PROVIDER_AZURE: MODE_AZURE_SUBSCRIPTIONS,
+                PROVIDER_GCP: MODE_GCP_PROJECTS,
+            }[self.provider]
+            if mode != expected_mode:
+                raise ValueError(
+                    f"accounts config entries for provider '{self.provider}' "
+                    f"require mode '{expected_mode}'"
+                )
+
+        object.__setattr__(self, "mode", mode)
+
     @staticmethod
-    def _normalize_account_ids(account_ids: list[str] | None) -> list[str] | None:
-        if account_ids is None:
+    def _normalize_target_ids(target_ids: list[str] | None) -> list[str] | None:
+        if target_ids is None:
             return None
 
-        normalized = [account_id.strip() for account_id in account_ids]
+        normalized = [target_id.strip() for target_id in target_ids]
 
-        if any(not account_id for account_id in normalized):
-            raise ValueError("account ID lists must not contain empty values")
+        if any(not target_id for target_id in normalized):
+            raise ValueError("target ID lists must not contain empty values")
 
         if len(set(normalized)) != len(normalized):
-            raise ValueError("account ID lists must not contain duplicates")
+            raise ValueError("target ID lists must not contain duplicates")
 
         return normalized
 

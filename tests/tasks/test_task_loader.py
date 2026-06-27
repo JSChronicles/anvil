@@ -53,6 +53,38 @@ def test_resolve_tasks_cycle(monkeypatch):
         )
 
 
+def test_resolve_tasks_rejects_duplicate_configured_task_names(monkeypatch):
+    monkeypatch.setattr(
+        importlib,
+        "import_module",
+        lambda name: types.SimpleNamespace(run=lambda **_: None),
+    )
+
+    with pytest.raises(TaskConfigError, match="Duplicate task name detected: 'a'"):
+        resolve_tasks(task_specs=[{"name": "a"}, {"name": "a"}])
+
+
+def test_resolve_tasks_reports_missing_task_usefully():
+    with pytest.raises(TaskConfigError) as exc_info:
+        resolve_tasks(task_specs=[{"name": "missing_task_for_test"}])
+
+    error = str(exc_info.value)
+    assert "missing_task_for_test" in error
+    assert "not found" in error
+
+
+def test_discover_tasks_does_not_load_stock_task_callables(monkeypatch):
+    import anvil._loader_utils as loader_utils
+
+    def fail_load(task_name):
+        raise AssertionError(f"task should not load during discovery: {task_name}")
+
+    monkeypatch.setattr(loader_utils, "entry_points", lambda *, group: [])
+    monkeypatch.setattr("anvil.task_loader._load_core_task", fail_load)
+
+    discover_tasks()
+
+
 def test_list_tasks_includes_stock_tasks():
     tasks = list_tasks()
 

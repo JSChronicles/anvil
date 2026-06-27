@@ -12,10 +12,12 @@ from anvil.result_query import (
     filter_records,
     format_records_jsonl,
     format_records_table,
+    iter_result_records,
     limit_records,
     load_result_records,
     parse_fields,
     project_records,
+    query_result_records,
 )
 from anvil.results import AccountResult, ExecutionStatus, TargetResult, TaskResult
 
@@ -306,3 +308,66 @@ def test_load_result_records_discovers_nested_results_jsonl():
             results_dir.rmdir()
         if scratch_dir.exists():
             scratch_dir.rmdir()
+
+
+def test_iter_result_records_preserves_explicit_file_order(tmp_path):
+    first_file = tmp_path / "first.jsonl"
+    second_file = tmp_path / "second.jsonl"
+    first_file.write_text('{"account_id":"first"}\n', encoding="utf-8")
+    second_file.write_text('{"account_id":"second"}\n', encoding="utf-8")
+
+    records = list(
+        iter_result_records(results_dir=tmp_path, files=[second_file, first_file])
+    )
+
+    assert [record["account_id"] for record in records] == ["second", "first"]
+
+
+def test_load_result_records_rejects_invalid_json(tmp_path):
+    results_file = tmp_path / "results.jsonl"
+    results_file.write_text('{"record_type":"account"}\nnot-json\n', encoding="utf-8")
+
+    try:
+        load_result_records(results_dir=tmp_path, files=[results_file])
+    except ValueError as error:
+        assert f"Invalid JSONL in {results_file} on line 2" in str(error)
+    else:
+        raise AssertionError("invalid JSONL should fail")
+
+
+def test_load_result_records_rejects_non_object_records(tmp_path):
+    results_file = tmp_path / "results.jsonl"
+    results_file.write_text('["not", "object"]\n', encoding="utf-8")
+
+    try:
+        load_result_records(results_dir=tmp_path, files=[results_file])
+    except ValueError as error:
+        assert f"Invalid JSONL in {results_file} on line 1" in str(error)
+        assert "expected object" in str(error)
+    else:
+        raise AssertionError("non-object JSONL should fail")
+
+
+def test_query_result_records_applies_limit_after_filters_and_stops_reading(tmp_path):
+    results_file = tmp_path / "results.jsonl"
+    results_file.write_text(
+        "\n".join(
+            [
+                '{"record_type":"task","status":"success","account_id":"skip"}',
+                '{"record_type":"task","status":"error","account_id":"match-1"}',
+                '{"record_type":"account","status":"error","account_id":"skip-type"}',
+                '{"record_type":"task","status":"interrupted","account_id":"match-2"}',
+                "not-json",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    records = query_result_records(
+        results_dir=tmp_path,
+        files=[results_file],
+        filters=ResultFilters(record_type="task", status="failed"),
+        limit=2,
+    )
+
+    assert [record["account_id"] for record in records] == ["match-1", "match-2"]

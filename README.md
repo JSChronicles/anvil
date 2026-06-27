@@ -27,31 +27,32 @@
 
 ## Introduction
 
-Anvil is a declarative AWS execution engine for running Python tasks across large account and region fleets. Describe the work in YAML, keep task logic in plain Python modules, and let the engine handle authentication, role assumption, dependency ordering, bounded concurrency, and structured results so repeatable AWS work can run faster without turning orchestration into custom scripts.
+Anvil is a declarative provider-aware execution engine for running Python tasks across cloud target and region fleets. Describe the work in YAML, keep task logic in plain Python modules, and let the engine handle authentication, target resolution, dependency ordering, bounded concurrency, and structured results. The current runtime preserves the AWS organization/account behavior and optimizations from earlier releases while adding explicit Azure subscription and GCP project target support.
 
 For more, see the [documentation](https://opsfoundry.dev/).
 
 ### Why Anvil?
 
-Anvil is built for teams that need repeatable AWS workflows, such as inventory, validation, enforcement, cleanup, and reporting, to run consistently across organizations, accounts, and regions.
+Anvil is built for teams that need repeatable cloud workflows, such as inventory, validation, enforcement, cleanup, and reporting, to run consistently across provider targets and regions.
 
 - Declarative orchestration
   - Define execution in reusable YAML instead of one-off scripts.
-  - Configure organizations, account lists, regions, tasks, task dependencies, dry runs, fail-fast behavior, and concurrency in one place.
-- Multi-account and multi-organization by default
-  - Discover active accounts and enabled regions, support include/exclude filtering
+  - Configure provider targets, regions, tasks, task dependencies, dry runs, fail-fast behavior, and concurrency in one place.
+- Multi-target by default
+  - AWS can discover active organization accounts and enabled regions, with include/exclude filtering.
+  - Azure subscriptions and GCP projects currently run from explicit target IDs.
 - Parallel execution and caching
   - Control concurrency at the target, account, and region levels. See [Caching and reuse](https://opsfoundry.dev/anvil/execution-model/#cache-and-reuse-boundaries).
 - Shared discovery and session reuse
-  - Validate the organization, discover accounts, and check enabled regions, only once, before execution.
+  - Validate targets, discover supported provider metadata, and reuse session/runtime state before execution.
 - Task isolation
   - Write tasks as simple Python files with a `run(...)` function.
 - Built-in and custom tasks
-  - Use stock tasks for common AWS operations.
+  - Use stock tasks for common AWS operations and provider package tasks as they are added.
   - Add project-local tasks for team-specific work.
   - Extend the task set without changing the execution engine.
 - Structured output and safer operations
-  - Record structured results at task, account, target, and engine levels.
+  - Record structured results at task, account/target, target group, and engine levels.
 
 ## Usage
 > [!TIP]
@@ -76,8 +77,8 @@ There are multiple global commands:
 ```console
 anvil graph     # Show the resolved task dependency graph
 anvil results   # Query JSONL results and rerun failures
-anvil list      # List available tasks and processors
-anvil validate  # Validate tasks, processors, and AWS authentication
+anvil list      # List available tasks, processors, and providers
+anvil validate  # Validate tasks, processors, providers, and authentication
 anvil run       # Execute YAML-defined workflows
 ```
 
@@ -101,6 +102,82 @@ organizations:
       - name: noop
     dry_run: true
 ```
+
+### Provider targets
+
+Each target group may declare `provider`, `mode`, and `provider_options`.
+Omitted provider fields keep legacy AWS behavior:
+
+- `organizations` defaults to `provider: aws` and `mode: organization`.
+- `accounts` defaults to `provider: aws` and `mode: accounts`.
+- Legacy top-level AWS `profile` and `role_name` remain supported.
+- `provider_options.profile` and `provider_options.role_name` are AWS
+  compatibility aliases. If both the top-level field and alias are present,
+  they must match.
+
+Current supported provider modes:
+
+- AWS `organization`: discovers AWS Organizations accounts, supports
+  include/exclude AWS account IDs, and supports region selectors such as `all`
+  and glob patterns.
+- AWS `accounts`: runs against explicit AWS account IDs in `include`.
+- Azure `subscriptions`: runs against explicit Azure subscription IDs in
+  `include`.
+- GCP `projects`: runs against explicit GCP project IDs in `include`.
+
+Azure management group discovery and GCP organization/folder discovery are
+intentionally deferred. The schema rejects those modes until provider discovery
+support is implemented.
+
+```yaml
+schema_version: 1
+
+accounts:
+  - name: azure-explicit-subscriptions
+    provider: azure
+    mode: subscriptions
+    regions:
+      - eastus
+    include:
+      - 11111111-2222-3333-4444-555555555555
+    provider_options:
+      tenant_id: example-tenant-id
+    tasks:
+      - name: noop
+```
+
+```yaml
+schema_version: 1
+
+accounts:
+  - name: gcp-explicit-projects
+    provider: gcp
+    mode: projects
+    regions:
+      - us-central1
+    include:
+      - anvil-dev-project
+    provider_options:
+      quota_project_id: anvil-billing-project
+    tasks:
+      - name: noop
+```
+
+### Provider task packages
+
+Task compatibility is determined by package location. Existing AWS task names
+and legacy imports remain compatible through thin wrappers:
+
+- `anvil.tasks.<task>` is the legacy import path and re-exports moved stock
+  tasks for compatibility.
+- `anvil.providers.tasks.<task>` is universal and can run for any provider.
+- `anvil.providers.aws.tasks.<task>` is AWS-only.
+- `anvil.providers.azure.tasks.<task>` is Azure-only.
+- `anvil.providers.gcp.tasks.<task>` is GCP-only.
+
+The task loader builds a cached descriptor index shaped as
+`provider_name -> task_name -> list[TaskDescriptor]`, so resolving multiple
+configured tasks does not rebuild discovery descriptors once per task.
 
 For delegated-administrator patterns, keep the base session on the
 delegated-admin profile. Anvil uses that base session directly for the
@@ -143,7 +220,8 @@ anvil validate --tasks --processors --auth --config-file ./yaml/orgs.yaml
 ```
 
 `--tasks` and `--processors` validate discovery and callable signatures.
-`--auth` validates AWS access for the configured targets.
+`--providers` validates the provider contract. `--auth` validates cloud access
+for the configured targets.
 
 See more at [Task validation](https://opsfoundry.dev/anvil/task-contract/#task-validation).
 

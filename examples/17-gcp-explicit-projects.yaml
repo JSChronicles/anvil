@@ -1,0 +1,18 @@
+schema_version: 1
+
+accounts:
+  - name: gcp-explicit-projects
+    provider: gcp
+    mode: projects
+    regions:
+      - us-central1
+    include:
+      # GCP currently supports explicit project IDs only. Organization and
+      # folder discovery are intentionally deferred.
+      - anvil-dev-project
+      - anvil-prod-project
+    provider_options:
+      quota_project_id: anvil-billing-project
+    dry_run: true
+    tasks:
+      - name: noop

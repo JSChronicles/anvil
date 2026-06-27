@@ -17,6 +17,8 @@ from anvil._loader_utils import (
 __LOGGER__ = logging.getLogger(__name__)
 
 TASK_ENTRY_POINT_GROUP = "anvil.tasks"
+UNIVERSAL_TASK_PACKAGE = "anvil.providers.tasks"
+PROVIDER_TASK_PACKAGE_PREFIX = "anvil.providers"
 
 # ============================================================================
 # Models
@@ -95,12 +97,134 @@ def _load_plugin_task(task_name: str) -> Callable:
     )
 
 
-@lru_cache(maxsize=128)
-def _load_task_callable(task_name: str) -> Callable:
+def _load_package_task(*, task_name: str, package_name: str) -> Callable:
+    return load_stock_callable(
+        name=task_name,
+        kind="task",
+        package_name=package_name,
+        error_type=TaskConfigError,
+    )
+
+
+@lru_cache(maxsize=512)
+def _load_provider_task_callable(*, provider_name: str, task_name: str) -> Callable:
+    descriptors = _provider_task_descriptor_index(provider_name).get(task_name, [])
+    if descriptors:
+        return descriptors[0].load()
+
+    if provider_name == "aws":
+        try:
+            return _load_core_task(task_name)
+        except TaskConfigError:
+            return _load_plugin_task(task_name)
+
+    return _load_plugin_task(task_name)
+
+
+def _provider_task_packages(provider_name: str) -> tuple[tuple[str, str], ...]:
+    return (
+        ("universal", UNIVERSAL_TASK_PACKAGE),
+        (provider_name, f"{PROVIDER_TASK_PACKAGE_PREFIX}.{provider_name}.tasks"),
+    )
+
+
+def _iter_package_task_descriptors(
+    *, package_name: str, source: str
+) -> list[TaskDescriptor]:
     try:
-        return _load_core_task(task_name)
-    except TaskConfigError:
-        return _load_plugin_task(task_name)
+        modules = list(
+            iter_stock_modules(
+                package_name=package_name,
+                load=lambda name: _load_package_task(
+                    task_name=name, package_name=package_name
+                ),
+            )
+        )
+    except ModuleNotFoundError as error:
+        if error.name == package_name:
+            return []
+        raise
+
+    return [
+        TaskDescriptor(name=module.name, load=module.load, source=source)
+        for module in modules
+    ]
+
+
+def _legacy_task_descriptors() -> tuple[list[TaskDescriptor], list[DiscoveryIssue]]:
+    tasks: dict[str, TaskDescriptor] = {}
+
+    for module in iter_stock_modules(package_name="anvil.tasks", load=_load_core_task):
+        name = module.name
+        tasks[name] = TaskDescriptor(name=name, load=module.load, source=module.source)
+
+    plugin_result = discover_plugin_modules(
+        entry_point_group=TASK_ENTRY_POINT_GROUP,
+        load=_load_plugin_task,
+        logger=__LOGGER__,
+        skip_log_label="plugin",
+    )
+    for module in plugin_result.modules:
+        if module.name in tasks:
+            continue
+
+        tasks[module.name] = TaskDescriptor(
+            name=module.name, load=module.load, source=module.source
+        )
+
+    return list(tasks.values()), plugin_result.issues
+
+
+@lru_cache(maxsize=16)
+def _provider_task_descriptor_index(
+    provider_name: str,
+) -> dict[str, tuple[TaskDescriptor, ...]]:
+    descriptors_by_name: dict[str, list[TaskDescriptor]] = defaultdict(list)
+
+    legacy_descriptors, _ = _legacy_task_descriptors()
+    if provider_name == "aws":
+        for descriptor in legacy_descriptors:
+            descriptors_by_name[descriptor.name].append(descriptor)
+
+    for source, package_name in _provider_task_packages(provider_name):
+        for descriptor in _iter_package_task_descriptors(
+            package_name=package_name, source=source
+        ):
+            descriptors_by_name[descriptor.name].append(descriptor)
+
+    return {
+        name: tuple(descriptors)
+        for name, descriptors in sorted(descriptors_by_name.items())
+    }
+
+
+def provider_task_descriptor_index(
+    *, provider_name: str
+) -> dict[str, list[TaskDescriptor]]:
+    """Return cached provider-aware task descriptors by task name."""
+
+    return {
+        name: list(descriptors)
+        for name, descriptors in _provider_task_descriptor_index(provider_name).items()
+    }
+
+
+@lru_cache(maxsize=128)
+def _load_task_callable_cached(task_name: str) -> Callable:
+    return _load_provider_task_callable(provider_name="aws", task_name=task_name)
+
+
+def _load_task_callable(task_name: str) -> Callable:
+    return _load_task_callable_cached(task_name)
+
+
+def _clear_task_callable_cache() -> None:
+    _load_task_callable_cached.cache_clear()
+    _load_provider_task_callable.cache_clear()
+    _provider_task_descriptor_index.cache_clear()
+
+
+_load_task_callable.cache_clear = _clear_task_callable_cache
 
 
 # ============================================================================
@@ -153,7 +277,7 @@ def _build_resolved_execution(
 
 @lru_cache(maxsize=128)
 def _resolve_tasks_cached(
-    task_specs_key: TaskSpecKey,
+    provider_name: str, task_specs_key: TaskSpecKey
 ) -> tuple[CachedOrderedTask, CachedAdjacency]:
     task_specs: list[dict[str, object]] = [
         {"name": name, "depends_on": list(depends_on), "optional": optional}
@@ -169,7 +293,13 @@ def _resolve_tasks_cached(
     ordered: CachedOrderedTask = tuple(
         (
             name,
-            _load_task_callable(name),
+            (
+                _load_task_callable(name)
+                if provider_name == "aws"
+                else _load_provider_task_callable(
+                    provider_name=provider_name, task_name=name
+                )
+            ),
             tuple(spec_by_name[name].depends_on),
             spec_by_name[name].optional,
         )
@@ -256,35 +386,18 @@ def _topological_sort(
     return ordered, dict(graph)
 
 
-def resolve_tasks(*, task_specs: Sequence[TaskSpecInput]) -> ResolvedExecution:
+def resolve_tasks(
+    *, task_specs: Sequence[TaskSpecInput], provider_name: str = "aws"
+) -> ResolvedExecution:
     task_specs_key = _freeze_task_specs(task_specs)
-    ordered, adjacency = _resolve_tasks_cached(task_specs_key)
+    ordered, adjacency = _resolve_tasks_cached(provider_name, task_specs_key)
     return _build_resolved_execution(ordered, adjacency)
 
 
 def discover_tasks() -> TaskDiscoveryResult:
     """Discover tasks and report plugin packages that cannot be inspected."""
-    tasks: dict[str, TaskDescriptor] = {}
-
-    for module in iter_stock_modules(package_name="anvil.tasks", load=_load_core_task):
-        name = module.name
-        tasks[name] = TaskDescriptor(name=name, load=module.load, source=module.source)
-
-    plugin_result = discover_plugin_modules(
-        entry_point_group=TASK_ENTRY_POINT_GROUP,
-        load=_load_plugin_task,
-        logger=__LOGGER__,
-        skip_log_label="plugin",
-    )
-    for module in plugin_result.modules:
-        if module.name in tasks:
-            continue
-
-        tasks[module.name] = TaskDescriptor(
-            name=module.name, load=module.load, source=module.source
-        )
-
-    return TaskDiscoveryResult(tasks=list(tasks.values()), issues=plugin_result.issues)
+    tasks, issues = _legacy_task_descriptors()
+    return TaskDiscoveryResult(tasks=tasks, issues=issues)
 
 
 def list_tasks() -> list[TaskDescriptor]:

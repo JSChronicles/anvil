@@ -40,6 +40,113 @@ def test_accounts_assume_role_mode_allows_multiple_accounts():
     assert descriptor.include == ["111111111111", "222222222222"]
 
 
+def test_azure_subscription_mode_allows_multiple_target_ids():
+    descriptor = TargetDescriptor(
+        config_branch=ConfigBranch.ACCOUNTS,
+        name="azure-subscriptions",
+        provider="azure",
+        mode="subscriptions",
+        include=["sub-a", "sub-b"],
+    )
+
+    assert descriptor.provider == "azure"
+    assert descriptor.mode == "subscriptions"
+    assert descriptor.include == ["sub-a", "sub-b"]
+
+
+def test_gcp_project_mode_allows_multiple_target_ids():
+    descriptor = TargetDescriptor(
+        config_branch=ConfigBranch.ACCOUNTS,
+        name="gcp-projects",
+        provider="gcp",
+        mode="projects",
+        include=["project-a", "project-b"],
+    )
+
+    assert descriptor.provider == "gcp"
+    assert descriptor.mode == "projects"
+    assert descriptor.include == ["project-a", "project-b"]
+
+
+def test_invalid_provider_is_rejected():
+    with pytest.raises(ValueError, match="Unsupported provider"):
+        TargetDescriptor(
+            config_branch=ConfigBranch.ACCOUNTS,
+            name="unknown",
+            provider="do",
+            include=["target-a"],
+        )
+
+
+def test_invalid_provider_mode_is_rejected():
+    with pytest.raises(ValueError, match="Unsupported mode"):
+        TargetDescriptor(
+            config_branch=ConfigBranch.ACCOUNTS,
+            name="azure-subscriptions",
+            provider="azure",
+            mode="projects",
+            include=["sub-a"],
+        )
+
+
+def test_invalid_provider_options_are_rejected():
+    with pytest.raises(ValueError, match="Unsupported provider_options"):
+        TargetDescriptor(
+            config_branch=ConfigBranch.ACCOUNTS,
+            name="gcp-projects",
+            provider="gcp",
+            mode="projects",
+            include=["project-a"],
+            provider_options={"tenant_id": "wrong-cloud"},
+        )
+
+
+def test_provider_options_profile_conflict_is_rejected():
+    with pytest.raises(ValueError, match="provider_options.profile"):
+        TargetDescriptor(
+            config_branch=ConfigBranch.ACCOUNTS,
+            name="aws-accounts",
+            profile="dev",
+            include=["111111111111"],
+            provider_options={"profile": "prod"},
+        )
+
+
+def test_provider_options_role_name_conflict_is_rejected():
+    with pytest.raises(ValueError, match="provider_options.role_name"):
+        TargetDescriptor(
+            config_branch=ConfigBranch.ACCOUNTS,
+            name="aws-accounts",
+            role_name="AuditRole",
+            include=["111111111111"],
+            provider_options={"role_name": "ReadOnlyRole"},
+        )
+
+
+def test_matching_top_level_and_provider_options_profile_is_accepted():
+    descriptor = TargetDescriptor(
+        config_branch=ConfigBranch.ACCOUNTS,
+        name="aws-accounts",
+        profile="dev",
+        include=["111111111111"],
+        provider_options={"profile": "dev"},
+    )
+
+    assert descriptor.profile == "dev"
+
+
+def test_matching_top_level_and_provider_options_role_name_is_accepted():
+    descriptor = TargetDescriptor(
+        config_branch=ConfigBranch.ACCOUNTS,
+        name="aws-accounts",
+        role_name="AuditRole",
+        include=["111111111111", "222222222222"],
+        provider_options={"role_name": "AuditRole"},
+    )
+
+    assert descriptor.role_name == "AuditRole"
+
+
 def test_max_parallel_regions_defaults_to_one():
     descriptor = TargetDescriptor(config_branch=ConfigBranch.ORGANIZATIONS, name="org")
 

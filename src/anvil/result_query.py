@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections import defaultdict
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from dataclasses import replace
 from pathlib import Path
@@ -120,8 +121,14 @@ def load_result_records(
     *, results_dir: Path, files: list[Path] | None
 ) -> list[dict[str, object]]:
     """Load result records from explicit files or the default results directory."""
+    return list(iter_result_records(results_dir=results_dir, files=files))
+
+
+def iter_result_records(
+    *, results_dir: Path, files: list[Path] | None
+) -> Iterator[dict[str, object]]:
+    """Yield result records from explicit files or the default results directory."""
     paths = files if files else sorted(results_dir.glob(f"**/{JSONL_FILENAME}"))
-    records: list[dict[str, object]] = []
 
     for path in paths:
         with path.open("r", encoding="utf-8") as handle:
@@ -143,27 +150,54 @@ def load_result_records(
                         "expected object"
                     )
                     raise ValueError(message)
-                records.append(payload)
-
-    return records
+                yield payload
 
 
 def filter_records(
     records: list[dict[str, object]], *, filters: ResultFilters
 ) -> list[dict[str, object]]:
     """Return records matching all supplied filters."""
+    return list(iter_filtered_records(records, filters=filters))
+
+
+def iter_filtered_records(
+    records: Iterable[dict[str, object]], *, filters: ResultFilters
+) -> Iterator[dict[str, object]]:
+    """Yield records matching all supplied filters."""
     status_filter = _normalize_status_filter(filters.status)
 
-    return [
-        record
-        for record in records
-        if _matches(record, "record_type", filters.record_type)
-        and _matches_status(record, status_filter)
-        and _matches(record, "target", filters.target)
-        and _matches_account(record, filters.account)
-        and _matches(record, "region", filters.region)
-        and _matches(record, "task", filters.task)
-    ]
+    for record in records:
+        if (
+            _matches(record, "record_type", filters.record_type)
+            and _matches_status(record, status_filter)
+            and _matches(record, "target", filters.target)
+            and _matches_account(record, filters.account)
+            and _matches(record, "region", filters.region)
+            and _matches(record, "task", filters.task)
+        ):
+            yield record
+
+
+def query_result_records(
+    *,
+    results_dir: Path,
+    files: list[Path] | None,
+    filters: ResultFilters,
+    limit: int | None = None,
+) -> list[dict[str, object]]:
+    """Return filtered result records, stopping after limit matching records."""
+    if limit is not None and limit <= 0:
+        return []
+
+    records: list[dict[str, object]] = []
+    for record in iter_filtered_records(
+        iter_result_records(results_dir=results_dir, files=files), filters=filters
+    ):
+        records.append(record)
+        if limit is not None and len(records) >= limit:
+            break
+
+    return records
 
 
 def failure_records(records: list[dict[str, object]]) -> list[dict[str, object]]:

@@ -31,19 +31,19 @@ from anvil.processor_loader import (
     run_processors,
 )
 from anvil.processor_validation import processor_validation_errors
+from anvil.provider_loader import ProviderDescriptor, discover_providers, list_providers
+from anvil.providers.base import validate_provider_contract
 from anvil.result_query import (
     ResultFilters,
     build_rerun_targets,
     config_file_for_failure_records,
     failure_records,
-    filter_records,
     format_records_jsonl,
     format_records_table,
     jsonl_path_for_run,
-    limit_records,
-    load_result_records,
     parse_fields,
     project_records,
+    query_result_records,
     write_jsonl_records,
 )
 from anvil.results import EngineResult, EngineState
@@ -381,6 +381,10 @@ def _cmd_list(args: argparse.Namespace) -> int:
         _print_grouped_listing(label="tasks", descriptors=list_tasks())
         return 0
 
+    if getattr(args, "providers", False):
+        _print_grouped_listing(label="providers", descriptors=list_providers())
+        return 0
+
     _print_grouped_listing(label="processors", descriptors=list_processors())
     return 0
 
@@ -496,6 +500,50 @@ def _validate_selected_processors(processor_names: list[str] | None) -> None:
     _raise_validation_errors(errors)
 
 
+def _select_provider_descriptors(
+    *, descriptors: list[ProviderDescriptor], provider_names: list[str]
+) -> list[ProviderDescriptor]:
+    descriptor_by_name = {descriptor.name: descriptor for descriptor in descriptors}
+    unknown_names = [name for name in provider_names if name not in descriptor_by_name]
+
+    if unknown_names:
+        available_names = ", ".join(sorted(descriptor_by_name))
+        unknown_display = ", ".join(unknown_names)
+        raise ValueError(
+            f"Unknown provider(s): {unknown_display}. "
+            f"Available providers: {available_names}"
+        )
+
+    return [descriptor_by_name[name] for name in provider_names]
+
+
+def _validate_selected_providers(provider_names: list[str] | None) -> None:
+    discovery = discover_providers()
+    errors: list[str] = []
+    providers = discovery.providers
+
+    if provider_names:
+        try:
+            providers = _select_provider_descriptors(
+                descriptors=discovery.providers, provider_names=provider_names
+            )
+        except ValueError as exc:
+            errors.append(str(exc))
+            errors.extend(_discovery_issue_messages(discovery.issues))
+            _raise_validation_errors(errors)
+    else:
+        errors.extend(_discovery_issue_messages(discovery.issues))
+
+    for descriptor in providers:
+        try:
+            provider = descriptor.load()
+            validate_provider_contract(provider)
+        except Exception as exc:
+            errors.append(f"{descriptor.name} ({descriptor.source}): {exc}")
+
+    _raise_validation_errors(errors)
+
+
 def _validation_result(label: str, callback) -> ValidationResult:
     try:
         result = callback()
@@ -533,6 +581,13 @@ def _cmd_validate(args: argparse.Namespace) -> int:
             )
         )
 
+    if getattr(args, "providers", None) is not None:
+        results.append(
+            _validation_result(
+                "Providers", lambda: _validate_selected_providers(args.providers)
+            )
+        )
+
     if args.auth:
         results.append(
             _validation_result("Authentication", lambda: _cmd_validate_auth(args))
@@ -541,7 +596,7 @@ def _cmd_validate(args: argparse.Namespace) -> int:
     if not results:
         raise ValueError(
             "at least one validation category is required: "
-            "--tasks, --processors, or --auth"
+            "--tasks, --processors, --providers, or --auth"
         )
 
     if not args.quiet:
@@ -559,21 +614,25 @@ def _cmd_graph(args: argparse.Namespace) -> int:
     return 0
 
 
-def _load_filtered_result_records(args: argparse.Namespace) -> list[dict[str, object]]:
-    records = load_result_records(
-        results_dir=Path.cwd() / "results", files=args.results_file
+def _result_filters_from_args(args: argparse.Namespace) -> ResultFilters:
+    return ResultFilters(
+        record_type=args.type,
+        status=args.status,
+        target=args.target,
+        account=args.account,
+        region=args.region,
+        task=args.task,
     )
 
-    return filter_records(
-        records,
-        filters=ResultFilters(
-            record_type=args.type,
-            status=args.status,
-            target=args.target,
-            account=args.account,
-            region=args.region,
-            task=args.task,
-        ),
+
+def _load_filtered_result_records(
+    args: argparse.Namespace, *, limit: int | None = None
+) -> list[dict[str, object]]:
+    return query_result_records(
+        results_dir=Path.cwd() / "results",
+        files=args.results_file,
+        filters=_result_filters_from_args(args),
+        limit=limit,
     )
 
 
@@ -603,7 +662,6 @@ def _emit_result_records(
     args: argparse.Namespace, records: list[dict[str, object]]
 ) -> None:
     fields = parse_fields(args.fields)
-    records = limit_records(records, limit=args.limit)
     _print_query_payload(
         records, fields=fields, output_json=args.json, output_jsonl=args.jsonl
     )
@@ -699,7 +757,7 @@ def _cmd_results(args: argparse.Namespace) -> int:
         _validate_results_rerun_args(args)
         return _cmd_results_rerun(args)
 
-    records = _load_filtered_result_records(args)
+    records = _load_filtered_result_records(args, limit=args.limit)
     _emit_result_records(args, records)
     return 0
 
@@ -815,14 +873,20 @@ def _add_log_level_arg(parser: argparse.ArgumentParser) -> None:
 def _validate_list_args(
     args: argparse.Namespace, *, parser: argparse.ArgumentParser | None = None
 ) -> None:
-    if args.tasks and args.processors:
-        message = "--tasks and --processors cannot be used together"
+    selectors = [
+        flag_name
+        for flag_name in ("tasks", "processors", "providers")
+        if getattr(args, flag_name, False)
+    ]
+    if len(selectors) > 1:
+        selector_display = ", ".join(f"--{selector}" for selector in selectors)
+        message = f"{selector_display} cannot be used together"
         if parser is not None:
             parser.error(message)
         raise ValueError(message)
 
-    if not args.tasks and not args.processors:
-        message = "One of --tasks or --processors is required."
+    if not selectors:
+        message = "One of --tasks, --processors, or --providers is required."
         if parser is not None:
             parser.error(message)
         raise ValueError(message)
@@ -866,6 +930,9 @@ def main() -> None:
     list_parser.add_argument(
         "--processors", action="store_true", help="List available processors"
     )
+    list_parser.add_argument(
+        "--providers", action="store_true", help="List available providers"
+    )
     list_parser.set_defaults(func=_cmd_list)
 
     validate_parser = subparsers.add_parser(
@@ -886,6 +953,16 @@ def main() -> None:
         metavar="PROCESSOR",
         help=(
             "Validate all discovered processors, or only the named processors "
+            "when provided"
+        ),
+    )
+    validate_parser.add_argument(
+        "--providers",
+        nargs="*",
+        default=None,
+        metavar="PROVIDER",
+        help=(
+            "Validate all discovered providers, or only the named providers "
             "when provided"
         ),
     )
@@ -991,11 +1068,12 @@ def main() -> None:
         args.command == "validate"
         and args.tasks is None
         and args.processors is None
+        and args.providers is None
         and not args.auth
     ):
         validate_parser.error(
             "at least one validation category is required: "
-            "--tasks, --processors, or --auth"
+            "--tasks, --processors, --providers, or --auth"
         )
 
     log_level = (

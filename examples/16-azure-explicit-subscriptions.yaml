@@ -1,0 +1,18 @@
+schema_version: 1
+
+accounts:
+  - name: azure-explicit-subscriptions
+    provider: azure
+    mode: subscriptions
+    regions:
+      - eastus
+    include:
+      # Azure currently supports explicit subscription IDs only. Management
+      # group discovery is intentionally deferred.
+      - 11111111-2222-3333-4444-555555555555
+      - aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
+    provider_options:
+      tenant_id: example-tenant-id
+    dry_run: true
+    tasks:
+      - name: noop

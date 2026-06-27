@@ -61,6 +61,31 @@
           "role_name": {
             "$ref": "common.schema.v1.json#/$defs/baseTargetProperties/role_name"
           },
+          "provider": {
+            "allOf": [
+              {
+                "$ref": "common.schema.v1.json#/$defs/baseTargetProperties/provider"
+              },
+              {
+                "const": "aws"
+              }
+            ],
+            "description": "Provider for organization discovery. Organization configs currently support aws only."
+          },
+          "mode": {
+            "allOf": [
+              {
+                "$ref": "common.schema.v1.json#/$defs/baseTargetProperties/mode"
+              },
+              {
+                "const": "organization"
+              }
+            ],
+            "description": "AWS organization discovery mode."
+          },
+          "provider_options": {
+            "$ref": "common.schema.v1.json#/$defs/awsProviderOptions"
+          },
           "tasks": {
             "$ref": "common.schema.v1.json#/$defs/baseTargetProperties/tasks"
           },

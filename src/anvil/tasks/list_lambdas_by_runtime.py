@@ -1,113 +1,14 @@
-"""
-List Lambda functions matching specified runtime versions in the current execution region.
-"""
+"""Compatibility wrapper for `anvil.providers.aws.tasks.list_lambdas_by_runtime`."""
 
-from __future__ import annotations
+from importlib import import_module
 
-import logging
-
-from anvil.actions import ActionRecorder
-
-__LOGGER__ = logging.getLogger(__name__)
+_IMPL = import_module("anvil.providers.aws.tasks.list_lambdas_by_runtime")
+run = _IMPL.run
 
 
-def _validate_runtimes(metadata: dict[str, object]) -> list[str]:
-    runtimes = metadata.get("runtimes")
-    if not isinstance(runtimes, list) or len(runtimes) == 0:
-        raise RuntimeError(
-            "list_lambdas_by_runtime requires metadata.runtimes to be a non-empty list "
-            "of AWS runtime strings (e.g. ['python3.8', 'nodejs14.x'])"
-        )
-    validated_runtimes: list[str] = []
-    for item in runtimes:
-        if not isinstance(item, str):
-            raise RuntimeError(
-                "list_lambdas_by_runtime requires every entry in metadata.runtimes "
-                f"to be a string; got {type(item).__name__!r}: {item!r}"
-            )
-        validated_runtimes.append(item)
-    return validated_runtimes
+def __getattr__(name: str):
+    return getattr(_IMPL, name)
 
 
-def _list_matching_functions(
-    lambda_client, target_runtimes: set[str]
-) -> tuple[list[dict[str, object]], int]:
-    matched: list[dict[str, object]] = []
-    total_scanned = 0
-    paginator = lambda_client.get_paginator("list_functions")
-
-    for page in paginator.paginate():
-        for function in page.get("Functions", []):
-            total_scanned += 1
-            runtime = function.get("Runtime")
-            if not isinstance(runtime, str):
-                continue
-            if runtime not in target_runtimes:
-                continue
-            matched.append(
-                {
-                    "function_name": function.get("FunctionName", ""),
-                    "function_arn": function.get("FunctionArn", ""),
-                    "runtime": runtime,
-                    "description": function.get("Description", ""),
-                    "last_modified": function.get("LastModified", ""),
-                    "code_size": function.get("CodeSize", 0),
-                }
-            )
-
-    return matched, total_scanned
-
-
-def run(
-    *,
-    account_id: str,
-    account_alias: str,
-    session,
-    dry_run: bool,
-    metadata: dict[str, object],
-    actions: ActionRecorder,
-) -> dict[str, object]:
-    region_name = session.region_name
-    target_runtimes = set(_validate_runtimes(metadata))
-    lambda_client = session.client("lambda")
-
-    __LOGGER__.info(
-        f"Scanning Lambda functions for runtimes {sorted(target_runtimes)} in "
-        f"account {account_alias} ({account_id}), region={region_name}"
-    )
-
-    matched, total_scanned = _list_matching_functions(lambda_client, target_runtimes)
-
-    by_runtime: dict[str, list[dict[str, object]]] = {}
-    for function in matched:
-        runtime = function["runtime"]
-        if not isinstance(runtime, str):
-            continue
-        if runtime not in by_runtime:
-            by_runtime[runtime] = []
-        by_runtime[runtime].append(function)
-
-    runtime_counts = {
-        runtime: len(functions) for runtime, functions in by_runtime.items()
-    }
-
-    __LOGGER__.info(
-        f"Found {len(matched)} matching Lambda function(s) out of {total_scanned} scanned "
-        f"in account {account_alias} ({account_id}), region={region_name}: {runtime_counts}"
-    )
-
-    actions.record(
-        f"Listed Lambda functions by runtime in account {account_id} region {region_name}: "
-        f"{len(matched)} matched out of {total_scanned} scanned ({runtime_counts})"
-    )
-
-    return {
-        "functions": matched,
-        "by_runtime": by_runtime,
-        "summary": {
-            "total_scanned": total_scanned,
-            "total_matched": len(matched),
-            "matched_by_runtime": runtime_counts,
-            "target_runtimes": sorted(target_runtimes),
-        },
-    }
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(dir(_IMPL)))
