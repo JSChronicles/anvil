@@ -143,6 +143,8 @@ class PreparedTarget:
     base_session_account_id: str | None = None
     discovered_accounts: dict[str, dict[str, str]] | None = None
     region_statuses: dict[str, str] | None = None
+    effective_include: list[str] | None = None
+    effective_exclude: list[str] | None = None
     benchmark: dict[str, object] | None = None
 
     @property
@@ -358,6 +360,21 @@ def _resolve_effective_account_filters(
     cli_exclude: list[str] | None,
 ) -> tuple[list[str] | None, list[str] | None]:
     if target.is_accounts_config:
+        if target.provider == "azure":
+            effective_exclude = cli_exclude if cli_exclude is not None else target.exclude
+            if cli_include is None:
+                return target.include, effective_exclude
+            if target.include is None:
+                return cli_include, effective_exclude
+
+            configured_account_ids = set(target.include)
+            narrowed_include = [
+                account_id
+                for account_id in cli_include
+                if account_id in configured_account_ids
+            ]
+            return narrowed_include, effective_exclude
+
         if cli_include is None:
             return target.include, None
 
@@ -380,6 +397,19 @@ def _resolve_effective_account_filters(
     return effective_include, effective_exclude
 
 
+def _validate_effective_account_filters(
+    *,
+    target: TargetDescriptor,
+    include: list[str] | None,
+    exclude: list[str] | None,
+) -> None:
+    if include is not None and exclude is not None:
+        raise ValueError(
+            f"Target '{target.name}' cannot use include and exclude together; "
+            "they are mutually exclusive for all providers and modes."
+        )
+
+
 def _build_effective_target(
     *,
     target: TargetDescriptor,
@@ -391,12 +421,30 @@ def _build_effective_target(
     effective_include, effective_exclude = _resolve_effective_account_filters(
         target=target, cli_include=cli_include, cli_exclude=cli_exclude
     )
+    _validate_effective_account_filters(
+        target=target, include=effective_include, exclude=effective_exclude
+    )
 
     return replace(
         target,
         dry_run=effective_dry_run,
         include=effective_include,
         exclude=effective_exclude,
+    )
+
+
+def _auth_result_from_config_error(
+    *, target: TargetDescriptor, error: ValueError
+) -> AuthResult:
+    started_at = datetime.datetime.now(datetime.UTC).isoformat()
+    return AuthResult(
+        target_name=target.name,
+        status=ExecutionStatus.ERROR,
+        source="config",
+        started_at=started_at,
+        ended_at=started_at,
+        duration_seconds=0.0,
+        message=str(error),
     )
 
 
@@ -495,12 +543,27 @@ def prepare_target(
             target=target, auth_cache=auth_cache
         )
 
-        effective_target: TargetDescriptor = _build_effective_target(
-            target=target,
-            cli_dry_run=cli_dry_run,
-            cli_include=cli_include,
-            cli_exclude=cli_exclude,
-        )
+        try:
+            effective_target: TargetDescriptor = _build_effective_target(
+                target=target,
+                cli_dry_run=cli_dry_run,
+                cli_include=cli_include,
+                cli_exclude=cli_exclude,
+            )
+            effective_include, effective_exclude = _resolve_effective_account_filters(
+                target=target,
+                cli_include=cli_include,
+                cli_exclude=cli_exclude,
+            )
+        except ValueError as error:
+            return PreparedTarget(
+                index=index,
+                effective_target=target,
+                auth_result=_auth_result_from_config_error(target=target, error=error),
+                context=None,
+                session_factory=session_factory,
+                benchmark=recorder.data,
+            )
 
         if auth_result.is_error:
             return PreparedTarget(
@@ -509,6 +572,8 @@ def prepare_target(
                 auth_result=auth_result,
                 context=None,
                 session_factory=session_factory,
+                effective_include=effective_include,
+                effective_exclude=effective_exclude,
                 benchmark=recorder.data,
             )
 
@@ -559,6 +624,8 @@ def prepare_target(
         base_session_account_id=base_session_account_id,
         discovered_accounts=discovered_accounts,
         region_statuses=region_statuses,
+        effective_include=effective_include,
+        effective_exclude=effective_exclude,
         benchmark=recorder.data,
     )
 
@@ -885,8 +952,8 @@ def run_prepared_target(*, prepared_target: PreparedTarget) -> TargetExecutionOu
             execution_plan = provider.resolve_execution_targets(
                 target=target,
                 regions=context.regions,
-                include=target.include,
-                exclude=target.exclude,
+                include=prepared_target.effective_include,
+                exclude=prepared_target.effective_exclude,
             )
         sink.update(
             {

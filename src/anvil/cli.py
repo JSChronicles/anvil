@@ -128,12 +128,18 @@ def _add_common_config_args(parser: argparse.ArgumentParser) -> None:
     group.add_argument(
         "--include",
         nargs="+",
-        help="Narrow the configured target set to specific provider target IDs",
+        help=(
+            "Narrow the configured target set to specific provider target IDs; "
+            "mutually exclusive with --exclude"
+        ),
     )
     group.add_argument(
         "--exclude",
         nargs="+",
-        help="Discovery-config only: exclude discovered provider target IDs",
+        help=(
+            "Discovery-config only: exclude discovered provider target IDs; "
+            "mutually exclusive with --include"
+        ),
     )
 
 
@@ -986,12 +992,18 @@ def main() -> None:
     validate_group.add_argument(
         "--include",
         nargs="+",
-        help="Narrow authentication targets to specific provider target IDs",
+        help=(
+            "Narrow authentication targets to specific provider target IDs; "
+            "mutually exclusive with --exclude"
+        ),
     )
     validate_group.add_argument(
         "--exclude",
         nargs="+",
-        help="Discovery-config only: exclude discovered provider target IDs",
+        help=(
+            "Discovery-config only: exclude discovered provider target IDs; "
+            "mutually exclusive with --include"
+        ),
     )
     validate_parser.set_defaults(func=_cmd_validate)
 

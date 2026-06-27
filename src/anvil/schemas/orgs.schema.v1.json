@@ -113,7 +113,7 @@
                 "$ref": "common.schema.v1.json#/$defs/accountIdList"
               }
             ],
-            "description": "Explicit list of AWS account IDs to include."
+            "description": "Explicit list of AWS account IDs to include. Mutually exclusive with exclude."
           },
           "exclude": {
             "allOf": [
@@ -121,7 +121,7 @@
                 "$ref": "common.schema.v1.json#/$defs/accountIdList"
               }
             ],
-            "description": "List of AWS account IDs to exclude."
+            "description": "List of AWS account IDs to exclude. Mutually exclusive with include."
           }
         },
         "not": {

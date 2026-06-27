@@ -193,6 +193,26 @@ def test_cmd_list_providers_groups_by_source(monkeypatch, capsys):
     )
 
 
+def test_cmd_list_providers_does_not_call_azure_subscription_discovery(
+    monkeypatch, capsys
+):
+    cli = _import_cli_or_skip()
+
+    monkeypatch.setattr(
+        "anvil.providers.azure.provider.AzureSessionFactory.list_subscriptions",
+        lambda self, **kwargs: (_ for _ in ()).throw(
+            AssertionError("provider listing should not discover Azure subscriptions")
+        ),
+    )
+
+    args = SimpleNamespace(tasks=False, processors=False, providers=True)
+    assert cli._cmd_list(args) == 0
+
+    output = capsys.readouterr().out
+    assert "Available providers:" in output
+    assert "azure" in output
+
+
 def test_list_help_shows_new_flags_and_not_old_groups(monkeypatch, capsys):
     cli = _import_cli_or_skip()
     monkeypatch.setattr("sys.argv", ["anvil", "list", "--help"])

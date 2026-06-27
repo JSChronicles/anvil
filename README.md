@@ -117,12 +117,15 @@ Omitted provider fields keep legacy AWS behavior:
 
 Current supported provider modes:
 
+- `include` and `exclude` are mutually exclusive for all providers and modes.
 - AWS `organization`: discovers AWS Organizations accounts, supports
-  include/exclude AWS account IDs, and supports region selectors such as `all`
-  and glob patterns.
+  either include or exclude AWS account IDs, and supports region selectors such
+  as `all` and glob patterns.
 - AWS `accounts`: runs against explicit AWS account IDs in `include`.
-- Azure `subscriptions`: runs explicit Azure subscription IDs in `include` for
-  universal tasks when an Azure runtime session can be built.
+- Azure `subscriptions`: runs explicit Azure subscription IDs in `include`, or
+  discovers subscriptions when `include` is omitted. `exclude` can remove
+  discovered subscriptions. Azure supports universal tasks when an Azure
+  runtime session can be built.
 - GCP `projects`: runs explicit GCP project IDs in `include` for universal
   tasks when a GCP runtime session can be built.
 

@@ -510,6 +510,21 @@ def test_validate_selected_providers_validates_all_when_no_names(monkeypatch):
     assert seen["loaded"] == ["aws"]
 
 
+def test_validate_selected_providers_does_not_call_azure_subscription_discovery(
+    monkeypatch,
+):
+    cli = _import_cli_or_skip()
+
+    monkeypatch.setattr(
+        "anvil.providers.azure.provider.AzureSessionFactory.list_subscriptions",
+        lambda self, **kwargs: (_ for _ in ()).throw(
+            AssertionError("provider validation should not discover Azure subscriptions")
+        ),
+    )
+
+    cli._validate_selected_providers(["azure"])
+
+
 def test_validate_selected_providers_reports_unknown_names(monkeypatch):
     cli = _import_cli_or_skip()
     monkeypatch.setattr(

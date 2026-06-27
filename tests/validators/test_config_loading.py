@@ -241,6 +241,31 @@ def test_load_config_descriptors_reads_azure_subscription_targets():
     }
 
 
+def test_load_config_descriptors_reads_azure_subscription_discovery_target():
+    validators = _import_validators_or_skip()
+
+    loaded = validators.load_config_descriptors(
+        config={
+            "schema_version": 1,
+            "accounts": [
+                {
+                    "name": "azure-subscriptions",
+                    "provider": "azure",
+                    "mode": "subscriptions",
+                    "regions": ["eastus"],
+                    "exclude": ["aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"],
+                }
+            ],
+        }
+    )
+
+    target = loaded.targets[0]
+    assert target.provider == "azure"
+    assert target.mode == "subscriptions"
+    assert target.include is None
+    assert target.exclude == ["aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"]
+
+
 def test_load_config_descriptors_reads_gcp_project_targets():
     validators = _import_validators_or_skip()
 
@@ -467,6 +492,56 @@ def test_validate_config_schema_accepts_azure_subscription_ids():
             ],
         }
     )
+
+
+def test_validate_config_schema_accepts_azure_subscription_discovery():
+    validators = _import_validators_or_skip()
+
+    validators.validate_config_schema(
+        config={
+            "schema_version": 1,
+            "accounts": [
+                {
+                    "name": "azure-subscriptions",
+                    "provider": "azure",
+                    "mode": "subscriptions",
+                    "exclude": ["11111111-2222-3333-4444-555555555555"],
+                }
+            ],
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    ("provider", "mode", "include"),
+    [
+        ("aws", "accounts", ["111111111111"]),
+        ("gcp", "projects", ["project-a"]),
+        ("azure", "subscriptions", ["11111111-2222-3333-4444-555555555555"]),
+    ],
+)
+def test_validate_config_schema_rejects_exclude_without_azure_discovery(
+    provider,
+    mode,
+    include,
+):
+    validators = _import_validators_or_skip()
+
+    with pytest.raises(ValueError, match="exclude"):
+        validators.validate_config_schema(
+            config={
+                "schema_version": 1,
+                "accounts": [
+                    {
+                        "name": f"{provider}-targets",
+                        "provider": provider,
+                        "mode": mode,
+                        "include": include,
+                        "exclude": ["excluded-target"],
+                    }
+                ],
+            }
+        )
 
 
 def test_validate_config_schema_accepts_gcp_project_ids():

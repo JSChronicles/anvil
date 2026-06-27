@@ -11,6 +11,7 @@ from anvil.execution_context import ExecutionContext
 from anvil.providers.azure.provider import (
     AzureExecutionTargetData,
     AzureProvider,
+    AzureSubscription,
     AzureSessionFactory,
 )
 
@@ -22,8 +23,15 @@ class FakeSession:
 
 
 class FakeSessionFactory:
-    def __init__(self) -> None:
+    def __init__(
+        self, *, subscriptions: list[AzureSubscription] | None = None
+    ) -> None:
         self.calls: list[dict[str, str | None]] = []
+        self.list_calls: list[dict[str, str | None]] = []
+        self.subscriptions = subscriptions or [
+            AzureSubscription(subscription_id="sub-a"),
+            AzureSubscription(subscription_id="sub-b"),
+        ]
 
     def create_session(
         self,
@@ -46,6 +54,22 @@ class FakeSessionFactory:
             }
         )
         return FakeSession(subscription_id=subscription_id, location=location)
+
+    def list_subscriptions(
+        self,
+        *,
+        tenant_id: str | None = None,
+        client_id: str | None = None,
+        client_secret: str | None = None,
+    ) -> list[AzureSubscription]:
+        self.list_calls.append(
+            {
+                "tenant_id": tenant_id,
+                "client_id": client_id,
+                "client_secret": client_secret,
+            }
+        )
+        return list(self.subscriptions)
 
 
 def _target(**overrides) -> TargetDescriptor:
@@ -92,7 +116,7 @@ def test_azure_provider_rejects_organization_targets():
     provider = AzureProvider()
     target = TargetDescriptor(config_branch=ConfigBranch.ORGANIZATIONS, name="mgmt")
 
-    with pytest.raises(ValueError, match="explicit subscriptions"):
+    with pytest.raises(ValueError, match="supports subscriptions"):
         provider.validate_target(target)
 
 
@@ -145,6 +169,97 @@ def test_azure_resolves_explicit_subscription_targets_deterministically():
         isinstance(execution_target.provider_data, AzureExecutionTargetData)
         for execution_target in plan.execution_targets
     )
+    assert session_factory.list_calls == []
+
+
+def test_azure_subscription_discovery_resolves_listed_subscriptions():
+    session_factory = FakeSessionFactory(
+        subscriptions=[
+            AzureSubscription(subscription_id="sub-b"),
+            AzureSubscription(subscription_id="sub-a"),
+        ]
+    )
+    provider = AzureProvider(session_factory=session_factory)
+    target = _target(include=None)
+
+    plan = provider.resolve_execution_targets(
+        target=target,
+        regions=["eastus"],
+        include=None,
+        exclude=None,
+    )
+
+    assert [execution_target.id for execution_target in plan.execution_targets] == [
+        "sub-a",
+        "sub-b",
+    ]
+    assert session_factory.list_calls == [
+        {"tenant_id": None, "client_id": None, "client_secret": None}
+    ]
+
+
+def test_azure_subscription_discovery_applies_include_and_exclude_filters():
+    session_factory = FakeSessionFactory(
+        subscriptions=[
+            AzureSubscription(subscription_id="sub-a"),
+            AzureSubscription(subscription_id="sub-b"),
+            AzureSubscription(subscription_id="sub-c"),
+        ]
+    )
+    provider = AzureProvider(session_factory=session_factory)
+    target = _target(include=None)
+
+    included_plan = provider.resolve_execution_targets(
+        target=target,
+        regions=["eastus"],
+        include=["sub-c", "sub-a"],
+        exclude=None,
+    )
+    excluded_plan = provider.resolve_execution_targets(
+        target=target,
+        regions=["eastus"],
+        include=None,
+        exclude=["sub-b"],
+    )
+
+    assert [execution_target.id for execution_target in included_plan.execution_targets] == [
+        "sub-c",
+        "sub-a",
+    ]
+    assert [execution_target.id for execution_target in excluded_plan.execution_targets] == [
+        "sub-a",
+        "sub-c",
+    ]
+
+
+def test_azure_subscription_discovery_reports_unknown_filters():
+    provider = AzureProvider(session_factory=FakeSessionFactory())
+    target = _target(include=None)
+
+    with pytest.raises(ValueError, match="unknown subscription IDs: missing-sub"):
+        provider.resolve_execution_targets(
+            target=target,
+            regions=["eastus"],
+            include=["missing-sub"],
+            exclude=None,
+        )
+
+
+def test_azure_subscription_discovery_errors_are_actionable():
+    class FailingSessionFactory(FakeSessionFactory):
+        def list_subscriptions(self, **kwargs):
+            raise RuntimeError("Azure provider could not discover subscriptions: boom")
+
+    provider = AzureProvider(session_factory=FailingSessionFactory())
+    target = _target(include=None)
+
+    with pytest.raises(RuntimeError, match="could not discover subscriptions: boom"):
+        provider.resolve_execution_targets(
+            target=target,
+            regions=["eastus"],
+            include=None,
+            exclude=None,
+        )
 
 
 def test_azure_runtime_uses_injected_session_factory():

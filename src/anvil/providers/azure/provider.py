@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from anvil.descriptors import ConfigBranch, TargetDescriptor
@@ -15,6 +17,76 @@ from anvil.providers.base import (
 from anvil.results import ExecutionStatus
 
 DEFAULT_AZURE_LOCATIONS = ["eastus"]
+
+
+@dataclass(frozen=True, slots=True)
+class AzureSubscription:
+    """Azure subscription identity discovered from the subscription API."""
+
+    subscription_id: str
+    display_name: str | None = None
+
+
+@dataclass(slots=True)
+class _AzureSubscriptionDiscoveryFlight:
+    event: threading.Event
+    subscriptions: list[AzureSubscription] | None = None
+    error: BaseException | None = None
+
+
+class _AzureSubscriptionDiscoveryCache:
+    """Single-flight cache for Azure subscription discovery only."""
+
+    def __init__(self) -> None:
+        self._values: dict[object, list[AzureSubscription]] = {}
+        self._flights: dict[object, _AzureSubscriptionDiscoveryFlight] = {}
+        self._lock = threading.Lock()
+
+    def get_or_discover(
+        self, *, key: object, discover: Callable[[], list[AzureSubscription]]
+    ) -> list[AzureSubscription]:
+        with self._lock:
+            cached = self._values.get(key)
+            if cached is not None:
+                return list(cached)
+
+            flight = self._flights.get(key)
+            if flight is None:
+                flight = _AzureSubscriptionDiscoveryFlight(event=threading.Event())
+                self._flights[key] = flight
+                owns_discovery = True
+            else:
+                owns_discovery = False
+
+        if owns_discovery:
+            try:
+                subscriptions = list(discover())
+            except BaseException as error:
+                with self._lock:
+                    flight.error = error
+                    self._flights.pop(key, None)
+                    flight.event.set()
+                raise
+
+            with self._lock:
+                cached = self._values.get(key)
+                stored = list(cached) if cached is not None else subscriptions
+                self._values[key] = list(stored)
+                flight.subscriptions = list(stored)
+                self._flights.pop(key, None)
+                flight.event.set()
+
+            return list(stored)
+
+        flight.event.wait()
+        if flight.error is not None:
+            raise flight.error
+        if flight.subscriptions is None:
+            raise RuntimeError("Azure subscription discovery completed empty")
+        return list(flight.subscriptions)
+
+
+_AZURE_SUBSCRIPTION_DISCOVERY_CACHE = _AzureSubscriptionDiscoveryCache()
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,18 +121,13 @@ class AzureSession:
 class AzureSessionFactory:
     """Create Azure credentials lazily so provider validation has no SDK dependency."""
 
-    def create_session(
+    def _build_credential(
         self,
         *,
-        subscription_id: str,
-        location: str,
         tenant_id: str | None = None,
         client_id: str | None = None,
         client_secret: str | None = None,
-        configured_subscription_id: str | None = None,
-    ) -> AzureSession:
-        """Create an Azure session for a subscription/location pair."""
-
+    ) -> object:
         try:
             from azure.identity import ClientSecretCredential, DefaultAzureCredential
         except ImportError as error:
@@ -76,16 +143,16 @@ class AzureSessionFactory:
                         "Azure provider_options.client_secret requires tenant_id and "
                         "client_id when building an Azure runtime session."
                     )
-                credential = ClientSecretCredential(
+                return ClientSecretCredential(
                     tenant_id=tenant_id,
                     client_id=client_id,
                     client_secret=client_secret,
                 )
-            else:
-                credential_kwargs: dict[str, str] = {}
-                if client_id is not None:
-                    credential_kwargs["managed_identity_client_id"] = client_id
-                credential = DefaultAzureCredential(**credential_kwargs)
+
+            credential_kwargs: dict[str, str] = {}
+            if client_id is not None:
+                credential_kwargs["managed_identity_client_id"] = client_id
+            return DefaultAzureCredential(**credential_kwargs)
         except RuntimeError:
             raise
         except Exception as error:
@@ -94,12 +161,75 @@ class AzureSessionFactory:
                 f"credentials: {error}"
             ) from error
 
+    def create_session(
+        self,
+        *,
+        subscription_id: str,
+        location: str,
+        tenant_id: str | None = None,
+        client_id: str | None = None,
+        client_secret: str | None = None,
+        configured_subscription_id: str | None = None,
+    ) -> AzureSession:
+        """Create an Azure session for a subscription/location pair."""
+
+        credential = self._build_credential(
+            tenant_id=tenant_id,
+            client_id=client_id,
+            client_secret=client_secret,
+        )
         return AzureSession(
             subscription_id=subscription_id,
             location=location,
             credential=credential,
             configured_subscription_id=configured_subscription_id,
         )
+
+    def list_subscriptions(
+        self,
+        *,
+        tenant_id: str | None = None,
+        client_id: str | None = None,
+        client_secret: str | None = None,
+    ) -> list[AzureSubscription]:
+        """List Azure subscriptions lazily through the Azure management SDK."""
+
+        credential = self._build_credential(
+            tenant_id=tenant_id,
+            client_id=client_id,
+            client_secret=client_secret,
+        )
+        try:
+            from azure.mgmt.subscription import SubscriptionClient
+        except ImportError as error:
+            raise RuntimeError(
+                "Azure subscription discovery requires optional dependency "
+                "'azure-mgmt-subscription'."
+            ) from error
+
+        try:
+            client = SubscriptionClient(credential)
+            subscriptions = []
+            for subscription in client.subscriptions.list():
+                subscription_id = getattr(subscription, "subscription_id", None)
+                display_name = getattr(subscription, "display_name", None)
+                if isinstance(subscription_id, str) and subscription_id.strip():
+                    subscriptions.append(
+                        AzureSubscription(
+                            subscription_id=subscription_id.strip(),
+                            display_name=display_name
+                            if isinstance(display_name, str)
+                            else None,
+                        )
+                    )
+            return sorted(subscriptions, key=lambda item: item.subscription_id)
+        except RuntimeError:
+            raise
+        except Exception as error:
+            raise RuntimeError(
+                "Azure provider could not discover subscriptions: "
+                f"{error}"
+            ) from error
 
 
 class AzureExecutionRuntime:
@@ -130,7 +260,7 @@ class AzureExecutionRuntime:
 
 
 class AzureProvider:
-    """Minimal Azure provider for explicit subscription targets."""
+    """Azure provider for explicit and discovered subscription targets."""
 
     metadata = ProviderMetadata(
         name="azure", display_name="Azure", description="Microsoft Azure provider"
@@ -140,16 +270,12 @@ class AzureProvider:
         self._session_factory = session_factory or AzureSessionFactory()
 
     def validate_target(self, target: TargetDescriptor) -> None:
-        """Validate minimal Azure support: explicit subscription targets only."""
+        """Validate Azure support: subscription targets only."""
 
         if target.config_branch is not ConfigBranch.ACCOUNTS:
             raise ValueError(
-                "Azure provider currently supports explicit subscriptions only"
+                "Azure provider currently supports subscriptions only from accounts"
             )
-        if not target.include:
-            raise ValueError("Azure provider requires explicit subscription IDs")
-        if target.exclude is not None:
-            raise ValueError("Azure provider does not support exclude")
         if (
             target.provider_options.get("tenant_id") is not None
             and target.provider_options.get("client_secret") is None
@@ -216,13 +342,21 @@ class AzureProvider:
         include: list[str] | None,
         exclude: list[str] | None,
     ) -> ProviderExecutionPlan:
-        """Resolve explicit Azure subscription IDs deterministically."""
+        """Resolve Azure subscription IDs deterministically."""
 
         self.validate_target(target)
-        if exclude is not None:
-            raise ValueError("Azure provider does not support exclude")
 
-        subscription_ids = include or target.include or []
+        if target.include is None:
+            subscriptions = self._discover_subscriptions(
+                provider_options=target.provider_options
+            )
+            subscription_ids = self._filter_discovered_subscription_ids(
+                subscriptions=subscriptions,
+                include=include,
+                exclude=exclude,
+            )
+        else:
+            subscription_ids = include or target.include
         execution_targets = [
             self._execution_target(
                 subscription_id=subscription_id,
@@ -286,6 +420,92 @@ class AzureProvider:
             metadata={"subscription_id": subscription_id},
             provider_data=data,
         )
+
+    def _discover_subscriptions(
+        self, *, provider_options: dict[str, object]
+    ) -> list[AzureSubscription]:
+        tenant_id = self._string_option(
+            provider_options=provider_options, option_name="tenant_id"
+        )
+        client_id = self._string_option(
+            provider_options=provider_options, option_name="client_id"
+        )
+        client_secret = self._string_option(
+            provider_options=provider_options, option_name="client_secret"
+        )
+        if type(self._session_factory) is not AzureSessionFactory:
+            return self._session_factory.list_subscriptions(
+                tenant_id=tenant_id,
+                client_id=client_id,
+                client_secret=client_secret,
+            )
+
+        discovery_key = self._subscription_discovery_cache_key(
+            tenant_id=tenant_id, client_id=client_id, client_secret=client_secret
+        )
+        return _AZURE_SUBSCRIPTION_DISCOVERY_CACHE.get_or_discover(
+            key=discovery_key,
+            discover=lambda: self._session_factory.list_subscriptions(
+                tenant_id=tenant_id,
+                client_id=client_id,
+                client_secret=client_secret,
+            ),
+        )
+
+    def _subscription_discovery_cache_key(
+        self,
+        *,
+        tenant_id: str | None,
+        client_id: str | None,
+        client_secret: str | None,
+    ) -> object:
+        return (
+            AzureSessionFactory,
+            tenant_id,
+            client_id,
+            client_secret,
+        )
+
+    def _filter_discovered_subscription_ids(
+        self,
+        *,
+        subscriptions: list[AzureSubscription],
+        include: list[str] | None,
+        exclude: list[str] | None,
+    ) -> list[str]:
+        discovered_ids = sorted(
+            subscription.subscription_id for subscription in subscriptions
+        )
+        discovered_set = set(discovered_ids)
+
+        if include is not None:
+            unknown = [subscription_id for subscription_id in include if subscription_id not in discovered_set]
+            if unknown:
+                unknown_display = ", ".join(unknown)
+                raise ValueError(
+                    "Azure include filter matched unknown subscription IDs: "
+                    f"{unknown_display}"
+                )
+            subscription_ids = [subscription_id for subscription_id in include]
+        else:
+            subscription_ids = discovered_ids
+
+        if exclude is not None:
+            unknown = [subscription_id for subscription_id in exclude if subscription_id not in discovered_set]
+            if unknown:
+                unknown_display = ", ".join(unknown)
+                raise ValueError(
+                    "Azure exclude filter matched unknown subscription IDs: "
+                    f"{unknown_display}"
+                )
+            excluded = set(exclude)
+            subscription_ids = [
+                subscription_id
+                for subscription_id in subscription_ids
+                if subscription_id not in excluded
+            ]
+
+        return subscription_ids
 
     def _string_option(
         self, *, provider_options: dict[str, object], option_name: str

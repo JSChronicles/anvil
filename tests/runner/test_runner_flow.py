@@ -6,6 +6,7 @@ import pytest
 from anvil.auth import AuthSource
 from anvil.descriptors import ConfigBranch, TargetDescriptor
 from anvil.execution_context import ExecutionContext
+from anvil.providers.azure.provider import AzureSubscription
 from anvil.results import AccountResult, AuthResult, ExecutionStatus
 from anvil.runner import (
     AuthCheckCache,
@@ -213,6 +214,203 @@ def test_non_aws_provider_options_reach_runtime_session_factory(monkeypatch):
             "configured_subscription_id": "billing-sub",
         }
     ]
+
+
+def test_azure_subscription_discovery_runs_without_aws_paths(monkeypatch):
+    subscription_calls: list[dict[str, str | None]] = []
+
+    monkeypatch.setattr(
+        "anvil.runner.auth_check",
+        lambda **kwargs: (_ for _ in ()).throw(
+            AssertionError("AWS auth should not run for Azure providers")
+        ),
+    )
+    monkeypatch.setattr(
+        "anvil.runner._preflight_organization",
+        lambda **kwargs: (_ for _ in ()).throw(
+            AssertionError("AWS organization preflight should not run")
+        ),
+    )
+    monkeypatch.setattr(
+        "anvil.providers.azure.provider.AzureSessionFactory.list_subscriptions",
+        lambda self, **kwargs: subscription_calls.append(kwargs)
+        or [
+            AzureSubscription(subscription_id="sub-b"),
+            AzureSubscription(subscription_id="sub-a"),
+        ],
+    )
+    monkeypatch.setattr(
+        "anvil.providers.azure.provider.AzureSessionFactory.create_session",
+        lambda self, **kwargs: type(
+            "_AzureSession", (), {"region_name": kwargs["location"]}
+        )(),
+    )
+
+    target = TargetDescriptor(
+        config_branch=ConfigBranch.ACCOUNTS,
+        name="azure-subscriptions",
+        provider="azure",
+        mode="subscriptions",
+        include=None,
+        tasks=[],
+    )
+
+    engine_result = run_multiple_targets(
+        targets=[target],
+        max_parallel_targets=1,
+        cli_dry_run=None,
+        cli_include=None,
+        cli_exclude=None,
+    )
+
+    assert [result.account_id for result in engine_result.target_results[0].account_results] == [
+        "sub-a",
+        "sub-b",
+    ]
+    assert subscription_calls == [
+        {"tenant_id": None, "client_id": None, "client_secret": None}
+    ]
+
+
+def test_azure_subscription_discovery_errors_are_target_failures(monkeypatch):
+    monkeypatch.setattr(
+        "anvil.providers.azure.provider.AzureSessionFactory.list_subscriptions",
+        lambda self, **kwargs: (_ for _ in ()).throw(
+            RuntimeError("Azure provider could not discover subscriptions: denied")
+        ),
+    )
+
+    target = TargetDescriptor(
+        config_branch=ConfigBranch.ACCOUNTS,
+        name="azure-subscriptions",
+        provider="azure",
+        mode="subscriptions",
+        include=None,
+        provider_options={
+            "tenant_id": "error-tenant",
+            "client_id": "error-client",
+            "client_secret": "error-secret",
+        },
+        tasks=[],
+    )
+
+    engine_result = run_multiple_targets(
+        targets=[target],
+        max_parallel_targets=1,
+        cli_dry_run=None,
+        cli_include=None,
+        cli_exclude=None,
+    )
+
+    target_result = engine_result.target_results[0]
+    assert target_result.error == "Azure provider could not discover subscriptions: denied"
+    assert target_result.account_results == []
+
+
+def test_azure_subscription_discovery_rejects_cli_include_and_exclude(monkeypatch):
+    def unexpected_list_subscriptions(self, **kwargs):
+        raise AssertionError("subscription discovery should not run")
+
+    monkeypatch.setattr(
+        "anvil.providers.azure.provider.AzureSessionFactory.list_subscriptions",
+        unexpected_list_subscriptions,
+    )
+    monkeypatch.setattr(
+        "anvil.providers.azure.provider.AzureSessionFactory.create_session",
+        lambda self, **kwargs: type(
+            "_AzureSession", (), {"region_name": kwargs["location"]}
+        )(),
+    )
+
+    target = TargetDescriptor(
+        config_branch=ConfigBranch.ACCOUNTS,
+        name="azure-subscriptions",
+        provider="azure",
+        mode="subscriptions",
+        include=None,
+        provider_options={
+            "tenant_id": "cli-filter-tenant",
+            "client_id": "cli-filter-client",
+            "client_secret": "cli-filter-secret",
+        },
+        tasks=[],
+    )
+
+    engine_result = run_multiple_targets(
+        targets=[target],
+        max_parallel_targets=1,
+        cli_dry_run=None,
+        cli_include=["sub-c", "sub-a"],
+        cli_exclude=["sub-a"],
+    )
+
+    assert engine_result.target_results == []
+    assert engine_result.auth_results[0].status is ExecutionStatus.ERROR
+    assert engine_result.auth_results[0].source == "config"
+    assert "include and exclude together" in engine_result.auth_results[0].message
+
+
+def test_azure_subscription_discovery_plan_is_cached_across_targets(monkeypatch):
+    subscription_calls = 0
+
+    def fake_list_subscriptions(self, **kwargs):
+        nonlocal subscription_calls
+        subscription_calls += 1
+        return [AzureSubscription(subscription_id="sub-a")]
+
+    monkeypatch.setattr(
+        "anvil.providers.azure.provider.AzureSessionFactory.list_subscriptions",
+        fake_list_subscriptions,
+    )
+    monkeypatch.setattr(
+        "anvil.providers.azure.provider.AzureSessionFactory.create_session",
+        lambda self, **kwargs: type(
+            "_AzureSession", (), {"region_name": kwargs["location"]}
+        )(),
+    )
+
+    targets = [
+        TargetDescriptor(
+            config_branch=ConfigBranch.ACCOUNTS,
+            name="azure-subscriptions-a",
+            provider="azure",
+            mode="subscriptions",
+            include=None,
+            provider_options={
+                "tenant_id": "cache-tenant",
+                "client_id": "cache-client",
+                "client_secret": "cache-secret",
+            },
+            tasks=[],
+        ),
+        TargetDescriptor(
+            config_branch=ConfigBranch.ACCOUNTS,
+            name="azure-subscriptions-b",
+            provider="azure",
+            mode="subscriptions",
+            include=None,
+            provider_options={
+                "tenant_id": "cache-tenant",
+                "client_id": "cache-client",
+                "client_secret": "cache-secret",
+            },
+            tasks=[],
+        ),
+    ]
+
+    engine_result = run_multiple_targets(
+        targets=targets,
+        max_parallel_targets=2,
+        cli_dry_run=None,
+        cli_include=None,
+        cli_exclude=None,
+    )
+
+    assert subscription_calls == 1
+    assert [
+        result.account_results[0].account_id
+        for result in engine_result.target_results
+    ] == ["sub-a", "sub-a"]
 
 
 def test_gcp_provider_options_reach_runtime_session_factory(monkeypatch):
