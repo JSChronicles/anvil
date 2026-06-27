@@ -158,6 +158,20 @@
                 "provider_options": {
                   "$ref": "common.schema.v1.json#/$defs/azureProviderOptions"
                 }
+              },
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "profile"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "role_name"
+                    ]
+                  }
+                ]
               }
             }
           },
@@ -180,6 +194,20 @@
                 "provider_options": {
                   "$ref": "common.schema.v1.json#/$defs/gcpProviderOptions"
                 }
+              },
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "profile"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "role_name"
+                    ]
+                  }
+                ]
               }
             }
           }

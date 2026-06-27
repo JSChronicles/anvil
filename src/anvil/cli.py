@@ -1,5 +1,5 @@
 """
-CLI entrypoint for Anvil config-driven AWS account processing.
+CLI entrypoint for Anvil config-driven provider target processing.
 """
 
 from __future__ import annotations
@@ -120,7 +120,7 @@ def _add_common_config_args(parser: argparse.ArgumentParser) -> None:
         type=Path,
         help=(
             "Path(s) to YAML config file(s) defining organizations or explicit "
-            "account groups"
+            "provider target groups"
         ),
     )
 
@@ -128,12 +128,12 @@ def _add_common_config_args(parser: argparse.ArgumentParser) -> None:
     group.add_argument(
         "--include",
         nargs="+",
-        help="Narrow the configured target set to specific account IDs",
+        help="Narrow the configured target set to specific provider target IDs",
     )
     group.add_argument(
         "--exclude",
         nargs="+",
-        help="Organization-config only: exclude discovered account IDs",
+        help="Discovery-config only: exclude discovered provider target IDs",
     )
 
 
@@ -894,13 +894,13 @@ def _validate_list_args(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Anvil config-driven AWS account processing runner"
+        description="Anvil config-driven provider target processing runner"
     )
 
     subparsers = parser.add_subparsers(dest="command", required=False)
 
     run_parser = subparsers.add_parser(
-        "run", help="Execute tasks from an organization or account-group config"
+        "run", help="Execute tasks from an organization or provider target config"
     )
     _add_common_config_args(run_parser)
     _add_log_level_arg(run_parser)
@@ -936,7 +936,7 @@ def main() -> None:
     list_parser.set_defaults(func=_cmd_list)
 
     validate_parser = subparsers.add_parser(
-        "validate", help="Validate tasks, processors, and AWS authentication"
+        "validate", help="Validate tasks, processors, providers, and authentication"
     )
     _add_log_level_arg(validate_parser)
     validate_parser.add_argument(
@@ -969,7 +969,7 @@ def main() -> None:
     validate_parser.add_argument(
         "--auth",
         action="store_true",
-        help="Validate AWS authentication for configured targets",
+        help="Validate authentication for configured runnable targets",
     )
     validate_parser.add_argument(
         "--quiet",
@@ -986,18 +986,18 @@ def main() -> None:
     validate_group.add_argument(
         "--include",
         nargs="+",
-        help="Narrow authentication targets to specific account IDs",
+        help="Narrow authentication targets to specific provider target IDs",
     )
     validate_group.add_argument(
         "--exclude",
         nargs="+",
-        help="Organization-config only: exclude discovered account IDs",
+        help="Discovery-config only: exclude discovered provider target IDs",
     )
     validate_parser.set_defaults(func=_cmd_validate)
 
     graph_parser = subparsers.add_parser(
         "graph",
-        help="Show task dependency graph for configured organizations or account groups",
+        help="Show task dependency graph for configured provider targets",
     )
     _add_common_config_args(graph_parser)
     _add_log_level_arg(graph_parser)

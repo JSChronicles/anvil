@@ -88,6 +88,32 @@ def test_aws_only_tasks_do_not_resolve_for_azure_or_gcp():
             )
 
 
+def test_legacy_plugin_tasks_are_aws_only(monkeypatch):
+    task_loader = importlib.import_module("anvil.task_loader")
+    _clear_task_loader_caches(task_loader)
+
+    monkeypatch.setattr(
+        task_loader,
+        "_legacy_task_descriptors",
+        lambda: ([_descriptor("legacy_plugin_task", "plugin: legacy")], []),
+    )
+    monkeypatch.setattr(
+        task_loader, "_iter_package_task_descriptors", lambda *, package_name, source: []
+    )
+
+    aws_execution = task_loader.resolve_tasks(
+        task_specs=[{"name": "legacy_plugin_task"}], provider_name="aws"
+    )
+    assert aws_execution.ordered[0].run() == "plugin: legacy:legacy_plugin_task"
+
+    for provider_name in ("azure", "gcp"):
+        with pytest.raises(TaskConfigError, match="AWS-compatible only"):
+            task_loader.resolve_tasks(
+                task_specs=[{"name": "legacy_plugin_task"}],
+                provider_name=provider_name,
+            )
+
+
 def test_provider_descriptor_index_preserves_legacy_aws_tasks_first(monkeypatch):
     task_loader = importlib.import_module("anvil.task_loader")
     _clear_task_loader_caches(task_loader)

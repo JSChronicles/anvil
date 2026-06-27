@@ -121,13 +121,20 @@ Current supported provider modes:
   include/exclude AWS account IDs, and supports region selectors such as `all`
   and glob patterns.
 - AWS `accounts`: runs against explicit AWS account IDs in `include`.
-- Azure `subscriptions`: runs against explicit Azure subscription IDs in
-  `include`.
-- GCP `projects`: runs against explicit GCP project IDs in `include`.
+- Azure `subscriptions`: validates explicit Azure subscription IDs in `include`
+  as the provider config shape.
+- GCP `projects`: validates explicit GCP project IDs in `include` as the
+  provider config shape.
 
 Azure management group discovery and GCP organization/folder discovery are
 intentionally deferred. The schema rejects those modes until provider discovery
 support is implemented.
+
+This branch keeps Azure and GCP validation-only until provider dispatch is
+wired into `anvil run` and `anvil validate --auth`. Those runtime paths reject
+non-AWS providers before AWS auth, session, or account resolution code runs.
+Azure/GCP `provider_options` are accepted placeholders for the future runtime
+session factories.
 
 ```yaml
 schema_version: 1
@@ -169,11 +176,15 @@ Task compatibility is determined by package location. Existing AWS task names
 and legacy imports remain compatible through thin wrappers:
 
 - `anvil.tasks.<task>` is the legacy import path and re-exports moved stock
-  tasks for compatibility.
+  tasks for named-import and module-access compatibility. It is not a full
+  star-import namespace compatibility layer.
 - `anvil.providers.tasks.<task>` is universal and can run for any provider.
 - `anvil.providers.aws.tasks.<task>` is AWS-only.
 - `anvil.providers.azure.tasks.<task>` is Azure-only.
 - `anvil.providers.gcp.tasks.<task>` is GCP-only.
+
+Legacy plugin entry points under `anvil.tasks` are treated as AWS-compatible
+only. Non-AWS plugins should use universal or provider-specific task packages.
 
 The task loader builds a cached descriptor index shaped as
 `provider_name -> task_name -> list[TaskDescriptor]`, so resolving multiple

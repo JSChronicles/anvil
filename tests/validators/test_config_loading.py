@@ -257,6 +257,47 @@ def test_load_config_descriptors_reads_gcp_project_targets():
     assert target.provider_options == {"quota_project_id": "billing-project"}
 
 
+@pytest.mark.parametrize(
+    ("provider", "mode", "include", "field_name"),
+    [
+        (
+            "azure",
+            "subscriptions",
+            ["11111111-2222-3333-4444-555555555555"],
+            "profile",
+        ),
+        (
+            "azure",
+            "subscriptions",
+            ["11111111-2222-3333-4444-555555555555"],
+            "role_name",
+        ),
+        ("gcp", "projects", ["project-a"], "profile"),
+        ("gcp", "projects", ["project-a"], "role_name"),
+    ],
+)
+def test_validate_config_schema_rejects_non_aws_top_level_aws_fields(
+    provider, mode, include, field_name
+):
+    validators = _import_validators_or_skip()
+
+    with pytest.raises(ValueError, match=field_name):
+        validators.validate_config_schema(
+            config={
+                "schema_version": 1,
+                "accounts": [
+                    {
+                        "name": f"{provider}-targets",
+                        "provider": provider,
+                        "mode": mode,
+                        "include": include,
+                        field_name: "legacy-aws-value",
+                    }
+                ],
+            }
+        )
+
+
 def test_validate_config_schema_accepts_max_parallel_targets_for_organizations():
     validators = _import_validators_or_skip()
 

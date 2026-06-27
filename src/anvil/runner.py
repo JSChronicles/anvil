@@ -267,6 +267,23 @@ def _run_cached_auth_check_for_target(
     )
 
 
+def _ensure_runtime_supported_providers(
+    *, targets: list[TargetDescriptor], command_name: str
+) -> None:
+    unsupported_providers = sorted(
+        {target.provider for target in targets if target.provider != "aws"}
+    )
+    if not unsupported_providers:
+        return
+
+    provider_list = ", ".join(unsupported_providers)
+    raise ValueError(
+        f"{command_name} currently supports provider 'aws' only. "
+        f"Provider(s) {provider_list} are validation-only until provider dispatch "
+        "is wired."
+    )
+
+
 def _resolve_effective_account_filters(
     *,
     target: TargetDescriptor,
@@ -577,6 +594,9 @@ def run_auth_checks(*, targets: list[TargetDescriptor]) -> EngineResult:
     """
     Run authentication checks only. Does not resolve tasks or execute targets.
     """
+    _ensure_runtime_supported_providers(
+        targets=targets, command_name="Authentication validation"
+    )
     config_branch: ConfigBranch = (
         targets[0].config_branch if targets else ConfigBranch.ORGANIZATIONS
     )
@@ -731,6 +751,7 @@ def run_multiple_targets(
     cli_exclude: list[str] | None,
     benchmark_enabled: bool = False,
 ) -> EngineResult:
+    _ensure_runtime_supported_providers(targets=targets, command_name="Execution")
     config_branch: ConfigBranch = (
         targets[0].config_branch if targets else ConfigBranch.ORGANIZATIONS
     )

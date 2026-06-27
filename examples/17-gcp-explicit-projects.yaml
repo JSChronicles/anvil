@@ -4,6 +4,8 @@ accounts:
   - name: gcp-explicit-projects
     provider: gcp
     mode: projects
+    # Azure/GCP configs currently validate provider shape only. anvil run and
+    # validate --auth reject non-AWS providers until runtime dispatch is wired.
     regions:
       - us-central1
     include:
@@ -12,6 +14,7 @@ accounts:
       - anvil-dev-project
       - anvil-prod-project
     provider_options:
+      # Accepted as a future runtime placeholder; not used by anvil run yet.
       quota_project_id: anvil-billing-project
     dry_run: true
     tasks:

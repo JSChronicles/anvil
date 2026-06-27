@@ -4,6 +4,8 @@ accounts:
   - name: azure-explicit-subscriptions
     provider: azure
     mode: subscriptions
+    # Azure/GCP configs currently validate provider shape only. anvil run and
+    # validate --auth reject non-AWS providers until runtime dispatch is wired.
     regions:
       - eastus
     include:
@@ -12,6 +14,7 @@ accounts:
       - 11111111-2222-3333-4444-555555555555
       - aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
     provider_options:
+      # Accepted as a future runtime placeholder; not used by anvil run yet.
       tenant_id: example-tenant-id
     dry_run: true
     tasks:

@@ -118,7 +118,11 @@ def _load_provider_task_callable(*, provider_name: str, task_name: str) -> Calla
         except TaskConfigError:
             return _load_plugin_task(task_name)
 
-    return _load_plugin_task(task_name)
+    raise TaskConfigError(
+        f"Task '{task_name}' is not available for provider '{provider_name}'. "
+        "Legacy anvil.tasks plugin entry points are AWS-compatible only; use "
+        "universal or provider-specific task packages for non-AWS providers."
+    )
 
 
 def _provider_task_packages(provider_name: str) -> tuple[tuple[str, str], ...]:

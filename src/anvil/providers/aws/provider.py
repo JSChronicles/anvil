@@ -180,7 +180,11 @@ class AwsProvider:
         organization_resolver_cls: type[OrganizationResolver] = OrganizationResolver,
         account_resolver_cls: type[AccountResolver] = AccountResolver,
     ) -> ProviderExecutionPlan:
-        """Resolve existing AWS account objects into provider-neutral targets."""
+        """Resolve existing AWS account objects into provider-neutral targets.
+
+        Extra keyword-only parameters are temporary AWS compatibility adapter
+        inputs for the v0.29.2 runner path while provider dispatch is completed.
+        """
 
         self.validate_target(target)
         effective_target = replace(target, include=include, exclude=exclude)

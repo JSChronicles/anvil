@@ -13,6 +13,7 @@ from anvil.runner import (
     OrganizationRunCacheEntry,
     PreparedTarget,
     prepare_target,
+    run_auth_checks,
     run_multiple_targets,
     run_prepared_target,
 )
@@ -55,6 +56,50 @@ def test_runner_auth_failure_short_circuits(monkeypatch):
     assert engine_result.auth_results[0].status is ExecutionStatus.ERROR
     assert engine_result.target_results == []
     assert engine_result.has_auth_failures
+
+
+def test_run_rejects_non_aws_provider_before_auth(monkeypatch):
+    def fail_auth_check(**kwargs):
+        raise AssertionError("AWS auth should not run for non-AWS providers")
+
+    monkeypatch.setattr("anvil.runner.auth_check", fail_auth_check)
+
+    target = TargetDescriptor(
+        config_branch=ConfigBranch.ACCOUNTS,
+        name="azure-subscriptions",
+        provider="azure",
+        mode="subscriptions",
+        include=["11111111-2222-3333-4444-555555555555"],
+        tasks=[],
+    )
+
+    with pytest.raises(ValueError, match="validation-only"):
+        run_multiple_targets(
+            targets=[target],
+            max_parallel_targets=1,
+            cli_dry_run=None,
+            cli_include=None,
+            cli_exclude=None,
+        )
+
+
+def test_auth_check_rejects_non_aws_provider_before_auth(monkeypatch):
+    def fail_auth_check(**kwargs):
+        raise AssertionError("AWS auth should not run for non-AWS providers")
+
+    monkeypatch.setattr("anvil.runner.auth_check", fail_auth_check)
+
+    target = TargetDescriptor(
+        config_branch=ConfigBranch.ACCOUNTS,
+        name="gcp-projects",
+        provider="gcp",
+        mode="projects",
+        include=["project-a"],
+        tasks=[],
+    )
+
+    with pytest.raises(ValueError, match="supports provider 'aws' only"):
+        run_auth_checks(targets=[target])
 
 
 def test_run_multiple_targets_reuses_same_profile_auth_during_preparation(monkeypatch):
