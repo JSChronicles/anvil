@@ -40,7 +40,8 @@ Anvil is built for teams that need repeatable cloud workflows, such as inventory
   - Configure provider targets, regions, tasks, task dependencies, dry runs, fail-fast behavior, and concurrency in one place.
 - Multi-target by default
   - AWS can discover active organization accounts and enabled regions, with include/exclude filtering.
-  - Azure subscriptions and GCP projects currently run from explicit target IDs.
+  - Azure subscriptions and GCP projects can run from explicit IDs or provider
+    discovery.
 - Parallel execution and caching
   - Control concurrency at the target, account, and region levels. See [Caching and reuse](https://opsfoundry.dev/anvil/execution-model/#cache-and-reuse-boundaries).
 - Shared discovery and session reuse
@@ -126,8 +127,9 @@ Current supported provider modes:
   discovers subscriptions when `include` is omitted. `exclude` can remove
   discovered subscriptions. Azure supports universal tasks when an Azure
   runtime session can be built.
-- GCP `projects`: runs explicit GCP project IDs in `include` for universal
-  tasks when a GCP runtime session can be built.
+- GCP `projects`: runs explicit GCP project IDs in `include`, or discovers
+  projects when `include` is omitted. `exclude` can remove discovered projects.
+  GCP supports universal tasks when a GCP runtime session can be built.
 
 Azure management group discovery and GCP organization/folder discovery are
 intentionally deferred. The schema rejects those modes until provider discovery

@@ -193,7 +193,7 @@ def test_cmd_list_providers_groups_by_source(monkeypatch, capsys):
     )
 
 
-def test_cmd_list_providers_does_not_call_azure_subscription_discovery(
+def test_cmd_list_providers_does_not_call_cloud_discovery(
     monkeypatch, capsys
 ):
     cli = _import_cli_or_skip()
@@ -204,6 +204,12 @@ def test_cmd_list_providers_does_not_call_azure_subscription_discovery(
             AssertionError("provider listing should not discover Azure subscriptions")
         ),
     )
+    monkeypatch.setattr(
+        "anvil.providers.gcp.provider.GcpSessionFactory.list_projects",
+        lambda self, **kwargs: (_ for _ in ()).throw(
+            AssertionError("provider listing should not discover GCP projects")
+        ),
+    )
 
     args = SimpleNamespace(tasks=False, processors=False, providers=True)
     assert cli._cmd_list(args) == 0
@@ -211,6 +217,7 @@ def test_cmd_list_providers_does_not_call_azure_subscription_discovery(
     output = capsys.readouterr().out
     assert "Available providers:" in output
     assert "azure" in output
+    assert "gcp" in output
 
 
 def test_list_help_shows_new_flags_and_not_old_groups(monkeypatch, capsys):

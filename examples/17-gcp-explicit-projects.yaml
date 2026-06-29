@@ -4,13 +4,13 @@ accounts:
   - name: gcp-explicit-projects
     provider: gcp
     mode: projects
-    # GCP currently supports explicit project IDs and universal tasks only.
+    # GCP supports explicit project IDs or project discovery with universal tasks.
     # Runtime requires GCP optional SDKs and credentials.
     regions:
       - us-central1
     include:
-      # GCP currently supports explicit project IDs only. Organization and
-      # folder discovery are intentionally deferred.
+      # Omit include to discover visible projects. Use exclude instead to remove
+      # discovered project IDs. Organization and folder discovery are deferred.
       - anvil-dev-project
       - anvil-prod-project
     provider_options:

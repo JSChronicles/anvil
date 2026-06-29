@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://anvil.local/schemas/accounts.schema.v1.json",
   "title": "Anvil Accounts Configuration",
-  "description": "Declarative configuration for executing tasks against explicit provider target lists.",
+  "description": "Declarative configuration for executing tasks against provider target lists.",
   "type": "object",
   "required": [
     "schema_version",
@@ -21,7 +21,7 @@
     "accounts": {
       "type": "array",
       "minItems": 1,
-      "description": "List of provider target groups to process. AWS and GCP require explicit IDs; Azure subscriptions can be explicit or discovered when include is omitted.",
+      "description": "List of provider target groups to process. AWS requires explicit IDs; Azure subscriptions and GCP projects can be explicit or discovered when include is omitted.",
       "items": {
         "type": "object",
         "required": [
@@ -95,7 +95,7 @@
                 "$ref": "common.schema.v1.json#/$defs/targetIdList"
               }
             ],
-            "description": "Provider-specific target IDs to exclude from provider discovery. Currently supported for Azure subscription discovery only. Mutually exclusive with include."
+            "description": "Provider-specific target IDs to exclude from provider discovery. Currently supported for Azure subscription and GCP project discovery. Mutually exclusive with include."
           }
         },
         "allOf": [
@@ -222,9 +222,6 @@
               ]
             },
             "then": {
-              "required": [
-                "include"
-              ],
               "properties": {
                 "mode": {
                   "const": "projects"
@@ -253,6 +250,7 @@
                 {
                   "not": {
                     "required": [
+                      "include",
                       "exclude"
                     ]
                   }

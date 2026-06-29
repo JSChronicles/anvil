@@ -510,7 +510,7 @@ def test_validate_selected_providers_validates_all_when_no_names(monkeypatch):
     assert seen["loaded"] == ["aws"]
 
 
-def test_validate_selected_providers_does_not_call_azure_subscription_discovery(
+def test_validate_selected_providers_does_not_call_cloud_discovery(
     monkeypatch,
 ):
     cli = _import_cli_or_skip()
@@ -521,8 +521,14 @@ def test_validate_selected_providers_does_not_call_azure_subscription_discovery(
             AssertionError("provider validation should not discover Azure subscriptions")
         ),
     )
+    monkeypatch.setattr(
+        "anvil.providers.gcp.provider.GcpSessionFactory.list_projects",
+        lambda self, **kwargs: (_ for _ in ()).throw(
+            AssertionError("provider validation should not discover GCP projects")
+        ),
+    )
 
-    cli._validate_selected_providers(["azure"])
+    cli._validate_selected_providers(["azure", "gcp"])
 
 
 def test_validate_selected_providers_reports_unknown_names(monkeypatch):

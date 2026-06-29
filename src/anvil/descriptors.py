@@ -143,20 +143,19 @@ class TargetDescriptor:
                     f"selectors are not allowed: {', '.join(account_region_selectors)}"
                 )
 
-            if self.provider != PROVIDER_AZURE and not self.include:
+            if self.provider == PROVIDER_AWS and not self.include:
                 raise ValueError("accounts config entries require include")
 
-            if self.provider != PROVIDER_AZURE and self.exclude is not None:
+            if self.provider == PROVIDER_AWS and self.exclude is not None:
                 raise ValueError("accounts config entries do not allow exclude")
 
             if (
-                self.provider == PROVIDER_AZURE
+                self.provider in {PROVIDER_AZURE, PROVIDER_GCP}
                 and self.include is not None
                 and self.exclude is not None
             ):
                 raise ValueError(
-                    "Azure accounts config entries only allow exclude when "
-                    "subscription IDs are discovered"
+                    "accounts config entries cannot use include and exclude together"
                 )
 
             if (

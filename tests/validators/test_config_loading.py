@@ -292,6 +292,33 @@ def test_load_config_descriptors_reads_gcp_project_targets():
     assert target.provider_options == {"quota_project_id": "billing-project"}
 
 
+def test_load_config_descriptors_reads_gcp_project_discovery_target():
+    validators = _import_validators_or_skip()
+
+    loaded = validators.load_config_descriptors(
+        config={
+            "schema_version": 1,
+            "accounts": [
+                {
+                    "name": "gcp-projects",
+                    "provider": "gcp",
+                    "mode": "projects",
+                    "regions": ["us-central1"],
+                    "exclude": ["project-b"],
+                    "provider_options": {"quota_project_id": "billing-project"},
+                }
+            ],
+        }
+    )
+
+    target = loaded.targets[0]
+    assert target.provider == "gcp"
+    assert target.mode == "projects"
+    assert target.include is None
+    assert target.exclude == ["project-b"]
+    assert target.provider_options == {"quota_project_id": "billing-project"}
+
+
 @pytest.mark.parametrize(
     ("provider", "mode", "include", "field_name"),
     [
@@ -556,6 +583,24 @@ def test_validate_config_schema_accepts_gcp_project_ids():
                     "provider": "gcp",
                     "mode": "projects",
                     "include": ["anvil-dev-project"],
+                }
+            ],
+        }
+    )
+
+
+def test_validate_config_schema_accepts_gcp_project_discovery():
+    validators = _import_validators_or_skip()
+
+    validators.validate_config_schema(
+        config={
+            "schema_version": 1,
+            "accounts": [
+                {
+                    "name": "gcp-projects",
+                    "provider": "gcp",
+                    "mode": "projects",
+                    "exclude": ["anvil-dev-project"],
                 }
             ],
         }

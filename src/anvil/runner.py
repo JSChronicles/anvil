@@ -360,7 +360,7 @@ def _resolve_effective_account_filters(
     cli_exclude: list[str] | None,
 ) -> tuple[list[str] | None, list[str] | None]:
     if target.is_accounts_config:
-        if target.provider == "azure":
+        if target.provider in {"azure", "gcp"}:
             effective_exclude = cli_exclude if cli_exclude is not None else target.exclude
             if cli_include is None:
                 return target.include, effective_exclude
