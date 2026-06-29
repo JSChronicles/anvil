@@ -15,13 +15,16 @@ Use this skill to create Anvil tasks that satisfy the runtime contract, behave s
 4. Follow Anvil task conventions for dry-run behavior, logging, actions, and returned data.
 5. Apply normal Python and AWS implementation hygiene.
 6. Add or update YAML examples that reference the task when useful.
-7. Run `uv run anvil tasks validate`.
+7. Run `uv run anvil validate --tasks`.
 
 ## Core Rules
 
-- Stock task modules live under `src/anvil/tasks/<task_name>.py`.
+- Universal stock task modules live under `src/anvil/providers/tasks/<task_name>.py`.
+- Provider-specific stock task modules live under `src/anvil/providers/<provider>/tasks/<task_name>.py`.
 - YAML task names must match task module filenames.
-- Plugin task packages must be exposed through the `anvil.tasks` entry-point group.
+- Plugin task packages must be exposed through provider-owned task entry-point groups:
+  `anvil.providers.tasks`, `anvil.providers.aws.tasks`,
+  `anvil.providers.azure.tasks`, or `anvil.providers.gcp.tasks`.
 - Every task module must define a callable keyword-only `run()` function.
 - The provided boto3 `session` is already scoped to the target account and region.
 - Check `dry_run` before every mutating API call.

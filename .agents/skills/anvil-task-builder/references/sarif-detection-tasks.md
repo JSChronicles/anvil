@@ -95,9 +95,14 @@ finding is security-related.
 ## Workflow
 
 1. Create the task in the right package for its ownership:
-   - Stock Anvil tasks live under `src/anvil/tasks/detect_*.py`.
+   - Universal stock Anvil tasks live under
+     `src/anvil/providers/tasks/detect_*.py`.
+   - Provider-specific stock Anvil tasks live under
+     `src/anvil/providers/<provider>/tasks/detect_*.py`.
    - Third-party, plugin, or project-local tasks live in the plugin task package
-     and must be exposed through the `anvil.tasks` entry-point group.
+     and must be exposed through the matching provider-owned task entry-point
+     group: `anvil.providers.tasks`, `anvil.providers.aws.tasks`,
+     `anvil.providers.azure.tasks`, or `anvil.providers.gcp.tasks`.
 2. Implement the normal Anvil keyword-only `run()` contract.
 3. Validate metadata before AWS calls.
 4. Use paginators for AWS list APIs.
@@ -105,5 +110,5 @@ finding is security-related.
 6. Return `checked_count`, `finding_count`, and `sarif_findings`.
 7. Validate task and processor discovery after implementation.
 
-Use `src/anvil/tasks/detect_deprecated_lambda_runtimes.py` as the reference
-implementation for a first-party SARIF-capable detection task.
+Use `src/anvil/providers/aws/tasks/detect_deprecated_lambda_runtimes.py` as the
+reference implementation for a first-party SARIF-capable detection task.

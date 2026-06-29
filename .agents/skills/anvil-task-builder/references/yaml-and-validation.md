@@ -78,7 +78,7 @@ match no known region, and fails when no enabled region remains.
 After creating or editing a task, run:
 
 ```powershell
-uv run anvil tasks validate
+uv run anvil validate --tasks
 ```
 
 This validates task discovery and the required `run()` signature without executing AWS logic.
@@ -86,7 +86,7 @@ This validates task discovery and the required `run()` signature without executi
 If `uv run` cannot build or install the project in the current environment, and dependencies are already available, use this fallback:
 
 ```powershell
-$env:PYTHONPATH='src'; python -m anvil.cli tasks validate
+$env:PYTHONPATH='src'; python -m anvil.cli validate --tasks
 ```
 
 For YAML examples, also validate the config schema or run the relevant example tests. A lightweight schema validation pattern is:

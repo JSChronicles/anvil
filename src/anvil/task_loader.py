@@ -1,21 +1,27 @@
 from __future__ import annotations
 
+import importlib
 import logging
+import pkgutil
 from collections import defaultdict, deque
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import lru_cache
+from importlib.metadata import EntryPoint, entry_points
 
 from anvil._loader_utils import (
     DiscoveryIssue,
     iter_stock_modules,
     load_stock_callable,
+    plugin_source,
 )
 
 __LOGGER__ = logging.getLogger(__name__)
 
 UNIVERSAL_TASK_PACKAGE = "anvil.providers.tasks"
 PROVIDER_TASK_PACKAGE_PREFIX = "anvil.providers"
+UNIVERSAL_TASK_ENTRY_POINT_GROUP = "anvil.providers.tasks"
+PROVIDER_TASK_ENTRY_POINT_GROUP_PREFIX = "anvil.providers"
 
 # ============================================================================
 # Models
@@ -108,6 +114,18 @@ def _provider_task_packages(provider_name: str) -> tuple[tuple[str, str], ...]:
     )
 
 
+def _provider_task_entry_point_groups(
+    provider_name: str,
+) -> tuple[tuple[str, str], ...]:
+    return (
+        ("universal", UNIVERSAL_TASK_ENTRY_POINT_GROUP),
+        (
+            provider_name,
+            f"{PROVIDER_TASK_ENTRY_POINT_GROUP_PREFIX}.{provider_name}.tasks",
+        ),
+    )
+
+
 def _iter_package_task_descriptors(
     *, package_name: str, source: str
 ) -> list[TaskDescriptor]:
@@ -131,11 +149,110 @@ def _iter_package_task_descriptors(
     ]
 
 
+def _load_plugin_task_callable(
+    *, entry_point: EntryPoint, task_name: str, source: str
+) -> Callable:
+    try:
+        package = importlib.import_module(entry_point.value)
+    except Exception as exc:
+        raise TaskConfigError(
+            f"Plugin task package '{entry_point.name}' ({source}) failed during "
+            f"import: {exc}"
+        ) from exc
+
+    module_name = f"{package.__name__}.{task_name}"
+    try:
+        module = importlib.import_module(module_name)
+    except ModuleNotFoundError as exc:
+        if exc.name == module_name:
+            raise TaskConfigError(
+                f"Plugin task '{task_name}' not found in plugin "
+                f"'{entry_point.name}' ({source})"
+            ) from exc
+        raise TaskConfigError(
+            f"Plugin task '{task_name}' in plugin '{entry_point.name}' "
+            f"({source}) failed during import: {exc}"
+        ) from exc
+    except Exception as exc:
+        raise TaskConfigError(
+            f"Plugin task '{task_name}' in plugin '{entry_point.name}' "
+            f"({source}) failed during import: {exc}"
+        ) from exc
+
+    run = getattr(module, "run", None)
+    if not callable(run):
+        raise TaskConfigError(
+            f"Plugin task '{task_name}' in plugin '{entry_point.name}' "
+            f"({source}) must define callable run(...)"
+        )
+
+    return run
+
+
+def _iter_plugin_task_descriptors(
+    *, entry_point_group: str, source_prefix: str
+) -> tuple[list[TaskDescriptor], list[DiscoveryIssue]]:
+    descriptors: list[TaskDescriptor] = []
+    issues: list[DiscoveryIssue] = []
+
+    for entry_point in entry_points(group=entry_point_group):
+        plugin_source_label = plugin_source(entry_point)
+        if plugin_source_label.startswith("plugin: "):
+            plugin_source_label = plugin_source_label.removeprefix("plugin: ")
+        source = f"{source_prefix} {plugin_source_label}"
+        try:
+            package = importlib.import_module(entry_point.value)
+        except Exception as exc:
+            __LOGGER__.debug(
+                f"Skipping task plugin '{entry_point.name}' from group "
+                f"'{entry_point_group}' due to import error: {exc}"
+            )
+            issues.append(
+                DiscoveryIssue(
+                    name=entry_point.name,
+                    source=source,
+                    error=f"package import failed ({exc})",
+                )
+            )
+            continue
+
+        package_path = getattr(package, "__path__", None)
+        if package_path is None:
+            issues.append(
+                DiscoveryIssue(
+                    name=entry_point.name,
+                    source=source,
+                    error="entry point must reference a package",
+                )
+            )
+            continue
+
+        for module_info in pkgutil.iter_modules(package_path):
+            name = module_info.name
+            if name.startswith("_"):
+                continue
+
+            descriptors.append(
+                TaskDescriptor(
+                    name=name,
+                    load=lambda ep=entry_point, n=name, s=source: (
+                        _load_plugin_task_callable(
+                            entry_point=ep, task_name=n, source=s
+                        )
+                    ),
+                    source=source,
+                )
+            )
+
+    return descriptors, issues
+
+
 @lru_cache(maxsize=16)
-def _provider_task_descriptor_index(
+def _provider_task_discovery(
     provider_name: str,
-) -> dict[str, tuple[TaskDescriptor, ...]]:
+) -> tuple[dict[str, tuple[TaskDescriptor, ...]], tuple[DiscoveryIssue, ...]]:
     descriptors_by_name: dict[str, list[TaskDescriptor]] = defaultdict(list)
+    issues: list[DiscoveryIssue] = []
 
     for source, package_name in _provider_task_packages(provider_name):
         for descriptor in _iter_package_task_descriptors(
@@ -143,10 +260,26 @@ def _provider_task_descriptor_index(
         ):
             descriptors_by_name[descriptor.name].append(descriptor)
 
-    return {
+    for source, entry_point_group in _provider_task_entry_point_groups(provider_name):
+        plugin_descriptors, plugin_issues = _iter_plugin_task_descriptors(
+            entry_point_group=entry_point_group,
+            source_prefix=f"{source} plugin:",
+        )
+        issues.extend(plugin_issues)
+        for descriptor in plugin_descriptors:
+            descriptors_by_name[descriptor.name].append(descriptor)
+
+    index = {
         name: tuple(descriptors)
         for name, descriptors in sorted(descriptors_by_name.items())
     }
+    return index, tuple(issues)
+
+
+def _provider_task_descriptor_index(
+    provider_name: str,
+) -> dict[str, tuple[TaskDescriptor, ...]]:
+    return _provider_task_discovery(provider_name)[0]
 
 
 def provider_task_descriptor_index(
@@ -160,10 +293,9 @@ def provider_task_descriptor_index(
     }
 
 
-@lru_cache(maxsize=128)
 def _clear_task_caches() -> None:
     _load_provider_task_callable.cache_clear()
-    cache_clear = getattr(_provider_task_descriptor_index, "cache_clear", None)
+    cache_clear = getattr(_provider_task_discovery, "cache_clear", None)
     if cache_clear is not None:
         cache_clear()
 
@@ -332,18 +464,33 @@ def resolve_tasks(
 
 
 def discover_tasks() -> TaskDiscoveryResult:
-    """Discover built-in provider-aware tasks."""
-    tasks_by_key: dict[tuple[str, str], TaskDescriptor] = {}
+    """Discover built-in and plugin provider-aware tasks."""
+    tasks: list[TaskDescriptor] = []
+    task_keys: set[tuple[str, str, int]] = set()
+    issue_keys: set[tuple[str, str, str]] = set()
     issues: list[DiscoveryIssue] = []
     for provider_name in ("aws", "azure", "gcp"):
-        for name, descriptors in provider_task_descriptor_index(
-            provider_name=provider_name
-        ).items():
+        index, provider_issues = _provider_task_discovery(provider_name)
+        for name, descriptors in index.items():
+            source_counts: dict[tuple[str, str], int] = defaultdict(int)
             for descriptor in descriptors:
-                tasks_by_key[(descriptor.source, name)] = descriptor
+                source_key = (descriptor.source, name)
+                ordinal = source_counts[source_key]
+                source_counts[source_key] += 1
+                task_key = (descriptor.source, name, ordinal)
+                if task_key in task_keys:
+                    continue
+                task_keys.add(task_key)
+                tasks.append(descriptor)
+        for issue in provider_issues:
+            key = (issue.name, issue.source, issue.error)
+            if key in issue_keys:
+                continue
+            issue_keys.add(key)
+            issues.append(issue)
 
     return TaskDiscoveryResult(
-        tasks=list(tasks_by_key.values()),
+        tasks=tasks,
         issues=issues,
     )
 

@@ -1,9 +1,15 @@
 # Anvil Runtime Contract
 
-For stock tasks in this repository, add modules under:
+For universal stock tasks in this repository, add modules under:
 
 ```text
-src/anvil/tasks/<task_name>.py
+src/anvil/providers/tasks/<task_name>.py
+```
+
+For provider-specific stock tasks, add modules under:
+
+```text
+src/anvil/providers/<provider>/tasks/<task_name>.py
 ```
 
 The YAML task name must match the module filename:
@@ -13,14 +19,23 @@ tasks:
   - name: count_vpc
 ```
 
-For project-local or plugin tasks, expose the task package through the plugin project's `pyproject.toml`:
+For project-local or plugin tasks, expose the task package through the provider-owned entry point group that matches task compatibility:
 
 ```toml
-[project.entry-points."anvil.tasks"]
-project = "tasks"
+[project.entry-points."anvil.providers.tasks"]
+project-universal = "tasks.universal"
+
+[project.entry-points."anvil.providers.aws.tasks"]
+project-aws = "tasks.aws"
+
+[project.entry-points."anvil.providers.azure.tasks"]
+project-azure = "tasks.azure"
+
+[project.entry-points."anvil.providers.gcp.tasks"]
+project-gcp = "tasks.gcp"
 ```
 
-Anvil discovers modules inside packages registered in the `anvil.tasks` entry-point group. Directories named `tasks/` are conventional only; they are not automatically scanned unless registered.
+Anvil discovers modules inside packages registered in provider-owned task entry point groups. Directories named `tasks/` are conventional only; they are not automatically scanned unless registered.
 
 Every task module must define a callable keyword-only `run()` function. Use this signature unless nearby code has a stronger local convention:
 

@@ -200,10 +200,10 @@ def test_provider_descriptor_index_builds_once_for_multiple_configured_tasks(
 def test_discover_tasks_ignores_legacy_discovery_issues(monkeypatch):
     task_loader = importlib.import_module("anvil.task_loader")
 
-    def fake_index(*, provider_name):
-        return {"noop": [_descriptor("noop", "universal")]}
+    def fake_discovery(provider_name):
+        return {"noop": (_descriptor("noop", "universal"),)}, ()
 
-    monkeypatch.setattr(task_loader, "provider_task_descriptor_index", fake_index)
+    monkeypatch.setattr(task_loader, "_provider_task_discovery", fake_discovery)
 
     discovery = task_loader.discover_tasks()
 

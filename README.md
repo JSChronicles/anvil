@@ -51,8 +51,8 @@ Anvil is built for teams that need repeatable cloud workflows, such as inventory
 - Built-in tasks
   - Use provider-package tasks for common AWS operations and universal tasks
     where they apply.
-  - Custom/project-local task discovery is deferred until provider-owned plugin
-    discovery is added in a future v0.30.x release.
+  - Provider-owned task plugin entry points can add universal tasks or
+    provider-specific AWS, Azure, and GCP tasks.
 - Structured output and safer operations
   - Record structured results at task, account/target, target group, and engine levels.
 
@@ -191,13 +191,35 @@ stay stable where possible; for example, AWS configs can still use
 - `anvil.providers.azure.tasks.<task>` is Azure-only.
 - `anvil.providers.gcp.tasks.<task>` is GCP-only.
 
-v0.30 removes direct Python imports from `anvil.tasks.<task>` and stops
-discovering legacy task plugin entry points under `anvil.tasks`. Code importing
-first-party tasks directly should move to the universal or provider-specific
-package path. Task plugin authors should migrate task modules into a universal
-or provider-specific provider package; provider-owned plugin task discovery is
-deferred until the provider plugin model owns that contract. Processor plugin
-entry points are separate and unchanged.
+Provider-owned task plugin entry points use the same compatibility model:
+
+- `anvil.providers.tasks` exposes universal plugin task packages.
+- `anvil.providers.aws.tasks` exposes AWS-only plugin task packages.
+- `anvil.providers.azure.tasks` exposes Azure-only plugin task packages.
+- `anvil.providers.gcp.tasks` exposes GCP-only plugin task packages.
+
+Each task plugin entry point value points at a package containing task modules;
+the task module filename is the YAML task name. For example:
+
+```toml
+[project.entry-points."anvil.providers.tasks"]
+portable = "my_plugin.universal_tasks"
+
+[project.entry-points."anvil.providers.aws.tasks"]
+aws-extra = "my_plugin.aws_tasks"
+```
+
+Legacy task plugin entry points under `anvil.tasks` remain unsupported and are
+ignored. Plugin authors migrating from `anvil.tasks` should move task modules
+into universal or provider-specific task packages and register the matching
+`anvil.providers...tasks` entry point group. Direct Python imports should use
+`anvil.providers.tasks.<task>` or
+`anvil.providers.<provider>.tasks.<task>` for first-party tasks, and the
+plugin package path for plugin tasks. Processor plugin entry points are
+separate and unchanged.
+
+Duplicate task names across all packages and plugins applicable to the selected
+provider are rejected as ambiguous.
 
 The task loader builds a cached descriptor index shaped as
 `provider_name -> task_name -> list[TaskDescriptor]`, so resolving multiple
