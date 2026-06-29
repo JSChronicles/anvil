@@ -227,6 +227,51 @@ def test_validate_selected_tasks_validates_selected_names(monkeypatch):
     assert seen["validated"] == ["noop"]
 
 
+def test_validate_all_tasks_reports_duplicate_provider_task_names(monkeypatch):
+    cli = _import_cli_or_skip()
+
+    def valid_run(*, account_id, account_alias, session, dry_run, metadata, actions):
+        return None
+
+    monkeypatch.setattr(
+        cli,
+        "discover_tasks",
+        lambda: SimpleNamespace(
+            tasks=[
+                cli.TaskDescriptor(name="shared", load=lambda: valid_run, source="universal"),
+                cli.TaskDescriptor(name="shared", load=lambda: valid_run, source="aws"),
+            ],
+            issues=[],
+        ),
+    )
+
+    with pytest.raises(ValueError, match="duplicate task name: shared"):
+        cli._validate_selected_tasks([])
+
+
+def test_validate_selected_tasks_reports_duplicate_provider_task_names(monkeypatch):
+    cli = _import_cli_or_skip()
+
+    def valid_run(*, account_id, account_alias, session, dry_run, metadata, actions):
+        return None
+
+    monkeypatch.setattr(
+        cli,
+        "discover_tasks",
+        lambda: SimpleNamespace(
+            tasks=[
+                cli.TaskDescriptor(name="shared", load=lambda: valid_run, source="universal"),
+                cli.TaskDescriptor(name="shared", load=lambda: valid_run, source="aws"),
+                cli.TaskDescriptor(name="other", load=lambda: valid_run, source="aws"),
+            ],
+            issues=[],
+        ),
+    )
+
+    with pytest.raises(ValueError, match="duplicate task name: shared"):
+        cli._validate_selected_tasks(["shared"])
+
+
 def test_validate_selected_tasks_reports_unknown_names(monkeypatch):
     cli = _import_cli_or_skip()
     monkeypatch.setattr(

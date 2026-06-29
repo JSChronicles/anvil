@@ -8,15 +8,12 @@ from functools import lru_cache
 
 from anvil._loader_utils import (
     DiscoveryIssue,
-    discover_plugin_modules,
     iter_stock_modules,
-    load_plugin_callable,
     load_stock_callable,
 )
 
 __LOGGER__ = logging.getLogger(__name__)
 
-TASK_ENTRY_POINT_GROUP = "anvil.tasks"
 UNIVERSAL_TASK_PACKAGE = "anvil.providers.tasks"
 PROVIDER_TASK_PACKAGE_PREFIX = "anvil.providers"
 
@@ -76,27 +73,6 @@ class ResolvedExecution:
 # ============================================================================
 
 
-def _load_core_task(task_name: str) -> Callable:
-    return load_stock_callable(
-        name=task_name,
-        kind="task",
-        package_name="anvil.tasks",
-        error_type=TaskConfigError,
-    )
-
-
-def _load_plugin_task(task_name: str) -> Callable:
-    return load_plugin_callable(
-        name=task_name,
-        kind="task",
-        entry_point_group=TASK_ENTRY_POINT_GROUP,
-        error_type=TaskConfigError,
-        logger=__LOGGER__,
-        import_failure_log_label="plugin package",
-        import_issue_log_label=task_name,
-    )
-
-
 def _load_package_task(*, task_name: str, package_name: str) -> Callable:
     return load_stock_callable(
         name=task_name,
@@ -109,19 +85,19 @@ def _load_package_task(*, task_name: str, package_name: str) -> Callable:
 @lru_cache(maxsize=512)
 def _load_provider_task_callable(*, provider_name: str, task_name: str) -> Callable:
     descriptors = _provider_task_descriptor_index(provider_name).get(task_name, [])
-    if descriptors:
+    if len(descriptors) == 1:
         return descriptors[0].load()
-
-    if provider_name == "aws":
-        try:
-            return _load_core_task(task_name)
-        except TaskConfigError:
-            return _load_plugin_task(task_name)
+    if len(descriptors) > 1:
+        sources = ", ".join(descriptor.source for descriptor in descriptors)
+        raise TaskConfigError(
+            f"Task '{task_name}' is ambiguous for provider '{provider_name}'; "
+            f"found in multiple applicable task packages: {sources}."
+        )
 
     raise TaskConfigError(
         f"Task '{task_name}' is not available for provider '{provider_name}'. "
-        "Legacy anvil.tasks plugin entry points are AWS-compatible only; use "
-        "universal or provider-specific task packages for non-AWS providers."
+        "Tasks must be provided by universal package 'anvil.providers.tasks' "
+        f"or provider package 'anvil.providers.{provider_name}.tasks'."
     )
 
 
@@ -155,40 +131,11 @@ def _iter_package_task_descriptors(
     ]
 
 
-def _legacy_task_descriptors() -> tuple[list[TaskDescriptor], list[DiscoveryIssue]]:
-    tasks: dict[str, TaskDescriptor] = {}
-
-    for module in iter_stock_modules(package_name="anvil.tasks", load=_load_core_task):
-        name = module.name
-        tasks[name] = TaskDescriptor(name=name, load=module.load, source=module.source)
-
-    plugin_result = discover_plugin_modules(
-        entry_point_group=TASK_ENTRY_POINT_GROUP,
-        load=_load_plugin_task,
-        logger=__LOGGER__,
-        skip_log_label="plugin",
-    )
-    for module in plugin_result.modules:
-        if module.name in tasks:
-            continue
-
-        tasks[module.name] = TaskDescriptor(
-            name=module.name, load=module.load, source=module.source
-        )
-
-    return list(tasks.values()), plugin_result.issues
-
-
 @lru_cache(maxsize=16)
 def _provider_task_descriptor_index(
     provider_name: str,
 ) -> dict[str, tuple[TaskDescriptor, ...]]:
     descriptors_by_name: dict[str, list[TaskDescriptor]] = defaultdict(list)
-
-    legacy_descriptors, _ = _legacy_task_descriptors()
-    if provider_name == "aws":
-        for descriptor in legacy_descriptors:
-            descriptors_by_name[descriptor.name].append(descriptor)
 
     for source, package_name in _provider_task_packages(provider_name):
         for descriptor in _iter_package_task_descriptors(
@@ -214,21 +161,11 @@ def provider_task_descriptor_index(
 
 
 @lru_cache(maxsize=128)
-def _load_task_callable_cached(task_name: str) -> Callable:
-    return _load_provider_task_callable(provider_name="aws", task_name=task_name)
-
-
-def _load_task_callable(task_name: str) -> Callable:
-    return _load_task_callable_cached(task_name)
-
-
-def _clear_task_callable_cache() -> None:
-    _load_task_callable_cached.cache_clear()
+def _clear_task_caches() -> None:
     _load_provider_task_callable.cache_clear()
-    _provider_task_descriptor_index.cache_clear()
-
-
-_load_task_callable.cache_clear = _clear_task_callable_cache
+    cache_clear = getattr(_provider_task_descriptor_index, "cache_clear", None)
+    if cache_clear is not None:
+        cache_clear()
 
 
 # ============================================================================
@@ -297,12 +234,8 @@ def _resolve_tasks_cached(
     ordered: CachedOrderedTask = tuple(
         (
             name,
-            (
-                _load_task_callable(name)
-                if provider_name == "aws"
-                else _load_provider_task_callable(
-                    provider_name=provider_name, task_name=name
-                )
+            _load_provider_task_callable(
+                provider_name=provider_name, task_name=name
             ),
             tuple(spec_by_name[name].depends_on),
             spec_by_name[name].optional,
@@ -399,9 +332,20 @@ def resolve_tasks(
 
 
 def discover_tasks() -> TaskDiscoveryResult:
-    """Discover tasks and report plugin packages that cannot be inspected."""
-    tasks, issues = _legacy_task_descriptors()
-    return TaskDiscoveryResult(tasks=tasks, issues=issues)
+    """Discover built-in provider-aware tasks."""
+    tasks_by_key: dict[tuple[str, str], TaskDescriptor] = {}
+    issues: list[DiscoveryIssue] = []
+    for provider_name in ("aws", "azure", "gcp"):
+        for name, descriptors in provider_task_descriptor_index(
+            provider_name=provider_name
+        ).items():
+            for descriptor in descriptors:
+                tasks_by_key[(descriptor.source, name)] = descriptor
+
+    return TaskDiscoveryResult(
+        tasks=list(tasks_by_key.values()),
+        issues=issues,
+    )
 
 
 def list_tasks() -> list[TaskDescriptor]:

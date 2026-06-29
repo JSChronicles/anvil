@@ -46,6 +46,8 @@ from anvil.results import (
     TaskResult,
 )
 from anvil.session import SessionFactory
+from anvil.task_context import TaskCallContext
+from anvil.task_invocation import invoke_task
 from anvil.task_loader import ResolvedExecution, ResolvedTask, resolve_tasks
 
 __LOGGER__ = logging.getLogger(__name__)
@@ -688,13 +690,29 @@ def _execute_provider_region(
         task_started_perf = time.perf_counter()
         task_started_at = datetime.datetime.now(datetime.UTC).isoformat()
         try:
-            result = task.run(
-                account_id=execution_target.id,
-                account_alias=execution_target.name,
+            task_context = TaskCallContext(
+                provider=execution_target.provider,
+                execution_target_id=execution_target.id,
+                execution_target_name=execution_target.name,
+                execution_target_type=execution_target.type,
+                region=region,
+                location=region,
                 session=session,
                 dry_run=context.dry_run,
                 metadata=context.metadata,
                 actions=actions,
+            )
+            result = invoke_task(
+                task.run,
+                context=task_context,
+                legacy_kwargs={
+                    "account_id": execution_target.id,
+                    "account_alias": execution_target.name,
+                    "session": session,
+                    "dry_run": context.dry_run,
+                    "metadata": context.metadata,
+                    "actions": actions,
+                },
             )
         except Exception as error:
             task_ended_perf = time.perf_counter()

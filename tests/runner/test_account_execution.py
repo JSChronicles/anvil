@@ -24,9 +24,14 @@ class BaseSession:
 
 class WorkerSession:
     def __init__(
-        self, *, caller_account_id: str = "123456789012", region_name: str = "us-east-1"
+        self,
+        *,
+        caller_account_id: str = "123456789012",
+        region_name: str = "us-east-1",
+        caller_identity_calls: list[str] | None = None,
     ) -> None:
         self._caller_account_id = caller_account_id
+        self._caller_identity_calls = caller_identity_calls
         self.region_name = region_name
         self.client_calls = []
 
@@ -36,13 +41,24 @@ class WorkerSession:
         if service_name == "sts":
 
             class STSClient:
-                def __init__(self, *, account_id: str) -> None:
+                def __init__(
+                    self,
+                    *,
+                    account_id: str,
+                    caller_identity_calls: list[str] | None,
+                ) -> None:
                     self._account_id = account_id
+                    self._caller_identity_calls = caller_identity_calls
 
                 def get_caller_identity(self):
+                    if self._caller_identity_calls is not None:
+                        self._caller_identity_calls.append(self._account_id)
                     return {"Account": self._account_id}
 
-            return STSClient(account_id=self._caller_account_id)
+            return STSClient(
+                account_id=self._caller_account_id,
+                caller_identity_calls=self._caller_identity_calls,
+            )
 
         return object()
 
@@ -60,11 +76,14 @@ class RecordingSessionFactory:
         self.assume_role_calls = []
         self.create_session_from_credentials_calls = []
         self.cached_session_calls = []
+        self.caller_identity_calls = []
 
     def get_worker_session(self, **kwargs):
         self.worker_session_calls.append(kwargs)
         return WorkerSession(
-            caller_account_id=self.caller_account_id, region_name=kwargs["region_name"]
+            caller_account_id=self.caller_account_id,
+            region_name=kwargs["region_name"],
+            caller_identity_calls=self.caller_identity_calls,
         )
 
     def assume_role_credentials(self, **kwargs):
@@ -209,6 +228,110 @@ def test_direct_account_mismatch_returns_account_error():
     assert result.status is ExecutionStatus.ERROR
     assert result.tasks == []
     assert "Direct execution credentials resolve to account" in result.error
+
+
+def test_direct_account_validation_runs_once_across_regions():
+    factory = RecordingSessionFactory()
+
+    def noop_task(**kwargs):
+        return {"ok": True}
+
+    account = _account(
+        tasks=[ResolvedTask("noop", noop_task, depends_on=[], optional=False)],
+        session_factory=factory,
+        regions=["us-east-1", "us-west-2", "eu-west-1"],
+    )
+
+    result = account.execute()
+
+    assert result.status is ExecutionStatus.SUCCESS
+    assert factory.caller_identity_calls == ["123456789012"]
+
+
+def test_aws_task_invocation_preserves_legacy_kwargs():
+    seen: dict[str, object] = {}
+
+    def legacy_task(*, account_id, account_alias, session, dry_run, metadata, actions):
+        seen.update(
+            {
+                "account_id": account_id,
+                "account_alias": account_alias,
+                "region": session.region_name,
+                "dry_run": dry_run,
+                "metadata": metadata,
+                "actions": actions,
+            }
+        )
+        return {"ok": True}
+
+    account = _account(
+        tasks=[ResolvedTask("legacy", legacy_task, depends_on=[], optional=False)]
+    )
+
+    result = account.execute()
+
+    assert result.status is ExecutionStatus.SUCCESS
+    assert seen["account_id"] == "123456789012"
+    assert seen["account_alias"] == "test-account"
+    assert seen["region"] == "us-east-1"
+    assert seen["dry_run"] is True
+    assert seen["metadata"] == {"source": "test"}
+
+
+def test_aws_task_invocation_provides_provider_neutral_kwargs():
+    seen: dict[str, object] = {}
+
+    def neutral_task(
+        *,
+        provider,
+        execution_target_id,
+        execution_target_name,
+        execution_target_type,
+        region,
+        location,
+        task_context,
+        session,
+        dry_run,
+        metadata,
+        actions,
+    ):
+        seen.update(
+            {
+                "provider": provider,
+                "execution_target_id": execution_target_id,
+                "execution_target_name": execution_target_name,
+                "execution_target_type": execution_target_type,
+                "region": region,
+                "location": location,
+                "context_provider": task_context.provider,
+                "session_region": session.region_name,
+                "dry_run": dry_run,
+                "metadata": metadata,
+                "actions": actions,
+            }
+        )
+        return {"ok": True}
+
+    account = _account(
+        tasks=[ResolvedTask("neutral", neutral_task, depends_on=[], optional=False)]
+    )
+
+    result = account.execute()
+
+    assert result.status is ExecutionStatus.SUCCESS
+    assert seen == {
+        "provider": "aws",
+        "execution_target_id": "123456789012",
+        "execution_target_name": "test-account",
+        "execution_target_type": "account",
+        "region": "us-east-1",
+        "location": "us-east-1",
+        "context_provider": "aws",
+        "session_region": "us-east-1",
+        "dry_run": True,
+        "metadata": {"source": "test"},
+        "actions": seen["actions"],
+    }
 
 
 def test_assume_role_path_reuses_assumed_credentials_for_regions():

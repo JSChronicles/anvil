@@ -4,7 +4,6 @@ import importlib
 
 import pytest
 
-from anvil._loader_utils import DiscoveryIssue
 from anvil.task_loader import TaskConfigError, TaskDescriptor
 
 
@@ -22,24 +21,13 @@ def _descriptor(name: str, source: str) -> TaskDescriptor:
 
 
 def _clear_task_loader_caches(task_loader) -> None:
-    task_loader._load_task_callable.cache_clear()
+    task_loader._clear_task_caches()
     task_loader._resolve_tasks_cached.cache_clear()
 
 
-def test_legacy_task_imports_reexport_moved_aws_implementation():
-    legacy_module = importlib.import_module("anvil.tasks.count_vpc")
-    provider_module = importlib.import_module("anvil.providers.aws.tasks.count_vpc")
-
-    assert legacy_module.run is provider_module.run
-    assert legacy_module.run.__module__ == "anvil.providers.aws.tasks.count_vpc"
-
-
-def test_legacy_task_imports_reexport_moved_universal_implementation():
-    legacy_module = importlib.import_module("anvil.tasks.noop")
-    provider_module = importlib.import_module("anvil.providers.tasks.noop")
-
-    assert legacy_module.run is provider_module.run
-    assert legacy_module.run.__module__ == "anvil.providers.tasks.noop"
+def test_legacy_task_imports_are_not_supported():
+    with pytest.raises(ModuleNotFoundError, match="anvil.tasks"):
+        importlib.import_module("anvil.tasks.count_vpc")
 
 
 def test_real_aws_descriptor_index_includes_moved_aws_tasks():
@@ -49,7 +37,7 @@ def test_real_aws_descriptor_index_includes_moved_aws_tasks():
     index = task_loader.provider_task_descriptor_index(provider_name="aws")
 
     assert "count_vpc" in index
-    assert [descriptor.source for descriptor in index["count_vpc"]] == ["stock", "aws"]
+    assert [descriptor.source for descriptor in index["count_vpc"]] == ["aws"]
 
 
 def test_real_non_aws_descriptor_index_excludes_aws_only_tasks():
@@ -88,84 +76,74 @@ def test_aws_only_tasks_do_not_resolve_for_azure_or_gcp():
             )
 
 
-def test_legacy_plugin_tasks_are_aws_only(monkeypatch):
+def test_legacy_plugin_tasks_are_ignored_for_all_providers(monkeypatch):
     task_loader = importlib.import_module("anvil.task_loader")
     _clear_task_loader_caches(task_loader)
 
     monkeypatch.setattr(
-        task_loader,
-        "_legacy_task_descriptors",
-        lambda: ([_descriptor("legacy_plugin_task", "plugin: legacy")], []),
-    )
-    monkeypatch.setattr(
-        task_loader, "_iter_package_task_descriptors", lambda *, package_name, source: []
+        task_loader, "_provider_task_descriptor_index", lambda provider_name: {}
     )
 
-    aws_execution = task_loader.resolve_tasks(
-        task_specs=[{"name": "legacy_plugin_task"}], provider_name="aws"
-    )
-    assert aws_execution.ordered[0].run() == "plugin: legacy:legacy_plugin_task"
-
-    for provider_name in ("azure", "gcp"):
-        with pytest.raises(TaskConfigError, match="AWS-compatible only"):
+    for provider_name in ("aws", "azure", "gcp"):
+        with pytest.raises(TaskConfigError, match="provider package"):
             task_loader.resolve_tasks(
                 task_specs=[{"name": "legacy_plugin_task"}],
                 provider_name=provider_name,
             )
 
 
-def test_provider_descriptor_index_preserves_legacy_aws_tasks_first(monkeypatch):
+def test_duplicate_universal_and_provider_task_name_is_ambiguous(monkeypatch):
     task_loader = importlib.import_module("anvil.task_loader")
     _clear_task_loader_caches(task_loader)
 
     monkeypatch.setattr(
         task_loader,
-        "_legacy_task_descriptors",
-        lambda: ([_descriptor("count_vpc", "stock")], []),
-    )
-    monkeypatch.setattr(
-        task_loader,
-        "_iter_package_task_descriptors",
-        lambda *, package_name, source: [_descriptor("count_vpc", source)],
+        "_provider_task_descriptor_index",
+        lambda provider_name: {
+            "shared": (
+                _descriptor("shared", "universal"),
+                _descriptor("shared", provider_name),
+            )
+        },
     )
 
     index = task_loader.provider_task_descriptor_index(provider_name="aws")
-    execution = task_loader.resolve_tasks(task_specs=[{"name": "count_vpc"}])
 
-    assert [descriptor.source for descriptor in index["count_vpc"]] == [
-        "stock",
+    assert [descriptor.source for descriptor in index["shared"]] == [
         "universal",
         "aws",
     ]
-    assert execution.ordered[0].run() == "stock:count_vpc"
+    with pytest.raises(TaskConfigError, match="ambiguous.*universal.*aws"):
+        task_loader.resolve_tasks(
+            task_specs=[{"name": "shared"}], provider_name="aws"
+        )
 
 
 def test_provider_descriptor_index_adds_provider_package_tasks(monkeypatch):
     task_loader = importlib.import_module("anvil.task_loader")
     _clear_task_loader_caches(task_loader)
 
-    monkeypatch.setattr(task_loader, "_legacy_task_descriptors", lambda: ([], []))
-
     def fake_package_descriptors(*, package_name, source):
-        if source == "aws":
+        if source == "example":
             return [_descriptor("aws_only", source)]
         return []
 
     monkeypatch.setattr(
         task_loader, "_iter_package_task_descriptors", fake_package_descriptors
     )
+    _clear_task_loader_caches(task_loader)
 
-    execution = task_loader.resolve_tasks(task_specs=[{"name": "aws_only"}])
+    execution = task_loader.resolve_tasks(
+        task_specs=[{"name": "aws_only"}], provider_name="example"
+    )
 
     assert execution.ordered[0].name == "aws_only"
-    assert execution.ordered[0].run() == "aws:aws_only"
+    assert execution.ordered[0].run() == "example:aws_only"
 
 
 def test_resolve_tasks_accepts_non_aws_provider_name(monkeypatch):
     task_loader = importlib.import_module("anvil.task_loader")
     _clear_task_loader_caches(task_loader)
-
-    monkeypatch.setattr(task_loader, "_legacy_task_descriptors", lambda: ([], []))
 
     def fake_package_descriptors(*, package_name, source):
         if source == "universal":
@@ -175,6 +153,7 @@ def test_resolve_tasks_accepts_non_aws_provider_name(monkeypatch):
     monkeypatch.setattr(
         task_loader, "_iter_package_task_descriptors", fake_package_descriptors
     )
+    _clear_task_loader_caches(task_loader)
 
     execution = task_loader.resolve_tasks(
         task_specs=[{"name": "shared_task"}], provider_name="future"
@@ -188,53 +167,45 @@ def test_provider_descriptor_index_builds_once_for_multiple_configured_tasks(
 ):
     task_loader = importlib.import_module("anvil.task_loader")
     _clear_task_loader_caches(task_loader)
-    calls = {"legacy": 0, "packages": 0}
-
-    def fake_legacy_descriptors():
-        calls["legacy"] += 1
-        return (
-            [
-                _descriptor("alpha", "stock"),
-                _descriptor("beta", "stock"),
-                _descriptor("gamma", "stock"),
-            ],
-            [],
-        )
+    calls = {"packages": 0}
 
     def fake_package_descriptors(*, package_name, source):
         calls["packages"] += 1
+        if source == "build_once":
+            return [
+                _descriptor("alpha", source),
+                _descriptor("beta", source),
+                _descriptor("gamma", source),
+            ]
         return []
 
     monkeypatch.setattr(
-        task_loader, "_legacy_task_descriptors", fake_legacy_descriptors
-    )
-    monkeypatch.setattr(
         task_loader, "_iter_package_task_descriptors", fake_package_descriptors
     )
+    _clear_task_loader_caches(task_loader)
 
     execution = task_loader.resolve_tasks(
         task_specs=[
             {"name": "alpha"},
             {"name": "beta", "depends_on": ["alpha"]},
             {"name": "gamma", "depends_on": ["beta"]},
-        ]
+        ],
+        provider_name="build_once",
     )
 
     assert [task.name for task in execution.ordered] == ["alpha", "beta", "gamma"]
-    assert calls == {"legacy": 1, "packages": 2}
+    assert calls == {"packages": 2}
 
 
-def test_discover_tasks_still_returns_legacy_discovery_issues(monkeypatch):
+def test_discover_tasks_ignores_legacy_discovery_issues(monkeypatch):
     task_loader = importlib.import_module("anvil.task_loader")
 
-    issue = DiscoveryIssue(
-        name="broken-plugin",
-        source="plugin: broken-plugin",
-        error="package import failed",
-    )
-    monkeypatch.setattr(task_loader, "_legacy_task_descriptors", lambda: ([], [issue]))
+    def fake_index(*, provider_name):
+        return {"noop": [_descriptor("noop", "universal")]}
+
+    monkeypatch.setattr(task_loader, "provider_task_descriptor_index", fake_index)
 
     discovery = task_loader.discover_tasks()
 
-    assert discovery.tasks == []
-    assert discovery.issues == [issue]
+    assert [task.name for task in discovery.tasks] == ["noop"]
+    assert discovery.issues == []

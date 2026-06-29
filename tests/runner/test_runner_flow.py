@@ -19,7 +19,7 @@ from anvil.runner import (
     run_multiple_targets,
     run_prepared_target,
 )
-from anvil.task_loader import ResolvedExecution
+from anvil.task_loader import ResolvedExecution, ResolvedTask
 
 
 def _empty_resolved_execution(**kwargs):
@@ -454,6 +454,100 @@ def test_gcp_provider_options_reach_runtime_session_factory(monkeypatch):
             "quota_project_id": "billing-project",
         }
     ]
+
+
+def test_non_aws_universal_task_can_use_provider_neutral_kwargs(monkeypatch):
+    seen: dict[str, object] = {}
+
+    def neutral_task(
+        *,
+        provider,
+        execution_target_id,
+        execution_target_name,
+        execution_target_type,
+        region,
+        location,
+        task_context,
+        session,
+        dry_run,
+        metadata,
+        actions,
+    ):
+        seen.update(
+            {
+                "provider": provider,
+                "execution_target_id": execution_target_id,
+                "execution_target_name": execution_target_name,
+                "execution_target_type": execution_target_type,
+                "region": region,
+                "location": location,
+                "context_provider": task_context.provider,
+                "session_region": session.region_name,
+                "dry_run": dry_run,
+                "metadata": metadata,
+                "actions": actions,
+            }
+        )
+        actions.record("neutral task ran")
+        return {"provider": provider, "target": execution_target_id}
+
+    monkeypatch.setattr(
+        "anvil.runner.resolve_tasks",
+        lambda **kwargs: ResolvedExecution(
+            ordered=[
+                ResolvedTask(
+                    "neutral",
+                    neutral_task,
+                    depends_on=[],
+                    optional=False,
+                )
+            ],
+            adjacency={},
+        ),
+    )
+    monkeypatch.setattr(
+        "anvil.providers.gcp.provider.GcpSessionFactory.create_session",
+        lambda self, **kwargs: type(
+            "_GcpSession", (), {"region_name": kwargs["location"]}
+        )(),
+    )
+
+    target = TargetDescriptor(
+        config_branch=ConfigBranch.ACCOUNTS,
+        name="gcp-projects",
+        provider="gcp",
+        mode="projects",
+        regions=["us-central1"],
+        include=["project-a"],
+        metadata={"source": "neutral"},
+        tasks=[{"name": "neutral"}],
+    )
+
+    engine_result = run_multiple_targets(
+        targets=[target],
+        max_parallel_targets=1,
+        cli_dry_run=None,
+        cli_include=None,
+        cli_exclude=None,
+    )
+
+    account_result = engine_result.target_results[0].account_results[0]
+    assert account_result.status is ExecutionStatus.SUCCESS
+    assert account_result.tasks[0].result == {
+        "provider": "gcp",
+        "target": "project-a",
+    }
+    assert seen["provider"] == "gcp"
+    assert seen["execution_target_id"] == "project-a"
+    assert seen["execution_target_name"] == "project-a"
+    assert seen["execution_target_type"] == "project"
+    assert seen["region"] == "us-central1"
+    assert seen["location"] == "us-central1"
+    assert seen["context_provider"] == "gcp"
+    assert seen["session_region"] == "us-central1"
+    assert seen["dry_run"] is False
+    assert seen["metadata"] == {"source": "neutral"}
+    assert seen["actions"].actions == ["neutral task ran"]
 
 
 def test_gcp_project_discovery_runs_without_aws_paths(monkeypatch):

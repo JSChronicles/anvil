@@ -35,57 +35,56 @@ def _write_plugin_distribution(
     )
 
 
-def test_resolve_tasks_loads_real_plugin_entry_point(monkeypatch, tmp_path):
+def test_resolve_tasks_ignores_legacy_task_plugin_entry_point(monkeypatch, tmp_path):
     _write_plugin_distribution(
         root=tmp_path,
         distribution_name="anvil-test-task-plugin",
         package_name="anvil_test_task_plugin",
-        entry_point_group=task_loader.TASK_ENTRY_POINT_GROUP,
+        entry_point_group="anvil.tasks",
         entry_point_name="test-task-plugin",
         module_name="real_plugin_task",
         module_body='def run(**kwargs):\n    return {"source": "plugin-task"}\n',
     )
     monkeypatch.syspath_prepend(str(tmp_path))
     importlib.invalidate_caches()
-    task_loader._load_task_callable.cache_clear()
+    task_loader._clear_task_caches()
     task_loader._resolve_tasks_cached.cache_clear()
 
-    execution = task_loader.resolve_tasks(task_specs=[{"name": "real_plugin_task"}])
-
-    assert execution.ordered[0].name == "real_plugin_task"
-    assert execution.ordered[0].run() == {"source": "plugin-task"}
+    with pytest.raises(task_loader.TaskConfigError, match="provider package"):
+        task_loader.resolve_tasks(task_specs=[{"name": "real_plugin_task"}])
 
 
-def test_resolve_tasks_reports_plugin_dependency_import_error(monkeypatch, tmp_path):
+def test_resolve_tasks_does_not_import_legacy_task_plugin_entry_point(
+    monkeypatch, tmp_path
+):
     _write_plugin_distribution(
         root=tmp_path,
         distribution_name="anvil-test-broken-task-plugin",
         package_name="anvil_test_broken_task_plugin",
-        entry_point_group=task_loader.TASK_ENTRY_POINT_GROUP,
+        entry_point_group="anvil.tasks",
         entry_point_name="test-broken-task-plugin",
         module_name="broken_plugin_task",
         module_body="import missing_dependency\n\ndef run(**kwargs):\n    return None\n",
     )
     monkeypatch.syspath_prepend(str(tmp_path))
     importlib.invalidate_caches()
-    task_loader._load_task_callable.cache_clear()
+    task_loader._clear_task_caches()
     task_loader._resolve_tasks_cached.cache_clear()
 
     with pytest.raises(task_loader.TaskConfigError) as exc_info:
         task_loader.resolve_tasks(task_specs=[{"name": "broken_plugin_task"}])
 
     error = str(exc_info.value)
-    assert "Plugin task 'broken_plugin_task'" in error
-    assert "failed during import" in error
-    assert "missing_dependency" in error
+    assert "provider package" in error
+    assert "missing_dependency" not in error
 
 
-def test_discover_tasks_includes_real_plugin_entry_point(monkeypatch, tmp_path):
+def test_discover_tasks_ignores_legacy_task_plugin_entry_point(monkeypatch, tmp_path):
     _write_plugin_distribution(
         root=tmp_path,
         distribution_name="anvil-test-task-discovery-plugin",
         package_name="anvil_test_task_discovery_plugin",
-        entry_point_group=task_loader.TASK_ENTRY_POINT_GROUP,
+        entry_point_group="anvil.tasks",
         entry_point_name="test-task-discovery-plugin",
         module_name="discoverable_plugin_task",
         module_body='def run(**kwargs):\n    return {"source": "plugin-task"}\n',
@@ -94,12 +93,8 @@ def test_discover_tasks_includes_real_plugin_entry_point(monkeypatch, tmp_path):
     importlib.invalidate_caches()
 
     descriptors = task_loader.discover_tasks().tasks
-    descriptor = next(
-        task for task in descriptors if task.name == "discoverable_plugin_task"
-    )
 
-    assert descriptor.source == "plugin: anvil-test-task-discovery-plugin"
-    assert descriptor.load()() == {"source": "plugin-task"}
+    assert "discoverable_plugin_task" not in {task.name for task in descriptors}
 
 
 def test_discover_processors_includes_real_plugin_entry_point(monkeypatch, tmp_path):

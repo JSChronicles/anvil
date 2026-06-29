@@ -18,6 +18,17 @@ REQUIRED_RUN_KWARGS: set[str] = {
     "metadata",
     "actions",
 }
+PROVIDER_NEUTRAL_RUN_KWARGS: set[str] = {
+    "provider",
+    "execution_target_id",
+    "execution_target_name",
+    "execution_target_type",
+    "region",
+    "session",
+    "dry_run",
+    "metadata",
+    "actions",
+}
 
 
 class TaskValidationError(ValueError):
@@ -72,12 +83,15 @@ def _validate_task_run_signature(task) -> None:
     accepts_extra_kwargs = any(
         param.kind is Parameter.VAR_KEYWORD for param in parameters.values()
     )
-    missing = REQUIRED_RUN_KWARGS - set(parameters)
-    if missing:
+    parameter_names = set(parameters)
+    missing_legacy = REQUIRED_RUN_KWARGS - parameter_names
+    missing_provider_neutral = PROVIDER_NEUTRAL_RUN_KWARGS - parameter_names
+    if missing_legacy and missing_provider_neutral:
         if not accepts_extra_kwargs:
             raise TaskValidationError(
                 f"task '{task.name}' is missing required run() parameters: "
-                f"{sorted(missing)}"
+                f"{sorted(missing_legacy)} or provider-neutral parameters: "
+                f"{sorted(missing_provider_neutral)}"
             )
 
     for param in parameters.values():

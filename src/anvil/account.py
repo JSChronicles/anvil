@@ -23,6 +23,8 @@ from anvil.execution_context import ExecutionContext
 from anvil.results import AccountResult, ExecutionStatus, TaskResult
 from anvil.session import AssumedRoleCredentials, SessionFactory
 from anvil.actions import ActionRecorder
+from anvil.task_context import TaskCallContext
+from anvil.task_invocation import invoke_task
 
 __LOGGER__ = logging.getLogger(__name__)
 
@@ -399,13 +401,29 @@ class Account:
             task_started_at: str = datetime.datetime.now(datetime.UTC).isoformat()
 
             try:
-                result = task.run(
-                    account_id=self.account_id,
-                    account_alias=self.account_alias,
+                task_context = TaskCallContext(
+                    provider="aws",
+                    execution_target_id=self.account_id,
+                    execution_target_name=self.account_alias,
+                    execution_target_type="account",
+                    region=region,
+                    location=region,
                     session=session,
                     dry_run=self._context.dry_run,
                     metadata=self._context.metadata,
                     actions=actions,
+                )
+                result = invoke_task(
+                    task.run,
+                    context=task_context,
+                    legacy_kwargs={
+                        "account_id": self.account_id,
+                        "account_alias": self.account_alias,
+                        "session": session,
+                        "dry_run": self._context.dry_run,
+                        "metadata": self._context.metadata,
+                        "actions": actions,
+                    },
                 )
 
                 task_ended_perf: int | float = time.perf_counter()

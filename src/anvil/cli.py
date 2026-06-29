@@ -407,17 +407,20 @@ def _raise_validation_errors(errors: list[str]) -> None:
 def _select_task_descriptors(
     *, descriptors: list[TaskDescriptor], task_names: list[str]
 ) -> list[TaskDescriptor]:
-    descriptor_by_name = {descriptor.name: descriptor for descriptor in descriptors}
-    unknown_names = [name for name in task_names if name not in descriptor_by_name]
+    available_names = {descriptor.name for descriptor in descriptors}
+    unknown_names = [name for name in task_names if name not in available_names]
 
     if unknown_names:
-        available_names = ", ".join(sorted(descriptor_by_name))
+        available_display = ", ".join(sorted(available_names))
         unknown_display = ", ".join(unknown_names)
         raise ValueError(
-            f"Unknown task(s): {unknown_display}. Available tasks: {available_names}"
+            f"Unknown task(s): {unknown_display}. Available tasks: {available_display}"
         )
 
-    return [descriptor_by_name[name] for name in task_names]
+    requested_names = set(task_names)
+    return [
+        descriptor for descriptor in descriptors if descriptor.name in requested_names
+    ]
 
 
 def _select_tasks(task_names: list[str]) -> list[TaskDescriptor]:

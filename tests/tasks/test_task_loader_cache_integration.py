@@ -3,6 +3,8 @@ from __future__ import annotations
 import importlib
 from types import SimpleNamespace
 
+from anvil.task_loader import TaskDescriptor
+
 
 def test_graph_and_run_paths_behave_the_same_with_cached_resolution(
     monkeypatch, capsys
@@ -14,7 +16,7 @@ def test_graph_and_run_paths_behave_the_same_with_cached_resolution(
     results = importlib.import_module("anvil.results")
 
     task_loader._resolve_tasks_cached.cache_clear()
-    task_loader._load_task_callable.cache_clear()
+    task_loader._clear_task_caches()
 
     def alpha_run(**kwargs):
         return "alpha"
@@ -22,10 +24,16 @@ def test_graph_and_run_paths_behave_the_same_with_cached_resolution(
     def beta_run(**kwargs):
         return "beta"
 
-    def fake_load(task_name: str):
-        return {"alpha": alpha_run, "beta": beta_run}[task_name]
-
-    monkeypatch.setattr(task_loader, "_load_task_callable", fake_load)
+    monkeypatch.setattr(
+        task_loader,
+        "_provider_task_descriptor_index",
+        lambda provider_name: {
+            "alpha": (TaskDescriptor("alpha", lambda: alpha_run, "aws"),),
+            "beta": (TaskDescriptor("beta", lambda: beta_run, "aws"),),
+        },
+    )
+    task_loader._load_provider_task_callable.cache_clear()
+    task_loader._resolve_tasks_cached.cache_clear()
 
     target = descriptors.TargetDescriptor(
         config_branch=descriptors.ConfigBranch.ORGANIZATIONS,

@@ -48,10 +48,11 @@ Anvil is built for teams that need repeatable cloud workflows, such as inventory
   - Validate targets, discover supported provider metadata, and reuse session/runtime state before execution.
 - Task isolation
   - Write tasks as simple Python files with a `run(...)` function.
-- Built-in and custom tasks
-  - Use stock tasks for common AWS operations and provider package tasks as they are added.
-  - Add project-local tasks for team-specific work.
-  - Extend the task set without changing the execution engine.
+- Built-in tasks
+  - Use provider-package tasks for common AWS operations and universal tasks
+    where they apply.
+  - Custom/project-local task discovery is deferred until provider-owned plugin
+    discovery is added in a future v0.30.x release.
 - Structured output and safer operations
   - Record structured results at task, account/target, target group, and engine levels.
 
@@ -59,7 +60,7 @@ Anvil is built for teams that need repeatable cloud workflows, such as inventory
 > [!TIP]
 > It is recommended to use the [foundry-anvil-template](https://github.com/JSChronicles/foundry-anvil-template).
 >
-> The template exposes project-local tasks and processors without forking Anvil.
+> The template exposes project-local processors without forking Anvil.
 >
 > If you do not need/want the full Anvil framework and only want a simple starting point for small AWS Organization tasks, see: [`templates/aws_multi_account_template.py`](https://opsfoundry.dev/anvil/examples/#standalone-multi-account-script-template)
 
@@ -181,19 +182,22 @@ accounts:
 
 ### Provider task packages
 
-Task compatibility is determined by package location. Existing AWS task names
-and legacy imports remain compatible through thin wrappers:
+Task compatibility is determined by package location. Existing YAML task names
+stay stable where possible; for example, AWS configs can still use
+`count_vpc`, which now resolves from `anvil.providers.aws.tasks.count_vpc`.
 
-- `anvil.tasks.<task>` is the legacy import path and re-exports moved stock
-  tasks for named-import and module-access compatibility. It is not a full
-  star-import namespace compatibility layer.
 - `anvil.providers.tasks.<task>` is universal and can run for any provider.
 - `anvil.providers.aws.tasks.<task>` is AWS-only.
 - `anvil.providers.azure.tasks.<task>` is Azure-only.
 - `anvil.providers.gcp.tasks.<task>` is GCP-only.
 
-Legacy plugin entry points under `anvil.tasks` are treated as AWS-compatible
-only. Non-AWS plugins should use universal or provider-specific task packages.
+v0.30 removes direct Python imports from `anvil.tasks.<task>` and stops
+discovering legacy task plugin entry points under `anvil.tasks`. Code importing
+first-party tasks directly should move to the universal or provider-specific
+package path. Task plugin authors should migrate task modules into a universal
+or provider-specific provider package; provider-owned plugin task discovery is
+deferred until the provider plugin model owns that contract. Processor plugin
+entry points are separate and unchanged.
 
 The task loader builds a cached descriptor index shaped as
 `provider_name -> task_name -> list[TaskDescriptor]`, so resolving multiple
