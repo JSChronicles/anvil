@@ -2,6 +2,10 @@ import pytest
 
 from anvil.task_loader import ResolvedTask
 from anvil.task_validation import TaskValidationError, validate_tasks
+from anvil.providers.azure.tasks.count_resource_groups import (
+    run as count_resource_groups,
+)
+from anvil.providers.gcp.tasks.get_project_info import run as get_project_info
 
 
 def test_validate_tasks_accepts_valid_task():
@@ -38,6 +42,28 @@ def test_validate_tasks_accepts_provider_neutral_task():
         pass
 
     task = ResolvedTask(name="valid", run=run, depends_on=[], optional=False)
+
+    validate_tasks([task])
+
+
+def test_validate_tasks_accepts_real_azure_count_resource_groups_task():
+    task = ResolvedTask(
+        name="count_resource_groups",
+        run=count_resource_groups,
+        depends_on=[],
+        optional=False,
+    )
+
+    validate_tasks([task])
+
+
+def test_validate_tasks_accepts_real_gcp_get_project_info_task():
+    task = ResolvedTask(
+        name="get_project_info",
+        run=get_project_info,
+        depends_on=[],
+        optional=False,
+    )
 
     validate_tasks([task])
 

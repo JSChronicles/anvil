@@ -209,6 +209,39 @@ portable = "my_plugin.universal_tasks"
 aws-extra = "my_plugin.aws_tasks"
 ```
 
+Example Azure task configuration:
+
+```yaml
+accounts:
+  - name: azure-subscriptions
+    provider: azure
+    mode: subscriptions
+    include:
+      - 00000000-0000-0000-0000-000000000000
+    regions:
+      - eastus
+    tasks:
+      - name: count_resource_groups
+```
+
+Example GCP task configuration:
+
+```yaml
+accounts:
+  - name: gcp-projects
+    provider: gcp
+    mode: projects
+    include:
+      - anvil-dev-project
+    regions:
+      - us-central1
+    provider_options:
+      credentials_path: /secure/path/to/credentials.json
+      quota_project_id: anvil-billing-project
+    tasks:
+      - name: get_project_info
+```
+
 Legacy task plugin entry points under `anvil.tasks` remain unsupported and are
 ignored. Plugin authors migrating from `anvil.tasks` should move task modules
 into universal or provider-specific task packages and register the matching

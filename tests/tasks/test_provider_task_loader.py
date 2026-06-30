@@ -51,6 +51,38 @@ def test_real_non_aws_descriptor_index_excludes_aws_only_tasks():
     assert "count_vpc" not in gcp_index
 
 
+def test_real_azure_descriptor_index_includes_azure_tasks_only_for_azure():
+    task_loader = importlib.import_module("anvil.task_loader")
+    _clear_task_loader_caches(task_loader)
+
+    aws_index = task_loader.provider_task_descriptor_index(provider_name="aws")
+    azure_index = task_loader.provider_task_descriptor_index(provider_name="azure")
+    gcp_index = task_loader.provider_task_descriptor_index(provider_name="gcp")
+
+    assert "count_resource_groups" in azure_index
+    assert [descriptor.source for descriptor in azure_index["count_resource_groups"]] == [
+        "azure"
+    ]
+    assert "count_resource_groups" not in aws_index
+    assert "count_resource_groups" not in gcp_index
+
+
+def test_real_gcp_descriptor_index_includes_gcp_tasks_only_for_gcp():
+    task_loader = importlib.import_module("anvil.task_loader")
+    _clear_task_loader_caches(task_loader)
+
+    aws_index = task_loader.provider_task_descriptor_index(provider_name="aws")
+    azure_index = task_loader.provider_task_descriptor_index(provider_name="azure")
+    gcp_index = task_loader.provider_task_descriptor_index(provider_name="gcp")
+
+    assert "get_project_info" in gcp_index
+    assert [descriptor.source for descriptor in gcp_index["get_project_info"]] == [
+        "gcp"
+    ]
+    assert "get_project_info" not in aws_index
+    assert "get_project_info" not in azure_index
+
+
 def test_universal_noop_resolves_for_all_providers():
     task_loader = importlib.import_module("anvil.task_loader")
     _clear_task_loader_caches(task_loader)
