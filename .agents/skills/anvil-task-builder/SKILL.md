@@ -13,7 +13,7 @@ Use this skill to create Anvil tasks that satisfy the runtime contract, behave s
 2. Create or edit the task module.
 3. Implement the Anvil `run()` contract.
 4. Follow Anvil task conventions for dry-run behavior, logging, actions, and returned data.
-5. Apply normal Python and AWS implementation hygiene.
+5. Apply normal Python and provider-specific implementation hygiene.
 6. Add or update YAML examples that reference the task when useful.
 7. Run `uv run anvil validate --tasks`.
 
@@ -26,16 +26,16 @@ Use this skill to create Anvil tasks that satisfy the runtime contract, behave s
   `anvil.providers.tasks`, `anvil.providers.aws.tasks`,
   `anvil.providers.azure.tasks`, or `anvil.providers.gcp.tasks`.
 - Every task module must define a callable keyword-only `run()` function.
-- The provided boto3 `session` is already scoped to the target account and region.
+- The provided `session` is already scoped to the provider target and region/location.
 - Check `dry_run` before every mutating API call.
 - Prefix dry-run log and action messages with `(dry-run)` for planned work.
 - Use logger calls for task-specific progress and troubleshooting details.
 - Use `actions.record(...)` for concise audit-level planned or completed actions.
 - Return task-specific JSON-serializable data only.
 - Do not duplicate execution context already included by the engine unless the task needs a transformed value.
-- Keep task modules import-safe. Do not make AWS calls at import time.
+- Keep task modules import-safe. Do not make provider SDK calls at import time.
 - Validate required `metadata` values before use and raise clear `RuntimeError` messages.
-- Prefer AWS paginators for list and describe APIs that can paginate.
+- Prefer provider SDK pagination helpers for list and describe APIs that can paginate.
 
 ## Reference Loading
 
@@ -50,6 +50,6 @@ Load only the reference files needed for the current task:
 
 ## Review Behavior
 
-When reviewing Anvil tasks, prioritize runtime contract violations, missing dry-run guards, unsafe AWS mutation behavior, invalid metadata handling, missing task discovery wiring, and validation gaps.
+When reviewing Anvil tasks, prioritize runtime contract violations, missing dry-run guards, unsafe provider mutation behavior, invalid metadata handling, missing task discovery wiring, and validation gaps.
 
 If no issues are found, say so directly and mention any commands that were not run.

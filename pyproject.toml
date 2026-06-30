@@ -5,7 +5,7 @@ build-backend = "uv_build"
 [project]
 name = "anvil"
 version = "0.29.2"
-description = "Anvil is a multi-org AWS execution runner"
+description = "Anvil is a provider-aware cloud execution runner"
 readme = "README.md"
 requires-python = ">=3.14,<3.15"
 authors = [

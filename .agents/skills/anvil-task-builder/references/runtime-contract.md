@@ -37,7 +37,7 @@ project-gcp = "tasks.gcp"
 
 Anvil discovers modules inside packages registered in provider-owned task entry point groups. Directories named `tasks/` are conventional only; they are not automatically scanned unless registered.
 
-Every task module must define a callable keyword-only `run()` function. Use this signature unless nearby code has a stronger local convention:
+Every task module must define a callable keyword-only `run()` function. Use the provider-neutral signature unless nearby code has a stronger local convention:
 
 ```python
 from anvil.actions import ActionRecorder
@@ -45,8 +45,12 @@ from anvil.actions import ActionRecorder
 
 def run(
     *,
-    account_id: str,
-    account_alias: str,
+    provider: str,
+    execution_target_id: str,
+    execution_target_name: str,
+    execution_target_type: str,
+    region: str,
+    location: str,
     session,
     dry_run: bool,
     metadata: dict[str, object],
@@ -56,12 +60,12 @@ def run(
 
 Runtime facts:
 
-- The provided boto3 `session` is already scoped to the target account and region.
-- `session.region_name` is the current task execution region.
+- The provided `session` is already scoped to the provider target and region/location.
+- `region` is the current task execution region/location. AWS sessions also expose `session.region_name`.
 - Operator-provided task inputs come from `metadata`.
 - `actions` is an `ActionRecorder` for audit-level actions.
 - Returned values are included in Anvil result JSON.
-- The engine already includes execution context such as `account_id`, `account_alias`, `region`, and `dry_run` in normal results.
+- The engine already includes execution context such as target identity, `region`, and `dry_run` in normal results. Result fields currently retain `account_id` and `account_alias` compatibility names for all providers.
 
 ## Skeleton
 
@@ -79,17 +83,26 @@ __LOGGER__ = logging.getLogger(__name__)
 
 def run(
     *,
-    account_id: str,
-    account_alias: str,
+    provider: str,
+    execution_target_id: str,
+    execution_target_name: str,
+    execution_target_type: str,
+    region: str,
+    location: str,
     session,
     dry_run: bool,
     metadata: dict[str, object],
     actions: ActionRecorder,
 ) -> dict:
-    region_name = session.region_name
-
-    actions.record(f"Checked account {account_id} in region {region_name}")
-    __LOGGER__.info(f"Completed example check in region {region_name}")
+    actions.record(
+        f"Checked {provider} {execution_target_type} {execution_target_id} "
+        f"in location {location or region}"
+    )
+    __LOGGER__.info(f"Completed example check in location {location or region}")
 
     return {"checked": True}
 ```
+
+AWS-only legacy tasks may continue to accept `account_id`, `account_alias`, and
+the scoped boto3 `session`; new provider-aware tasks should prefer the
+provider-neutral signature above.

@@ -279,12 +279,19 @@ organizations:
 
 ### Results
 
-`anvil results` queries completed run output without rerunning AWS work. Use it
-to filter historical JSONL results by target, account, region, task, or status,
-emit JSON/JSONL for automation, rerun failed work, or run a processor against a
-completed results directory. When a run has failures, Anvil prints ready-to-use
-`anvil results` commands that point at the affected run's `results.jsonl` file
-so you can inspect or rerun the failed accounts.
+`anvil results` queries completed run output without rerunning cloud work. Use it
+to filter historical JSONL results by target, account, region/location, task, or
+status, emit JSON/JSONL for automation, rerun failed work, or run a processor
+against a completed results directory. When a run has failures, Anvil prints
+ready-to-use `anvil results` commands that point at the affected run's
+`results.jsonl` file so you can inspect or rerun the failed execution targets.
+
+For compatibility, result JSON, JSONL, and table fields still use `account_id`
+and `account_alias` for resolved execution targets. For AWS these fields are
+the AWS account ID and account alias/name. For Azure they represent the
+subscription ID and subscription name/ID. For GCP they represent the project ID
+and project name/ID. Provider-native result field renaming is deferred to a
+future result-format change.
 
 See more at [Common result queries](https://opsfoundry.dev/anvil/cli/#results)
 and [Rerun failures](https://opsfoundry.dev/anvil/cli/#rerun-failures).
