@@ -8,7 +8,7 @@ from anvil.descriptors import ConfigBranch, TargetDescriptor
 from anvil.execution_context import ExecutionContext
 from anvil.providers.azure.provider import AzureSubscription
 from anvil.providers.gcp.provider import GcpProject
-from anvil.results import AccountResult, AuthResult, ExecutionStatus
+from anvil.results import AccountResult, AuthResult, ExecutionStatus, TargetResult
 from anvil.runner import (
     AuthCheckCache,
     OrganizationRunCache,
@@ -20,10 +20,16 @@ from anvil.runner import (
     run_prepared_target,
 )
 from anvil.task_loader import ResolvedExecution, ResolvedTask
+from anvil.validators import load_config_descriptors, validate_config_schema
 
 
 def _empty_resolved_execution(**kwargs):
     return ResolvedExecution(ordered=[], adjacency={})
+
+
+def _load_v2_targets(config: dict) -> list[TargetDescriptor]:
+    validate_config_schema(config=config)
+    return load_config_descriptors(config=config).targets
 
 
 def test_runner_auth_failure_short_circuits(monkeypatch):
@@ -176,8 +182,10 @@ def test_non_aws_provider_options_reach_runtime_session_factory(monkeypatch):
 
     monkeypatch.setattr(
         "anvil.providers.azure.provider.AzureSessionFactory.create_session",
-        lambda self, **kwargs: session_calls.append(kwargs)
-        or type("_AzureSession", (), {"region_name": kwargs["location"]})(),
+        lambda self, **kwargs: (
+            session_calls.append(kwargs)
+            or type("_AzureSession", (), {"region_name": kwargs["location"]})()
+        ),
     )
 
     target = TargetDescriptor(
@@ -234,11 +242,13 @@ def test_azure_subscription_discovery_runs_without_aws_paths(monkeypatch):
     )
     monkeypatch.setattr(
         "anvil.providers.azure.provider.AzureSessionFactory.list_subscriptions",
-        lambda self, **kwargs: subscription_calls.append(kwargs)
-        or [
-            AzureSubscription(subscription_id="sub-b"),
-            AzureSubscription(subscription_id="sub-a"),
-        ],
+        lambda self, **kwargs: (
+            subscription_calls.append(kwargs)
+            or [
+                AzureSubscription(subscription_id="sub-b"),
+                AzureSubscription(subscription_id="sub-a"),
+            ]
+        ),
     )
     monkeypatch.setattr(
         "anvil.providers.azure.provider.AzureSessionFactory.create_session",
@@ -264,10 +274,9 @@ def test_azure_subscription_discovery_runs_without_aws_paths(monkeypatch):
         cli_exclude=None,
     )
 
-    assert [result.account_id for result in engine_result.target_results[0].account_results] == [
-        "sub-a",
-        "sub-b",
-    ]
+    assert [
+        result.account_id for result in engine_result.target_results[0].account_results
+    ] == ["sub-a", "sub-b"]
     assert subscription_calls == [
         {"tenant_id": None, "client_id": None, "client_secret": None}
     ]
@@ -304,7 +313,9 @@ def test_azure_subscription_discovery_errors_are_target_failures(monkeypatch):
     )
 
     target_result = engine_result.target_results[0]
-    assert target_result.error == "Azure provider could not discover subscriptions: denied"
+    assert (
+        target_result.error == "Azure provider could not discover subscriptions: denied"
+    )
     assert target_result.account_results == []
 
 
@@ -409,8 +420,7 @@ def test_azure_subscription_discovery_plan_is_cached_across_targets(monkeypatch)
 
     assert subscription_calls == 1
     assert [
-        result.account_results[0].account_id
-        for result in engine_result.target_results
+        result.account_results[0].account_id for result in engine_result.target_results
     ] == ["sub-a", "sub-a"]
 
 
@@ -419,8 +429,10 @@ def test_gcp_provider_options_reach_runtime_session_factory(monkeypatch):
 
     monkeypatch.setattr(
         "anvil.providers.gcp.provider.GcpSessionFactory.create_session",
-        lambda self, **kwargs: session_calls.append(kwargs)
-        or type("_GcpSession", (), {"region_name": kwargs["location"]})(),
+        lambda self, **kwargs: (
+            session_calls.append(kwargs)
+            or type("_GcpSession", (), {"region_name": kwargs["location"]})()
+        ),
     )
 
     target = TargetDescriptor(
@@ -495,12 +507,7 @@ def test_non_aws_universal_task_can_use_provider_neutral_kwargs(monkeypatch):
         "anvil.runner.resolve_tasks",
         lambda **kwargs: ResolvedExecution(
             ordered=[
-                ResolvedTask(
-                    "neutral",
-                    neutral_task,
-                    depends_on=[],
-                    optional=False,
-                )
+                ResolvedTask("neutral", neutral_task, depends_on=[], optional=False)
             ],
             adjacency={},
         ),
@@ -533,10 +540,7 @@ def test_non_aws_universal_task_can_use_provider_neutral_kwargs(monkeypatch):
 
     account_result = engine_result.target_results[0].account_results[0]
     assert account_result.status is ExecutionStatus.SUCCESS
-    assert account_result.tasks[0].result == {
-        "provider": "gcp",
-        "target": "project-a",
-    }
+    assert account_result.tasks[0].result == {"provider": "gcp", "target": "project-a"}
     assert seen["provider"] == "gcp"
     assert seen["execution_target_id"] == "project-a"
     assert seen["execution_target_name"] == "project-a"
@@ -567,11 +571,10 @@ def test_gcp_project_discovery_runs_without_aws_paths(monkeypatch):
     )
     monkeypatch.setattr(
         "anvil.providers.gcp.provider.GcpSessionFactory.list_projects",
-        lambda self, **kwargs: project_calls.append(kwargs)
-        or [
-            GcpProject(project_id="project-b"),
-            GcpProject(project_id="project-a"),
-        ],
+        lambda self, **kwargs: (
+            project_calls.append(kwargs)
+            or [GcpProject(project_id="project-b"), GcpProject(project_id="project-a")]
+        ),
     )
     monkeypatch.setattr(
         "anvil.providers.gcp.provider.GcpSessionFactory.create_session",
@@ -597,13 +600,10 @@ def test_gcp_project_discovery_runs_without_aws_paths(monkeypatch):
         cli_exclude=None,
     )
 
-    assert [result.account_id for result in engine_result.target_results[0].account_results] == [
-        "project-a",
-        "project-b",
-    ]
-    assert project_calls == [
-        {"credentials_path": None, "quota_project_id": None}
-    ]
+    assert [
+        result.account_id for result in engine_result.target_results[0].account_results
+    ] == ["project-a", "project-b"]
+    assert project_calls == [{"credentials_path": None, "quota_project_id": None}]
 
 
 def test_gcp_project_discovery_errors_are_target_failures(monkeypatch):
@@ -734,8 +734,7 @@ def test_gcp_project_discovery_plan_is_cached_across_targets(monkeypatch):
 
     assert project_calls == 1
     assert [
-        result.account_results[0].account_id
-        for result in engine_result.target_results
+        result.account_results[0].account_id for result in engine_result.target_results
     ] == ["project-a", "project-a"]
 
 
@@ -789,6 +788,128 @@ def test_non_aws_fail_fast_cancels_pending_execution_targets(monkeypatch):
     assert engine_result.target_results[0].account_results[0].status.is_error
 
 
+@pytest.mark.parametrize(
+    ("provider", "mode", "include"),
+    [
+        ("aws", "accounts", "111111111111"),
+        ("azure", "subscriptions", "00000000-0000-0000-0000-000000000000"),
+        ("gcp", "projects", "project-a"),
+    ],
+)
+def test_v2_explicit_modes_reject_cli_exclude_before_execution(
+    monkeypatch, provider, mode, include
+):
+    executed = False
+
+    def fail_execute_accounts(**kwargs):
+        nonlocal executed
+        executed = True
+        raise AssertionError("explicit-mode exclude should stop before execution")
+
+    def fail_execute_provider_execution_target(**kwargs):
+        nonlocal executed
+        executed = True
+        raise AssertionError("explicit-mode exclude should stop before execution")
+
+    monkeypatch.setattr(
+        "anvil.runner._run_cached_auth_check_for_target",
+        lambda target, auth_cache: AuthResult(
+            target_name=target.name,
+            status=ExecutionStatus.SUCCESS,
+            source="test",
+            started_at="start",
+            ended_at="end",
+            duration_seconds=0.0,
+            message="ok",
+        ),
+    )
+    monkeypatch.setattr("anvil.runner.execute_accounts", fail_execute_accounts)
+    monkeypatch.setattr(
+        "anvil.runner._execute_provider_execution_target",
+        fail_execute_provider_execution_target,
+    )
+
+    target = _load_v2_targets(
+        {
+            "schema_version": 2,
+            "targets": [
+                {
+                    "name": f"{provider}-{mode}",
+                    "provider": {"name": provider, "mode": mode, "options": {}},
+                    "regions": [
+                        "us-east-1"
+                        if provider == "aws"
+                        else "eastus"
+                        if provider == "azure"
+                        else "global"
+                    ],
+                    "include": [include],
+                    "tasks": [{"name": "noop"}],
+                }
+            ],
+        }
+    )[0]
+
+    engine_result = run_multiple_targets(
+        targets=[target],
+        max_parallel_targets=1,
+        cli_dry_run=None,
+        cli_include=None,
+        cli_exclude=[include],
+    )
+
+    assert not executed
+    assert engine_result.auth_results[0].status is ExecutionStatus.ERROR
+    assert "does not allow exclude" in (engine_result.auth_results[0].message or "")
+
+
+def test_v2_discovery_modes_reject_effective_include_and_exclude(monkeypatch):
+    monkeypatch.setattr(
+        "anvil.runner._run_cached_auth_check_for_target",
+        lambda target, auth_cache: AuthResult(
+            target_name=target.name,
+            status=ExecutionStatus.SUCCESS,
+            source="test",
+            started_at="start",
+            ended_at="end",
+            duration_seconds=0.0,
+            message="ok",
+        ),
+    )
+
+    target = _load_v2_targets(
+        {
+            "schema_version": 2,
+            "targets": [
+                {
+                    "name": "aws-org",
+                    "provider": {
+                        "name": "aws",
+                        "mode": "organization",
+                        "options": {"profile": "shared"},
+                    },
+                    "regions": ["us-east-1"],
+                    "include": ["111111111111"],
+                    "tasks": [{"name": "noop"}],
+                }
+            ],
+        }
+    )[0]
+
+    engine_result = run_multiple_targets(
+        targets=[target],
+        max_parallel_targets=1,
+        cli_dry_run=None,
+        cli_include=None,
+        cli_exclude=["222222222222"],
+    )
+
+    assert engine_result.auth_results[0].status is ExecutionStatus.ERROR
+    assert "include and exclude together" in (
+        engine_result.auth_results[0].message or ""
+    )
+
+
 def test_run_multiple_targets_reuses_same_profile_auth_during_preparation(monkeypatch):
     auth_check_calls: list[str] = []
 
@@ -809,10 +930,7 @@ def test_run_multiple_targets_reuses_same_profile_auth_during_preparation(monkey
         )
 
     monkeypatch.setattr("anvil.runner.auth_check", fake_auth_check)
-    monkeypatch.setattr(
-        "anvil.runner.resolve_tasks",
-        _empty_resolved_execution,
-    )
+    monkeypatch.setattr("anvil.runner.resolve_tasks", _empty_resolved_execution)
     monkeypatch.setattr(
         "anvil.runner._preflight_organization",
         lambda **kwargs: (
@@ -890,10 +1008,7 @@ def test_prepare_target_reuses_same_org_discovery_cache(monkeypatch):
             message="ok",
         ),
     )
-    monkeypatch.setattr(
-        "anvil.runner.resolve_tasks",
-        _empty_resolved_execution,
-    )
+    monkeypatch.setattr("anvil.runner.resolve_tasks", _empty_resolved_execution)
 
     class FakeSessionFactory:
         def create_base_session(self, **kwargs):
@@ -971,6 +1086,189 @@ def test_prepare_target_reuses_same_org_discovery_cache(monkeypatch):
     assert prepared_b.region_statuses == region_statuses
 
 
+def test_v2_run_multiple_targets_reuses_same_org_discovery_cache(monkeypatch):
+    discovered_accounts = {
+        "111111111111": {"account_number": "111111111111", "account_alias": "acct-a"}
+    }
+    region_statuses = {"us-east-1": "ENABLED_BY_DEFAULT", "us-west-2": "ENABLED"}
+    call_counts = {"accounts": 0, "regions": 0, "execute": 0}
+
+    monkeypatch.setattr(
+        "anvil.runner._run_cached_auth_check_for_target",
+        lambda target, auth_cache: AuthResult(
+            target_name=target.name,
+            status=ExecutionStatus.SUCCESS,
+            source="test",
+            started_at="start",
+            ended_at="end",
+            duration_seconds=0.0,
+            message="ok",
+        ),
+    )
+    monkeypatch.setattr("anvil.runner.resolve_tasks", _empty_resolved_execution)
+
+    class FakeSessionFactory:
+        def create_base_session(self, **kwargs):
+            return type("_BaseSession", (), {"profile_name": kwargs["profile_name"]})()
+
+    monkeypatch.setattr("anvil.runner.SessionFactory", FakeSessionFactory)
+    monkeypatch.setattr(
+        "anvil.runner.OrganizationResolver.describe_organization",
+        staticmethod(lambda session: ("o-shared", "999999999999")),
+    )
+    monkeypatch.setattr(
+        "anvil.runner.OrganizationResolver.describe_base_session_account",
+        staticmethod(lambda session: "999999999999"),
+    )
+
+    def fake_discover_accounts(session):
+        call_counts["accounts"] += 1
+        return discovered_accounts
+
+    def fake_discover_regions(session):
+        call_counts["regions"] += 1
+        return region_statuses
+
+    def fake_execute_accounts(**kwargs):
+        call_counts["execute"] += 1
+        return TargetResult.create(
+            config_branch=kwargs["config_branch"],
+            target_name=kwargs["name"],
+            dry_run=kwargs["context"].dry_run,
+            account_results=[],
+        )
+
+    monkeypatch.setattr(
+        "anvil.runner.OrganizationResolver.discover_accounts",
+        staticmethod(fake_discover_accounts),
+    )
+    monkeypatch.setattr(
+        "anvil.runner.OrganizationResolver.discover_region_statuses",
+        staticmethod(fake_discover_regions),
+    )
+    monkeypatch.setattr("anvil.runner.execute_accounts", fake_execute_accounts)
+
+    targets = _load_v2_targets(
+        {
+            "schema_version": 2,
+            "max_parallel_targets": 2,
+            "targets": [
+                {
+                    "name": "org-a",
+                    "provider": {
+                        "name": "aws",
+                        "mode": "organization",
+                        "options": {"profile": "shared"},
+                    },
+                    "regions": ["us-east-1"],
+                    "tasks": [{"name": "noop"}],
+                },
+                {
+                    "name": "org-b",
+                    "provider": {
+                        "name": "aws",
+                        "mode": "organization",
+                        "options": {"profile": "shared"},
+                    },
+                    "regions": ["us-west-2"],
+                    "tasks": [{"name": "noop"}],
+                },
+            ],
+        }
+    )
+
+    engine_result = run_multiple_targets(
+        targets=targets,
+        max_parallel_targets=2,
+        cli_dry_run=None,
+        cli_include=None,
+        cli_exclude=None,
+    )
+
+    assert call_counts == {"accounts": 1, "regions": 1, "execute": 2}
+    assert [result.target_name for result in engine_result.target_results] == [
+        "org-a",
+        "org-b",
+    ]
+
+
+def test_v2_run_multiple_targets_preserves_aws_account_access_strategies(monkeypatch):
+    observed_accounts: dict[str, list[tuple[str, str]]] = {}
+
+    monkeypatch.setattr(
+        "anvil.runner._run_cached_auth_check_for_target",
+        lambda target, auth_cache: AuthResult(
+            target_name=target.name,
+            status=ExecutionStatus.SUCCESS,
+            source="test",
+            started_at="start",
+            ended_at="end",
+            duration_seconds=0.0,
+            message="ok",
+        ),
+    )
+    monkeypatch.setattr("anvil.runner.resolve_tasks", _empty_resolved_execution)
+
+    class FakeSessionFactory:
+        def create_base_session(self, **kwargs):
+            return object()
+
+    def fake_execute_accounts(**kwargs):
+        observed_accounts[kwargs["name"]] = [
+            (account.account_id, account.access_strategy.value)
+            for account in kwargs["accounts"]
+        ]
+        return TargetResult.create(
+            config_branch=kwargs["config_branch"],
+            target_name=kwargs["name"],
+            dry_run=kwargs["context"].dry_run,
+            account_results=[],
+        )
+
+    monkeypatch.setattr("anvil.runner.SessionFactory", FakeSessionFactory)
+    monkeypatch.setattr("anvil.runner.execute_accounts", fake_execute_accounts)
+
+    targets = _load_v2_targets(
+        {
+            "schema_version": 2,
+            "targets": [
+                {
+                    "name": "direct-account",
+                    "provider": {"name": "aws", "mode": "accounts", "options": {}},
+                    "regions": ["us-east-1"],
+                    "include": ["111111111111"],
+                    "tasks": [{"name": "noop"}],
+                },
+                {
+                    "name": "assume-role-accounts",
+                    "provider": {
+                        "name": "aws",
+                        "mode": "accounts",
+                        "options": {"role_name": "AuditRole"},
+                    },
+                    "regions": ["us-east-1"],
+                    "include": ["222222222222", "333333333333"],
+                    "tasks": [{"name": "noop"}],
+                },
+            ],
+        }
+    )
+
+    run_multiple_targets(
+        targets=targets,
+        max_parallel_targets=1,
+        cli_dry_run=None,
+        cli_include=None,
+        cli_exclude=None,
+    )
+
+    assert observed_accounts["direct-account"] == [("111111111111", "direct_profile")]
+    assert observed_accounts["assume-role-accounts"] == [
+        ("222222222222", "assume_role"),
+        ("333333333333", "assume_role"),
+    ]
+
+
 def test_prepare_target_keeps_base_session_account_out_of_org_cache(monkeypatch):
     discovered_accounts = {
         "111111111111": {"account_number": "111111111111", "account_alias": "payer"},
@@ -998,10 +1296,7 @@ def test_prepare_target_keeps_base_session_account_out_of_org_cache(monkeypatch)
             message="ok",
         ),
     )
-    monkeypatch.setattr(
-        "anvil.runner.resolve_tasks",
-        _empty_resolved_execution,
-    )
+    monkeypatch.setattr("anvil.runner.resolve_tasks", _empty_resolved_execution)
 
     class FakeSessionFactory:
         def create_base_session(self, **kwargs):
@@ -1090,10 +1385,7 @@ def test_prepare_target_uses_bootstrap_region_for_region_selector(monkeypatch):
             message="ok",
         ),
     )
-    monkeypatch.setattr(
-        "anvil.runner.resolve_tasks",
-        _empty_resolved_execution,
-    )
+    monkeypatch.setattr("anvil.runner.resolve_tasks", _empty_resolved_execution)
 
     class FakeSessionFactory:
         def create_base_session(self, **kwargs):
@@ -1335,9 +1627,7 @@ def test_run_prepared_target_uses_cached_org_preflight(monkeypatch):
 
 def test_run_prepared_target_converts_aws_value_error(monkeypatch):
     target = TargetDescriptor(
-        config_branch=ConfigBranch.ACCOUNTS,
-        name="group-a",
-        include=["111111111111"],
+        config_branch=ConfigBranch.ACCOUNTS, name="group-a", include=["111111111111"]
     )
     context = ExecutionContext(
         regions=["us-east-1"], role_name=None, dry_run=False, tasks=[], metadata={}
@@ -1371,9 +1661,7 @@ def test_run_prepared_target_converts_aws_value_error(monkeypatch):
 
 def test_run_prepared_target_does_not_swallow_unexpected_aws_exception(monkeypatch):
     target = TargetDescriptor(
-        config_branch=ConfigBranch.ACCOUNTS,
-        name="group-a",
-        include=["111111111111"],
+        config_branch=ConfigBranch.ACCOUNTS, name="group-a", include=["111111111111"]
     )
     context = ExecutionContext(
         regions=["us-east-1"], role_name=None, dry_run=False, tasks=[], metadata={}
@@ -1418,10 +1706,7 @@ def test_prepare_target_carries_max_parallel_regions_into_context(monkeypatch):
             message="ok",
         ),
     )
-    monkeypatch.setattr(
-        "anvil.runner.resolve_tasks",
-        _empty_resolved_execution,
-    )
+    monkeypatch.setattr("anvil.runner.resolve_tasks", _empty_resolved_execution)
 
     target = TargetDescriptor(
         config_branch=ConfigBranch.ACCOUNTS,

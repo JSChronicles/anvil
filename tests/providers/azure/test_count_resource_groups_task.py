@@ -59,7 +59,9 @@ def fake_azure_resource_sdk(monkeypatch):
     return FakeResourceManagementClient
 
 
-def _run_task(*, session: FakeAzureSession, dry_run: bool = False) -> tuple[dict, list[str]]:
+def _run_task(
+    *, session: FakeAzureSession, dry_run: bool = False
+) -> tuple[dict, list[str]]:
     actions = ActionRecorder(actions=[])
     result = run(
         provider="azure",
@@ -120,9 +122,7 @@ def test_count_resource_groups_counts_and_lists_small_subscriptions(
     ]
 
 
-def test_count_resource_groups_omits_large_resource_group_list(
-    fake_azure_resource_sdk,
-):
+def test_count_resource_groups_omits_large_resource_group_list(fake_azure_resource_sdk):
     fake_azure_resource_sdk.resource_groups = [
         {"name": f"rg-{index}", "location": "eastus", "id": f"rg-{index}"}
         for index in range(101)

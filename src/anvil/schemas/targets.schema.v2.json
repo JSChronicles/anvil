@@ -1,0 +1,385 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://anvil.local/schemas/targets.schema.v2.json",
+  "title": "Anvil Targets Configuration v2",
+  "description": "Declarative multi-cloud configuration for provider targets.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "targets"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 2,
+      "description": "Configuration schema version."
+    },
+    "max_parallel_targets": {
+      "$ref": "common.schema.v1.json#/$defs/max_parallel_targets"
+    },
+    "targets": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Provider targets to process.",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "provider"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "$ref": "common.schema.v1.json#/$defs/baseTargetProperties/name"
+          },
+          "provider": {
+            "type": "object",
+            "required": [
+              "name",
+              "mode"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "enum": [
+                  "aws",
+                  "azure",
+                  "gcp"
+                ]
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "organization",
+                  "accounts",
+                  "tenant",
+                  "subscriptions",
+                  "projects"
+                ]
+              },
+              "options": {
+                "type": "object",
+                "default": {},
+                "additionalProperties": true
+              }
+            }
+          },
+          "regions": {
+            "$ref": "common.schema.v1.json#/$defs/baseTargetProperties/regions"
+          },
+          "tasks": {
+            "$ref": "common.schema.v1.json#/$defs/baseTargetProperties/tasks"
+          },
+          "max_workers": {
+            "$ref": "common.schema.v1.json#/$defs/baseTargetProperties/max_workers"
+          },
+          "max_parallel_regions": {
+            "$ref": "common.schema.v1.json#/$defs/baseTargetProperties/max_parallel_regions"
+          },
+          "fail_fast": {
+            "$ref": "common.schema.v1.json#/$defs/baseTargetProperties/fail_fast"
+          },
+          "dry_run": {
+            "$ref": "common.schema.v1.json#/$defs/baseTargetProperties/dry_run"
+          },
+          "metadata": {
+            "$ref": "common.schema.v1.json#/$defs/baseTargetProperties/metadata"
+          },
+          "post_run": {
+            "$ref": "common.schema.v1.json#/$defs/baseTargetProperties/post_run"
+          },
+          "include": {
+            "$ref": "common.schema.v1.json#/$defs/targetIdList"
+          },
+          "exclude": {
+            "$ref": "common.schema.v1.json#/$defs/targetIdList"
+          }
+        },
+        "allOf": [
+          {
+            "not": {
+              "required": [
+                "include",
+                "exclude"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "provider": {
+                  "properties": {
+                    "name": {
+                      "const": "aws"
+                    },
+                    "mode": {
+                      "const": "organization"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "mode"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "include": {
+                  "$ref": "common.schema.v1.json#/$defs/accountIdList"
+                },
+                "exclude": {
+                  "$ref": "common.schema.v1.json#/$defs/accountIdList"
+                },
+                "provider": {
+                  "properties": {
+                    "options": {
+                      "$ref": "common.schema.v1.json#/$defs/awsProviderOptions"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "provider": {
+                  "properties": {
+                    "name": {
+                      "const": "aws"
+                    },
+                    "mode": {
+                      "const": "accounts"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "mode"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "include"
+              ],
+              "not": {
+                "required": [
+                  "exclude"
+                ]
+              },
+              "properties": {
+                "include": {
+                  "$ref": "common.schema.v1.json#/$defs/accountIdList"
+                },
+                "provider": {
+                  "properties": {
+                    "options": {
+                      "$ref": "common.schema.v1.json#/$defs/awsProviderOptions"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "provider": {
+                  "properties": {
+                    "name": {
+                      "const": "azure"
+                    },
+                    "mode": {
+                      "const": "tenant"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "mode"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "provider": {
+                  "properties": {
+                    "options": {
+                      "$ref": "common.schema.v1.json#/$defs/azureProviderOptions"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "provider": {
+                  "properties": {
+                    "name": {
+                      "const": "azure"
+                    },
+                    "mode": {
+                      "const": "subscriptions"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "mode"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "include"
+              ],
+              "not": {
+                "required": [
+                  "exclude"
+                ]
+              },
+              "properties": {
+                "provider": {
+                  "properties": {
+                    "options": {
+                      "$ref": "common.schema.v1.json#/$defs/azureProviderOptions"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "provider": {
+                  "properties": {
+                    "name": {
+                      "const": "gcp"
+                    },
+                    "mode": {
+                      "const": "organization"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "mode"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "provider": {
+                  "properties": {
+                    "options": {
+                      "$ref": "common.schema.v1.json#/$defs/gcpProviderOptions"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "provider": {
+                  "properties": {
+                    "name": {
+                      "const": "gcp"
+                    },
+                    "mode": {
+                      "const": "projects"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "mode"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "include"
+              ],
+              "not": {
+                "required": [
+                  "exclude"
+                ]
+              },
+              "properties": {
+                "provider": {
+                  "properties": {
+                    "options": {
+                      "$ref": "common.schema.v1.json#/$defs/gcpProviderOptions"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "anyOf": [
+          {
+            "properties": {
+              "provider": {
+                "properties": {
+                  "name": {
+                    "const": "aws"
+                  },
+                  "mode": {
+                    "enum": [
+                      "organization",
+                      "accounts"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "properties": {
+              "provider": {
+                "properties": {
+                  "name": {
+                    "const": "azure"
+                  },
+                  "mode": {
+                    "enum": [
+                      "tenant",
+                      "subscriptions"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "properties": {
+              "provider": {
+                "properties": {
+                  "name": {
+                    "const": "gcp"
+                  },
+                  "mode": {
+                    "enum": [
+                      "organization",
+                      "projects"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

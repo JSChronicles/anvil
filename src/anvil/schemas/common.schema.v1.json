@@ -72,7 +72,7 @@
           "type": "null"
         }
       ],
-      "description": "AWS CLI profile for the source authentication context."
+      "description": "AWS CLI profile for the source authentication context when used under provider.options."
     },
     "regions": {
       "type": "array",
@@ -97,7 +97,7 @@
           "type": "null"
         }
       ],
-      "description": "Optional AWS IAM role name to assume in target accounts. AWS organizations default to OrganizationAccountAccessRole at runtime; AWS accounts run directly when omitted."
+      "description": "Optional AWS IAM role name to assume in target accounts when used under provider.options. AWS organizations default to OrganizationAccountAccessRole at runtime; AWS accounts run directly when omitted."
     },
     "tasks": {
       "type": "array",
@@ -163,16 +163,11 @@
       "enum": [
         "organization",
         "accounts",
+        "tenant",
         "subscriptions",
         "projects"
       ],
       "description": "Provider-specific target mode. Omitted legacy configs default from the top-level branch and provider."
-    },
-    "provider_options": {
-      "type": "object",
-      "default": {},
-      "description": "Provider-specific target options. Legacy AWS profile and role_name fields remain supported at top level; matching provider_options aliases are accepted for compatibility.",
-      "additionalProperties": true
     },
     "awsProviderOptions": {
       "type": "object",
@@ -216,6 +211,10 @@
           "type": "string",
           "minLength": 1
         },
+        "organization_id": {
+          "type": "string",
+          "minLength": 1
+        },
         "quota_project_id": {
           "type": "string",
           "minLength": 1
@@ -255,14 +254,8 @@
         "minLength": 1,
         "description": "Logical name of this execution target group."
       },
-      "profile": {
-        "$ref": "#/$defs/profile"
-      },
       "regions": {
         "$ref": "#/$defs/regions"
-      },
-      "role_name": {
-        "$ref": "#/$defs/role_name"
       },
       "tasks": {
         "$ref": "#/$defs/tasks"
@@ -281,15 +274,6 @@
       },
       "metadata": {
         "$ref": "#/$defs/metadata"
-      },
-      "provider": {
-        "$ref": "#/$defs/provider"
-      },
-      "mode": {
-        "$ref": "#/$defs/mode"
-      },
-      "provider_options": {
-        "$ref": "#/$defs/provider_options"
       },
       "post_run": {
         "$ref": "#/$defs/post_run"

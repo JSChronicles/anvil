@@ -4,7 +4,7 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from anvil.descriptors import ConfigBranch, TargetDescriptor
+from anvil.descriptors import ConfigBranch, MODE_GCP_ORGANIZATION, TargetDescriptor
 from anvil.execution_context import ExecutionContext
 from anvil.providers.base import (
     ExecutionTarget,
@@ -137,9 +137,7 @@ class GcpSessionFactory:
             scopes = ["https://www.googleapis.com/auth/cloud-platform"]
             if credentials_path is not None:
                 credentials, _ = google.auth.load_credentials_from_file(
-                    credentials_path,
-                    scopes=scopes,
-                    quota_project_id=quota_project_id,
+                    credentials_path, scopes=scopes, quota_project_id=quota_project_id
                 )
             else:
                 credentials, _ = google.auth.default(
@@ -211,8 +209,7 @@ class GcpSessionFactory:
             raise
         except Exception as error:
             raise RuntimeError(
-                "GCP provider could not discover projects: "
-                f"{error}"
+                f"GCP provider could not discover projects: {error}"
             ) from error
 
 
@@ -252,11 +249,11 @@ class GcpProvider:
         self._session_factory = session_factory or GcpSessionFactory()
 
     def validate_target(self, target: TargetDescriptor) -> None:
-        """Validate GCP support: project targets only."""
+        """Validate GCP support for organization and explicit project targets."""
 
-        if target.config_branch is not ConfigBranch.ACCOUNTS:
+        if target.config_branch not in {ConfigBranch.ACCOUNTS, ConfigBranch.TARGETS}:
             raise ValueError(
-                "GCP provider currently supports projects only from accounts"
+                "GCP provider supports targets config (schema_version: 2) only"
             )
         if target.include is not None and target.exclude is not None:
             raise ValueError("GCP include and exclude filters are mutually exclusive")
@@ -304,12 +301,16 @@ class GcpProvider:
 
         self.validate_target(target)
 
+        if target.mode == MODE_GCP_ORGANIZATION:
+            raise NotImplementedError(
+                "GCP organization discovery is not implemented yet. "
+                "Use provider.mode 'projects' with include for explicit projects."
+            )
+
         if target.include is None:
             projects = self._discover_projects(provider_options=target.provider_options)
             project_ids = self._filter_discovered_project_ids(
-                projects=projects,
-                include=include,
-                exclude=exclude,
+                projects=projects, include=include, exclude=exclude
             )
         else:
             project_ids = include or target.include
@@ -380,33 +381,23 @@ class GcpProvider:
         )
         if type(self._session_factory) is not GcpSessionFactory:
             return self._session_factory.list_projects(
-                credentials_path=credentials_path,
-                quota_project_id=quota_project_id,
+                credentials_path=credentials_path, quota_project_id=quota_project_id
             )
 
         discovery_key = self._project_discovery_cache_key(
-            credentials_path=credentials_path,
-            quota_project_id=quota_project_id,
+            credentials_path=credentials_path, quota_project_id=quota_project_id
         )
         return _GCP_PROJECT_DISCOVERY_CACHE.get_or_discover(
             key=discovery_key,
             discover=lambda: self._session_factory.list_projects(
-                credentials_path=credentials_path,
-                quota_project_id=quota_project_id,
+                credentials_path=credentials_path, quota_project_id=quota_project_id
             ),
         )
 
     def _project_discovery_cache_key(
-        self,
-        *,
-        credentials_path: str | None,
-        quota_project_id: str | None,
+        self, *, credentials_path: str | None, quota_project_id: str | None
     ) -> object:
-        return (
-            GcpSessionFactory,
-            credentials_path,
-            quota_project_id,
-        )
+        return (GcpSessionFactory, credentials_path, quota_project_id)
 
     def _filter_discovered_project_ids(
         self,
@@ -419,30 +410,30 @@ class GcpProvider:
         discovered_set = set(discovered_ids)
 
         if include is not None:
-            unknown = [project_id for project_id in include if project_id not in discovered_set]
+            unknown = [
+                project_id for project_id in include if project_id not in discovered_set
+            ]
             if unknown:
                 unknown_display = ", ".join(unknown)
                 raise ValueError(
-                    "GCP include filter matched unknown project IDs: "
-                    f"{unknown_display}"
+                    f"GCP include filter matched unknown project IDs: {unknown_display}"
                 )
             project_ids = [project_id for project_id in include]
         else:
             project_ids = discovered_ids
 
         if exclude is not None:
-            unknown = [project_id for project_id in exclude if project_id not in discovered_set]
+            unknown = [
+                project_id for project_id in exclude if project_id not in discovered_set
+            ]
             if unknown:
                 unknown_display = ", ".join(unknown)
                 raise ValueError(
-                    "GCP exclude filter matched unknown project IDs: "
-                    f"{unknown_display}"
+                    f"GCP exclude filter matched unknown project IDs: {unknown_display}"
                 )
             excluded = set(exclude)
             project_ids = [
-                project_id
-                for project_id in project_ids
-                if project_id not in excluded
+                project_id for project_id in project_ids if project_id not in excluded
             ]
 
         return project_ids

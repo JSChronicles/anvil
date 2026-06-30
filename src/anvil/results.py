@@ -8,6 +8,9 @@ from anvil.descriptors import ConfigBranch
 
 
 def _result_labels(config_branch: ConfigBranch) -> tuple[str, str]:
+    if config_branch is ConfigBranch.TARGETS:
+        return "target", "targets"
+
     if config_branch is ConfigBranch.ACCOUNTS:
         return "account_group", "account_groups"
 

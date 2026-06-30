@@ -23,9 +23,7 @@ class FakeSession:
 
 
 class FakeSessionFactory:
-    def __init__(
-        self, *, subscriptions: list[AzureSubscription] | None = None
-    ) -> None:
+    def __init__(self, *, subscriptions: list[AzureSubscription] | None = None) -> None:
         self.calls: list[dict[str, str | None]] = []
         self.list_calls: list[dict[str, str | None]] = []
         self.subscriptions = subscriptions or [
@@ -116,7 +114,7 @@ def test_azure_provider_rejects_organization_targets():
     provider = AzureProvider()
     target = TargetDescriptor(config_branch=ConfigBranch.ORGANIZATIONS, name="mgmt")
 
-    with pytest.raises(ValueError, match="supports subscriptions"):
+    with pytest.raises(ValueError, match="supports targets"):
         provider.validate_target(target)
 
 
@@ -183,10 +181,7 @@ def test_azure_subscription_discovery_resolves_listed_subscriptions():
     target = _target(include=None)
 
     plan = provider.resolve_execution_targets(
-        target=target,
-        regions=["eastus"],
-        include=None,
-        exclude=None,
+        target=target, regions=["eastus"], include=None, exclude=None
     )
 
     assert [execution_target.id for execution_target in plan.execution_targets] == [
@@ -195,6 +190,37 @@ def test_azure_subscription_discovery_resolves_listed_subscriptions():
     ]
     assert session_factory.list_calls == [
         {"tenant_id": None, "client_id": None, "client_secret": None}
+    ]
+
+
+def test_azure_tenant_mode_discovers_subscriptions_with_filters():
+    session_factory = FakeSessionFactory(
+        subscriptions=[
+            AzureSubscription(subscription_id="sub-a"),
+            AzureSubscription(subscription_id="sub-b"),
+        ]
+    )
+    provider = AzureProvider(session_factory=session_factory)
+    target = _target(
+        config_branch=ConfigBranch.TARGETS,
+        mode="tenant",
+        include=["sub-b"],
+        provider_options={
+            "tenant_id": "tenant-a",
+            "client_id": "client-a",
+            "client_secret": "secret-a",
+        },
+    )
+
+    plan = provider.resolve_execution_targets(
+        target=target, regions=["eastus"], include=target.include, exclude=None
+    )
+
+    assert [execution_target.id for execution_target in plan.execution_targets] == [
+        "sub-b"
+    ]
+    assert session_factory.list_calls == [
+        {"tenant_id": "tenant-a", "client_id": "client-a", "client_secret": "secret-a"}
     ]
 
 
@@ -210,26 +236,18 @@ def test_azure_subscription_discovery_applies_include_and_exclude_filters():
     target = _target(include=None)
 
     included_plan = provider.resolve_execution_targets(
-        target=target,
-        regions=["eastus"],
-        include=["sub-c", "sub-a"],
-        exclude=None,
+        target=target, regions=["eastus"], include=["sub-c", "sub-a"], exclude=None
     )
     excluded_plan = provider.resolve_execution_targets(
-        target=target,
-        regions=["eastus"],
-        include=None,
-        exclude=["sub-b"],
+        target=target, regions=["eastus"], include=None, exclude=["sub-b"]
     )
 
-    assert [execution_target.id for execution_target in included_plan.execution_targets] == [
-        "sub-c",
-        "sub-a",
-    ]
-    assert [execution_target.id for execution_target in excluded_plan.execution_targets] == [
-        "sub-a",
-        "sub-c",
-    ]
+    assert [
+        execution_target.id for execution_target in included_plan.execution_targets
+    ] == ["sub-c", "sub-a"]
+    assert [
+        execution_target.id for execution_target in excluded_plan.execution_targets
+    ] == ["sub-a", "sub-c"]
 
 
 def test_azure_subscription_discovery_reports_unknown_filters():
@@ -238,10 +256,7 @@ def test_azure_subscription_discovery_reports_unknown_filters():
 
     with pytest.raises(ValueError, match="unknown subscription IDs: missing-sub"):
         provider.resolve_execution_targets(
-            target=target,
-            regions=["eastus"],
-            include=["missing-sub"],
-            exclude=None,
+            target=target, regions=["eastus"], include=["missing-sub"], exclude=None
         )
 
 
@@ -255,10 +270,7 @@ def test_azure_subscription_discovery_errors_are_actionable():
 
     with pytest.raises(RuntimeError, match="could not discover subscriptions: boom"):
         provider.resolve_execution_targets(
-            target=target,
-            regions=["eastus"],
-            include=None,
-            exclude=None,
+            target=target, regions=["eastus"], include=None, exclude=None
         )
 
 
@@ -382,9 +394,7 @@ def test_azure_session_factory_uses_managed_identity_client_id(monkeypatch):
     monkeypatch.setattr(builtins, "__import__", fake_import)
 
     session = AzureSessionFactory().create_session(
-        subscription_id="sub-a",
-        location="eastus",
-        client_id="client-a",
+        subscription_id="sub-a", location="eastus", client_id="client-a"
     )
 
     assert session.credential.kwargs == {"managed_identity_client_id": "client-a"}

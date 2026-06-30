@@ -6,7 +6,9 @@ from anvil.task_loader import ResolvedExecution, resolve_tasks
 
 def render_graph(*, targets, output_json: bool) -> None:
     for target in targets:
-        execution: ResolvedExecution = resolve_tasks(task_specs=target.tasks)
+        execution: ResolvedExecution = resolve_tasks(
+            task_specs=target.tasks, provider_name=target.provider
+        )
 
         if output_json:
             _render_json(
@@ -62,9 +64,12 @@ def _print_node_recursive(
 
 
 def _render_json(*, target_name: str, config_branch: ConfigBranch, execution) -> None:
-    target_key = (
-        "account_group" if config_branch is ConfigBranch.ACCOUNTS else "organization"
-    )
+    if config_branch is ConfigBranch.TARGETS:
+        target_key = "target"
+    elif config_branch is ConfigBranch.ACCOUNTS:
+        target_key = "account_group"
+    else:
+        target_key = "organization"
 
     payload = {
         target_key: target_name,

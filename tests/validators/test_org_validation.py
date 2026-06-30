@@ -90,7 +90,7 @@ def test_invalid_provider_mode_is_rejected():
 
 
 def test_invalid_provider_options_are_rejected():
-    with pytest.raises(ValueError, match="Unsupported provider_options"):
+    with pytest.raises(ValueError, match="Unsupported provider.options"):
         TargetDescriptor(
             config_branch=ConfigBranch.ACCOUNTS,
             name="gcp-projects",
@@ -102,7 +102,7 @@ def test_invalid_provider_options_are_rejected():
 
 
 def test_provider_options_profile_conflict_is_rejected():
-    with pytest.raises(ValueError, match="provider_options.profile"):
+    with pytest.raises(ValueError, match="provider.options.profile"):
         TargetDescriptor(
             config_branch=ConfigBranch.ACCOUNTS,
             name="aws-accounts",
@@ -113,7 +113,7 @@ def test_provider_options_profile_conflict_is_rejected():
 
 
 def test_provider_options_role_name_conflict_is_rejected():
-    with pytest.raises(ValueError, match="provider_options.role_name"):
+    with pytest.raises(ValueError, match="provider.options.role_name"):
         TargetDescriptor(
             config_branch=ConfigBranch.ACCOUNTS,
             name="aws-accounts",

@@ -106,10 +106,16 @@ def _validate_cli_overrides(
     """
     Validate branch-specific CLI override semantics.
     """
-    if loaded_config.branch.value == "accounts" and args.exclude is not None:
-        raise ValueError(
-            "CLI --exclude is not supported for account-group config files"
-        )
+    if loaded_config.branch is ConfigBranch.TARGETS and args.exclude is not None:
+        explicit_targets = [
+            target for target in loaded_config.targets if target.is_explicit_mode
+        ]
+        if explicit_targets:
+            target_names = ", ".join(target.name for target in explicit_targets)
+            raise ValueError(
+                "CLI --exclude is not supported for explicit provider modes; "
+                f"target(s): {target_names}"
+            )
 
 
 def _add_common_config_args(parser: argparse.ArgumentParser) -> None:
@@ -119,8 +125,7 @@ def _add_common_config_args(parser: argparse.ArgumentParser) -> None:
         nargs="+",
         type=Path,
         help=(
-            "Path(s) to YAML config file(s) defining organizations or explicit "
-            "provider target groups"
+            "Path(s) to schema_version: 2 YAML config file(s) defining provider targets"
         ),
     )
 
@@ -154,6 +159,9 @@ def _create_results_run_dir(*, config_file: Path) -> Path:
 
 
 def _target_results_dir_name(config_branch: ConfigBranch) -> str:
+    if config_branch is ConfigBranch.TARGETS:
+        return "targets"
+
     if config_branch is ConfigBranch.ACCOUNTS:
         return "account-groups"
 
@@ -850,7 +858,7 @@ def _add_results_query_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--type", choices=["account", "task"], help="Filter by result record type"
     )
-    parser.add_argument("--target", help="Filter by organization or account-group name")
+    parser.add_argument("--target", help="Filter by target name")
     parser.add_argument("--account", help="Filter by account ID or account alias")
     parser.add_argument("--region", help="Filter by AWS region")
     parser.add_argument("--task", help="Filter by task name")
@@ -1011,8 +1019,7 @@ def main() -> None:
     validate_parser.set_defaults(func=_cmd_validate)
 
     graph_parser = subparsers.add_parser(
-        "graph",
-        help="Show task dependency graph for configured provider targets",
+        "graph", help="Show task dependency graph for configured provider targets"
     )
     _add_common_config_args(graph_parser)
     _add_log_level_arg(graph_parser)

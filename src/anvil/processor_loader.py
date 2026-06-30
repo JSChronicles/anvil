@@ -368,6 +368,7 @@ def load_historical_run_context(*, results_dir: Path) -> ProcessorRunContext:
     for branch, directory_name, target_key in (
         (ConfigBranch.ORGANIZATIONS, "organizations", "organization"),
         (ConfigBranch.ACCOUNTS, "account-groups", "account_group"),
+        (ConfigBranch.TARGETS, "targets", "target"),
     ):
         target_dir = results_dir / directory_name
         if not target_dir.exists():

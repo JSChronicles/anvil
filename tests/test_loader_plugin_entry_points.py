@@ -57,11 +57,7 @@ def _write_entry_point_distribution(
 
 
 def _write_duplicate_task_entry_points_distribution(
-    *,
-    root: Path,
-    distribution_name: str,
-    entry_point_group: str,
-    task_name: str,
+    *, root: Path, distribution_name: str, entry_point_group: str, task_name: str
 ) -> None:
     package_names = [
         f"{distribution_name.replace('-', '_')}_first",
@@ -72,8 +68,7 @@ def _write_duplicate_task_entry_points_distribution(
         package_dir.mkdir()
         (package_dir / "__init__.py").write_text("", encoding="utf-8")
         (package_dir / f"{task_name}.py").write_text(
-            "def run(**kwargs):\n    return None\n",
-            encoding="utf-8",
+            "def run(**kwargs):\n    return None\n", encoding="utf-8"
         )
 
     dist_info_dir = root / f"{distribution_name.replace('-', '_')}-1.0.dist-info"
@@ -175,8 +170,7 @@ def test_universal_provider_plugin_task_resolves_for_all_providers(
 
     for provider_name in ("aws", "azure", "gcp"):
         execution = task_loader.resolve_tasks(
-            task_specs=[{"name": "universal_plugin_task"}],
-            provider_name=provider_name,
+            task_specs=[{"name": "universal_plugin_task"}], provider_name=provider_name
         )
 
         assert execution.ordered[0].run() == {"source": "universal-plugin"}
@@ -207,8 +201,7 @@ def test_provider_specific_plugin_task_resolves_only_for_own_provider(
     _clear_task_loader_caches()
 
     execution = task_loader.resolve_tasks(
-        task_specs=[{"name": task_name}],
-        provider_name=provider_name,
+        task_specs=[{"name": task_name}], provider_name=provider_name
     )
     assert execution.ordered[0].run() == f"{provider_name}-plugin"
 
@@ -216,8 +209,7 @@ def test_provider_specific_plugin_task_resolves_only_for_own_provider(
     for other_provider in other_providers:
         with pytest.raises(task_loader.TaskConfigError, match="not available"):
             task_loader.resolve_tasks(
-                task_specs=[{"name": task_name}],
-                provider_name=other_provider,
+                task_specs=[{"name": task_name}], provider_name=other_provider
             )
 
 
@@ -237,8 +229,7 @@ def test_duplicate_plugin_and_builtin_task_name_is_ambiguous(monkeypatch, tmp_pa
 
     with pytest.raises(task_loader.TaskConfigError) as exc_info:
         task_loader.resolve_tasks(
-            task_specs=[{"name": "count_vpc"}],
-            provider_name="aws",
+            task_specs=[{"name": "count_vpc"}], provider_name="aws"
         )
 
     error = str(exc_info.value)
@@ -274,8 +265,7 @@ def test_duplicate_universal_and_provider_plugin_names_are_ambiguous(
 
     with pytest.raises(task_loader.TaskConfigError) as exc_info:
         task_loader.resolve_tasks(
-            task_specs=[{"name": "shared_plugin_task"}],
-            provider_name="aws",
+            task_specs=[{"name": "shared_plugin_task"}], provider_name="aws"
         )
 
     error = str(exc_info.value)
@@ -284,8 +274,7 @@ def test_duplicate_universal_and_provider_plugin_names_are_ambiguous(
     assert "aws plugin: anvil-test-shared-aws-plugin" in error
 
     azure_execution = task_loader.resolve_tasks(
-        task_specs=[{"name": "shared_plugin_task"}],
-        provider_name="azure",
+        task_specs=[{"name": "shared_plugin_task"}], provider_name="azure"
     )
     assert azure_execution.ordered[0].run() == "universal"
 
@@ -305,8 +294,7 @@ def test_duplicate_same_distribution_plugin_names_fail_full_task_validation(
 
     with pytest.raises(task_loader.TaskConfigError, match="ambiguous"):
         task_loader.resolve_tasks(
-            task_specs=[{"name": "duplicated_plugin_task"}],
-            provider_name="aws",
+            task_specs=[{"name": "duplicated_plugin_task"}], provider_name="aws"
         )
 
     with pytest.raises(ValueError, match="duplicate task name: duplicated_plugin_task"):

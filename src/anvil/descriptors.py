@@ -12,25 +12,28 @@ PROVIDER_GCP = "gcp"
 
 MODE_AWS_ORGANIZATION = "organization"
 MODE_AWS_ACCOUNTS = "accounts"
+MODE_AZURE_TENANT = "tenant"
 MODE_AZURE_SUBSCRIPTIONS = "subscriptions"
+MODE_GCP_ORGANIZATION = "organization"
 MODE_GCP_PROJECTS = "projects"
 
 SUPPORTED_PROVIDERS = {PROVIDER_AWS, PROVIDER_AZURE, PROVIDER_GCP}
 SUPPORTED_PROVIDER_MODES = {
     PROVIDER_AWS: {MODE_AWS_ORGANIZATION, MODE_AWS_ACCOUNTS},
-    PROVIDER_AZURE: {MODE_AZURE_SUBSCRIPTIONS},
-    PROVIDER_GCP: {MODE_GCP_PROJECTS},
+    PROVIDER_AZURE: {MODE_AZURE_TENANT, MODE_AZURE_SUBSCRIPTIONS},
+    PROVIDER_GCP: {MODE_GCP_ORGANIZATION, MODE_GCP_PROJECTS},
 }
 SUPPORTED_PROVIDER_OPTIONS = {
     PROVIDER_AWS: {"profile", "role_name"},
     PROVIDER_AZURE: {"tenant_id", "client_id", "client_secret", "subscription_id"},
-    PROVIDER_GCP: {"credentials_path", "quota_project_id"},
+    PROVIDER_GCP: {"credentials_path", "organization_id", "quota_project_id"},
 }
 
 
 class ConfigBranch(StrEnum):
     ORGANIZATIONS = "organizations"
     ACCOUNTS = "accounts"
+    TARGETS = "targets"
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,9 +41,9 @@ class TargetDescriptor:
     """
     Declarative description of one execution target group loaded from config.
 
-    A target group can come from either:
-    - organizations: discover accounts from AWS Organizations
-    - accounts: execute against an explicit list of account IDs
+    Public v0.30 configs load from schema_version: 2 top-level targets.
+    Some branch enum values and normalized AWS fields remain for result and
+    execution compatibility.
     """
 
     config_branch: ConfigBranch
@@ -66,11 +69,33 @@ class TargetDescriptor:
 
     @property
     def is_organization_config(self) -> bool:
-        return self.config_branch is ConfigBranch.ORGANIZATIONS
+        return self.provider == PROVIDER_AWS and self.mode == MODE_AWS_ORGANIZATION
 
     @property
     def is_accounts_config(self) -> bool:
-        return self.config_branch is ConfigBranch.ACCOUNTS
+        return (
+            self.provider == PROVIDER_AWS
+            and self.mode == MODE_AWS_ACCOUNTS
+            or self.provider == PROVIDER_AZURE
+            and self.mode == MODE_AZURE_SUBSCRIPTIONS
+            or self.provider == PROVIDER_GCP
+            and self.mode == MODE_GCP_PROJECTS
+        )
+
+    @property
+    def is_discovery_mode(self) -> bool:
+        return (
+            self.provider == PROVIDER_AWS
+            and self.mode == MODE_AWS_ORGANIZATION
+            or self.provider == PROVIDER_AZURE
+            and self.mode == MODE_AZURE_TENANT
+            or self.provider == PROVIDER_GCP
+            and self.mode == MODE_GCP_ORGANIZATION
+        )
+
+    @property
+    def is_explicit_mode(self) -> bool:
+        return not self.is_discovery_mode
 
     def __post_init__(self) -> None:
         if not isinstance(self.provider, str):
@@ -170,11 +195,49 @@ class TargetDescriptor:
 
             return
 
+        if self.config_branch is ConfigBranch.TARGETS:
+            if self.include is not None and self.exclude is not None:
+                raise ValueError("include and exclude cannot both be set")
+
+            if self.is_explicit_mode:
+                if not self.include:
+                    raise ValueError(
+                        f"provider '{self.provider}' mode '{self.mode}' requires include"
+                    )
+                if self.exclude is not None:
+                    raise ValueError(
+                        f"provider '{self.provider}' mode '{self.mode}' does not allow exclude"
+                    )
+
+            if (
+                self.provider == PROVIDER_AWS
+                and self.mode == MODE_AWS_ACCOUNTS
+                and self.role_name is None
+                and len(self.include or []) != 1
+            ):
+                raise ValueError(
+                    "AWS accounts targets without role_name must include exactly "
+                    "one account ID"
+                )
+
+            if self.is_explicit_mode:
+                target_region_selectors = [
+                    region for region in self.regions if is_region_selector(region)
+                ]
+                if target_region_selectors:
+                    raise ValueError(
+                        f"provider '{self.provider}' mode '{self.mode}' requires "
+                        "explicit region names; selectors are not allowed: "
+                        f"{', '.join(target_region_selectors)}"
+                    )
+
+            return
+
         raise ValueError(f"Unsupported config branch: {self.config_branch}")
 
     def _validate_provider_options(self) -> None:
         if not isinstance(self.provider_options, dict):
-            raise ValueError("provider_options must be a mapping")
+            raise ValueError("provider.options must be a mapping")
 
         if self.provider != PROVIDER_AWS:
             if self.profile is not None:
@@ -192,7 +255,7 @@ class TargetDescriptor:
             unknown_display = ", ".join(unknown_options)
             allowed_display = ", ".join(sorted(allowed_options)) or "(none)"
             raise ValueError(
-                f"Unsupported provider_options for provider '{self.provider}': "
+                f"Unsupported provider.options for provider '{self.provider}': "
                 f"{unknown_display}. Supported options: {allowed_display}"
             )
 
@@ -201,7 +264,7 @@ class TargetDescriptor:
                 continue
             if not isinstance(option_value, str) or not option_value.strip():
                 raise ValueError(
-                    f"provider_options.{option_name} must be a non-empty string"
+                    f"provider.options.{option_name} must be a non-empty string"
                 )
 
         if self.provider == PROVIDER_AZURE:
@@ -211,17 +274,17 @@ class TargetDescriptor:
             subscription_id = self.provider_options.get("subscription_id")
             if tenant_id is not None and client_secret is None:
                 raise ValueError(
-                    "Azure provider_options.tenant_id is only supported with "
+                    "Azure provider.options.tenant_id is only supported with "
                     "client_secret"
                 )
             if subscription_id is not None and client_secret is None:
                 raise ValueError(
-                    "Azure provider_options.subscription_id is only supported with "
+                    "Azure provider.options.subscription_id is only supported with "
                     "client_secret"
                 )
             if client_secret is not None and (tenant_id is None or client_id is None):
                 raise ValueError(
-                    "Azure provider_options.client_secret requires tenant_id and "
+                    "Azure provider.options.client_secret requires tenant_id and "
                     "client_id"
                 )
 
@@ -232,20 +295,22 @@ class TargetDescriptor:
         profile = self.provider_options.get("profile")
         if profile is not None:
             if not isinstance(profile, str) or not profile.strip():
-                raise ValueError("provider_options.profile must be a non-empty string")
+                raise ValueError("provider.options.profile must be a non-empty string")
             if self.profile is not None and self.profile != profile:
                 raise ValueError(
-                    "profile and provider_options.profile must not conflict"
+                    "profile and provider.options.profile must not conflict"
                 )
             object.__setattr__(self, "profile", profile.strip())
 
         role_name = self.provider_options.get("role_name")
         if role_name is not None:
             if not isinstance(role_name, str) or not role_name.strip():
-                raise ValueError("provider_options.role_name must be a non-empty string")
+                raise ValueError(
+                    "provider.options.role_name must be a non-empty string"
+                )
             if self.role_name is not None and self.role_name != role_name:
                 raise ValueError(
-                    "role_name and provider_options.role_name must not conflict"
+                    "role_name and provider.options.role_name must not conflict"
                 )
             object.__setattr__(self, "role_name", role_name.strip())
 

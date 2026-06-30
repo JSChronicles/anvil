@@ -54,7 +54,7 @@ jobs:
     environment: ${{ inputs.environment || 'aws-production' }}
     timeout-minutes: 55
     env:
-      ANVIL_CONFIG_FILE: examples/github-actions/noop-multi-org.yaml
+      ANVIL_CONFIG_FILE: examples/github-actions/noop-multi-oidc.yaml
       ANVIL_DRY_RUN: ${{ github.event_name != 'workflow_dispatch' || inputs.dry_run }}
       ANVIL_INCLUDE_ACCOUNTS: ${{ inputs.include_accounts || '' }}
       ANVIL_EXCLUDE_ACCOUNTS: ${{ inputs.exclude_accounts || '' }}

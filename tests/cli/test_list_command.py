@@ -193,9 +193,7 @@ def test_cmd_list_providers_groups_by_source(monkeypatch, capsys):
     )
 
 
-def test_cmd_list_providers_does_not_call_cloud_discovery(
-    monkeypatch, capsys
-):
+def test_cmd_list_providers_does_not_call_cloud_discovery(monkeypatch, capsys):
     cli = _import_cli_or_skip()
 
     monkeypatch.setattr(

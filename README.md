@@ -95,11 +95,15 @@ anvil run --config-file ./yaml/orgs.yaml
 
 ```yaml
 # orgs.yaml example
-schema_version: 1
+schema_version: 2
 
-organizations:
+targets:
   - name: smoke
-    profile: root
+    provider:
+      name: aws
+      mode: organization
+      options:
+        profile: root
     tasks:
       - name: noop
     dry_run: true
@@ -107,15 +111,14 @@ organizations:
 
 ### Provider targets
 
-Each target group may declare `provider`, `mode`, and `provider_options`.
-Omitted provider fields keep legacy AWS behavior:
+Schema v2 uses one top-level `targets` list. Each target declares
+`provider.name`, `provider.mode`, and optional `provider.options`.
+Provider-neutral execution settings stay on the target: `include`, `exclude`,
+`regions`, `tasks`, `dry_run`, `fail_fast`, `max_workers`,
+`max_parallel_regions`, and `metadata`.
 
-- `organizations` defaults to `provider: aws` and `mode: organization`.
-- `accounts` defaults to `provider: aws` and `mode: accounts`.
-- Legacy top-level AWS `profile` and `role_name` remain supported.
-- `provider_options.profile` and `provider_options.role_name` are AWS
-  compatibility aliases. If both the top-level field and alias are present,
-  they must match.
+Public YAML uses `provider.options`; the old public `provider_options` spelling
+and top-level AWS `profile` / `role_name` fields are not supported in v0.30.
 
 Current supported provider modes:
 
@@ -124,58 +127,79 @@ Current supported provider modes:
   either include or exclude AWS account IDs, and supports region selectors such
   as `all` and glob patterns.
 - AWS `accounts`: runs against explicit AWS account IDs in `include`.
-- Azure `subscriptions`: runs explicit Azure subscription IDs in `include`, or
-  discovers subscriptions when `include` is omitted. `exclude` can remove
-  discovered subscriptions. Azure supports universal tasks when an Azure
-  runtime session can be built.
-- GCP `projects`: runs explicit GCP project IDs in `include`, or discovers
-  projects when `include` is omitted. `exclude` can remove discovered projects.
-  GCP supports universal tasks when a GCP runtime session can be built.
+- Azure `tenant`: discovers visible Azure subscriptions and supports optional
+  `include` or `exclude`.
+- Azure `subscriptions`: runs explicit Azure subscription IDs in `include`.
+- GCP `organization`: schema-supported discovery mode. Full organization-scoped
+  project discovery is intentionally deferred and currently returns a clear
+  runtime error.
+- GCP `projects`: runs explicit GCP project IDs in `include`.
 
-Azure management group discovery and GCP organization/folder discovery are
-intentionally deferred. The schema rejects those modes until provider discovery
-support is implemented.
+Discovery modes allow omitted `include`; omitted `include` and `exclude` means
+discover every execution target in scope. Explicit modes require `include` and
+forbid `exclude`.
 
-Azure/GCP management group, organization, and folder discovery are still
-deferred. Azure/GCP runtime session creation requires the provider's optional
-SDKs and credentials; failures are reported as provider-specific runtime errors
-without entering AWS auth, session, or account resolution code. Azure/GCP
-`provider_options` are passed into the provider runtime session factories.
+Azure/GCP runtime session creation requires the provider's optional SDKs and
+credentials; failures are reported as provider-specific runtime errors without
+entering AWS auth, session, or account resolution code. `provider.options` are
+passed into the provider runtime session factories.
+
+### v0.30 migration notes
+
+Anvil v0.30 supports only `schema_version: 2` configs with top-level `targets`.
+The previous top-level `organizations` and `accounts` config shapes were
+removed. Public YAML now uses `provider.options`; the previous public
+`provider_options` spelling is no longer accepted. AWS `profile` and
+`role_name` also moved under `provider.options`.
+
+Discovery modes are `aws/organization`, `azure/tenant`, and
+`gcp/organization`. They may omit both `include` and `exclude` to discover all
+targets in scope, or use either selector, but not both. Explicit modes are
+`aws/accounts`, `azure/subscriptions`, and `gcp/projects`; they require
+`include` and forbid `exclude`.
+
+Result files keep `account_id` and `account_alias` as compatibility fields for
+all providers. For Azure they represent subscription ID/name; for GCP they
+represent project ID/name. GCP `organization` mode is schema-supported, but
+organization-scoped project discovery remains deferred and returns a clear
+runtime error.
 
 ```yaml
-schema_version: 1
+schema_version: 2
 
-accounts:
+targets:
   - name: azure-explicit-subscriptions
-    provider: azure
-    mode: subscriptions
+    provider:
+      name: azure
+      mode: subscriptions
+      options:
+        tenant_id: example-tenant-id
+        client_id: example-client-id
+        client_secret: example-client-secret
+        subscription_id: example-runtime-subscription-id
     regions:
       - eastus
     include:
       - 11111111-2222-3333-4444-555555555555
-    provider_options:
-      tenant_id: example-tenant-id
-      client_id: example-client-id
-      client_secret: example-client-secret
-      subscription_id: example-runtime-subscription-id
     tasks:
       - name: noop
 ```
 
 ```yaml
-schema_version: 1
+schema_version: 2
 
-accounts:
+targets:
   - name: gcp-explicit-projects
-    provider: gcp
-    mode: projects
+    provider:
+      name: gcp
+      mode: projects
+      options:
+        credentials_path: /secure/path/to/credentials.json
+        quota_project_id: anvil-billing-project
     regions:
       - us-central1
     include:
       - anvil-dev-project
-    provider_options:
-      credentials_path: /secure/path/to/credentials.json
-      quota_project_id: anvil-billing-project
     tasks:
       - name: noop
 ```
@@ -212,10 +236,14 @@ aws-extra = "my_plugin.aws_tasks"
 Example Azure task configuration:
 
 ```yaml
-accounts:
+schema_version: 2
+
+targets:
   - name: azure-subscriptions
-    provider: azure
-    mode: subscriptions
+    provider:
+      name: azure
+      mode: subscriptions
+      options: {}
     include:
       - 00000000-0000-0000-0000-000000000000
     regions:
@@ -227,17 +255,20 @@ accounts:
 Example GCP task configuration:
 
 ```yaml
-accounts:
+schema_version: 2
+
+targets:
   - name: gcp-projects
-    provider: gcp
-    mode: projects
+    provider:
+      name: gcp
+      mode: projects
+      options:
+        credentials_path: /secure/path/to/credentials.json
+        quota_project_id: anvil-billing-project
     include:
       - anvil-dev-project
     regions:
       - us-central1
-    provider_options:
-      credentials_path: /secure/path/to/credentials.json
-      quota_project_id: anvil-billing-project
     tasks:
       - name: get_project_info
 ```
@@ -265,12 +296,16 @@ delegated-admin account if it appears in Organizations discovery, and assumes
 account.
 
 ```yaml
-schema_version: 1
+schema_version: 2
 
-organizations:
+targets:
   - name: security
-    profile: delegated-admin-security
-    role_name: SecurityAuditRole
+    provider:
+      name: aws
+      mode: organization
+      options:
+        profile: delegated-admin-security
+        role_name: SecurityAuditRole
     regions:
       - us-east-1
     tasks:
@@ -323,11 +358,15 @@ Use `html_report` when you want a self-contained, human-readable report for a
 completed target:
 
 ```yaml
-schema_version: 1
+schema_version: 2
 
-organizations:
+targets:
   - name: smoke
-    profile: root
+    provider:
+      name: aws
+      mode: organization
+      options:
+        profile: root
     regions:
       - us-east-1
     tasks:
@@ -342,11 +381,15 @@ Use `sarif_report` when `detect_` tasks return `sarif_findings` and you want a
 SARIF 2.1.0 report for code-scanning or security tooling:
 
 ```yaml
-schema_version: 1
+schema_version: 2
 
-organizations:
+targets:
   - name: lambda-runtime-audit
-    profile: root
+    provider:
+      name: aws
+      mode: organization
+      options:
+        profile: root
     regions:
       - us-*
     tasks:
@@ -375,18 +418,22 @@ anvil run --config-file ./yaml/advanced.yaml
 
 ```yaml
 # advanced.yaml example
-schema_version: 1
+schema_version: 2
 max_parallel_targets: 2
 
-organizations:
+targets:
   - name: place
-    profile: place-root
+    provider:
+      name: aws
+      mode: organization
+      options:
+        profile: place-root
+        role_name: OrganizationAccountAccessRole
     # Organizations support explicit regions, all, glob selectors, and mixed
     # glob plus explicit selectors.
     regions:
       - us-east-1
       - us-west-2
-    role_name: OrganizationAccountAccessRole
 
     max_workers: 5
     max_parallel_regions: 2

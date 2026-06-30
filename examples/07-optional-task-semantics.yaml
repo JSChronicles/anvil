@@ -1,36 +1,22 @@
-# Demonstrates:
-# - Optional task failure does NOT fail the account
-# - Failed optional tasks still block dependents
-# - Execution continues past optional failure
-# - Explicit single-region configuration
-#
-# Builds on 06 by adding a dependent task behind the optional task.
-
-schema_version: 1
-
-organizations:
-  - name: optional-semantics-org
-
-    profile: my-aws-profile
-
-    regions:
-      - us-east-1
-
-    exclude:
-      - "333333333333"
-      - "444444444444"
-
-    tasks:
-      - name: inventory
-        # Root task, required
-
-      - name: reporting
-        depends_on: ["inventory"]
-        optional: true
-        # If this task fails:
-        # - account still succeeds
-        # - dependent tasks are blocked
-
-      - name: cleanup
-        depends_on: ["reporting"]
-        # Will NOT run if reporting fails
+schema_version: 2
+targets:
+- name: optional-semantics-org
+  provider:
+    name: aws
+    mode: organization
+    options:
+      profile: my-aws-profile
+  regions:
+  - us-east-1
+  exclude:
+  - '333333333333'
+  - '444444444444'
+  tasks:
+  - name: inventory
+  - name: reporting
+    depends_on:
+    - inventory
+    optional: true
+  - name: cleanup
+    depends_on:
+    - reporting

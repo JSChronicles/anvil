@@ -58,10 +58,7 @@ class FakeSessionFactory:
         quota_project_id: str | None = None,
     ) -> list[GcpProject]:
         self.list_calls.append(
-            {
-                "credentials_path": credentials_path,
-                "quota_project_id": quota_project_id,
-            }
+            {"credentials_path": credentials_path, "quota_project_id": quota_project_id}
         )
         return list(self.projects)
 
@@ -101,7 +98,7 @@ def test_gcp_provider_rejects_organization_targets():
     provider = GcpProvider()
     target = TargetDescriptor(config_branch=ConfigBranch.ORGANIZATIONS, name="folder")
 
-    with pytest.raises(ValueError, match="supports projects"):
+    with pytest.raises(ValueError, match="supports targets"):
         provider.validate_target(target)
 
 
@@ -144,10 +141,7 @@ def test_gcp_project_discovery_resolves_listed_projects():
     target = _target(include=None)
 
     plan = provider.resolve_execution_targets(
-        target=target,
-        regions=["us-central1"],
-        include=None,
-        exclude=None,
+        target=target, regions=["us-central1"], include=None, exclude=None
     )
 
     assert [execution_target.id for execution_target in plan.execution_targets] == [
@@ -157,6 +151,21 @@ def test_gcp_project_discovery_resolves_listed_projects():
     assert session_factory.list_calls == [
         {"credentials_path": None, "quota_project_id": None}
     ]
+
+
+def test_gcp_organization_mode_reports_deferred_discovery():
+    provider = GcpProvider(session_factory=FakeSessionFactory())
+    target = _target(
+        config_branch=ConfigBranch.TARGETS,
+        mode="organization",
+        include=["project-a"],
+        provider_options={"organization_id": "123456789012"},
+    )
+
+    with pytest.raises(NotImplementedError, match="not implemented"):
+        provider.resolve_execution_targets(
+            target=target, regions=["global"], include=target.include, exclude=None
+        )
 
 
 def test_gcp_project_discovery_applies_include_and_exclude_filters():
@@ -177,20 +186,15 @@ def test_gcp_project_discovery_applies_include_and_exclude_filters():
         exclude=None,
     )
     excluded_plan = provider.resolve_execution_targets(
-        target=target,
-        regions=["us-central1"],
-        include=None,
-        exclude=["project-b"],
+        target=target, regions=["us-central1"], include=None, exclude=["project-b"]
     )
 
-    assert [execution_target.id for execution_target in included_plan.execution_targets] == [
-        "project-c",
-        "project-a",
-    ]
-    assert [execution_target.id for execution_target in excluded_plan.execution_targets] == [
-        "project-a",
-        "project-c",
-    ]
+    assert [
+        execution_target.id for execution_target in included_plan.execution_targets
+    ] == ["project-c", "project-a"]
+    assert [
+        execution_target.id for execution_target in excluded_plan.execution_targets
+    ] == ["project-a", "project-c"]
 
 
 def test_gcp_project_discovery_reports_unknown_filters():
@@ -216,10 +220,7 @@ def test_gcp_project_discovery_errors_are_actionable():
 
     with pytest.raises(RuntimeError, match="could not discover projects: boom"):
         provider.resolve_execution_targets(
-            target=target,
-            regions=["us-central1"],
-            include=None,
-            exclude=None,
+            target=target, regions=["us-central1"], include=None, exclude=None
         )
 
 
@@ -272,9 +273,7 @@ def test_gcp_session_factory_imports_sdk_only_when_session_is_built(monkeypatch)
 def test_gcp_session_factory_uses_credentials_file_and_quota_project(monkeypatch):
     calls: list[dict[str, object]] = []
 
-    def fake_load_credentials_from_file(
-        credentials_path, *, scopes, quota_project_id
-    ):
+    def fake_load_credentials_from_file(credentials_path, *, scopes, quota_project_id):
         calls.append(
             {
                 "credentials_path": credentials_path,
@@ -315,9 +314,7 @@ def test_gcp_session_factory_list_projects_uses_credentials_options(monkeypatch)
     credential_calls: list[dict[str, object]] = []
     client_credentials: list[object] = []
 
-    def fake_load_credentials_from_file(
-        credentials_path, *, scopes, quota_project_id
-    ):
+    def fake_load_credentials_from_file(credentials_path, *, scopes, quota_project_id):
         credential_calls.append(
             {
                 "credentials_path": credentials_path,
@@ -357,8 +354,7 @@ def test_gcp_session_factory_list_projects_uses_credentials_options(monkeypatch)
     )
 
     projects = GcpSessionFactory().list_projects(
-        credentials_path="credentials.json",
-        quota_project_id="billing-project",
+        credentials_path="credentials.json", quota_project_id="billing-project"
     )
 
     assert [project.project_id for project in projects] == ["project-a", "project-b"]

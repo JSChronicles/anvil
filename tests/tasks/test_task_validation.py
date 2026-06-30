@@ -59,10 +59,7 @@ def test_validate_tasks_accepts_real_azure_count_resource_groups_task():
 
 def test_validate_tasks_accepts_real_gcp_get_project_info_task():
     task = ResolvedTask(
-        name="get_project_info",
-        run=get_project_info,
-        depends_on=[],
-        optional=False,
+        name="get_project_info", run=get_project_info, depends_on=[], optional=False
     )
 
     validate_tasks([task])

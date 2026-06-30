@@ -42,10 +42,7 @@ class WorkerSession:
 
             class STSClient:
                 def __init__(
-                    self,
-                    *,
-                    account_id: str,
-                    caller_identity_calls: list[str] | None,
+                    self, *, account_id: str, caller_identity_calls: list[str] | None
                 ) -> None:
                     self._account_id = account_id
                     self._caller_identity_calls = caller_identity_calls

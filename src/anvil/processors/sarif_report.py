@@ -252,9 +252,11 @@ def _result_properties(
     task_result: dict[str, object],
     config_branch: ConfigBranch,
 ) -> dict[str, object]:
-    target_key = "account_group"
+    target_key = "target"
     if config_branch is ConfigBranch.ORGANIZATIONS:
         target_key = "organization"
+    elif config_branch is ConfigBranch.ACCOUNTS:
+        target_key = "account_group"
 
     properties: dict[str, object] = {
         "target_type": target_key,

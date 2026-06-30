@@ -21,15 +21,10 @@ def _mock_provider_tasks(monkeypatch, names: list[str]) -> None:
     def fake_index(provider_name: str):
         return {name: [_descriptor(name)] for name in names}
 
-    monkeypatch.setattr(
-        "anvil.task_loader.provider_task_descriptor_index", fake_index
-    )
+    monkeypatch.setattr("anvil.task_loader.provider_task_descriptor_index", fake_index)
     monkeypatch.setattr(
         "anvil.task_loader._provider_task_descriptor_index",
-        lambda provider_name: {
-            name: (_descriptor(name),)
-            for name in names
-        },
+        lambda provider_name: {name: (_descriptor(name),) for name in names},
     )
     resolve_tasks.__globals__["_resolve_tasks_cached"].cache_clear()
     resolve_tasks.__globals__["_load_provider_task_callable"].cache_clear()

@@ -89,6 +89,7 @@ class AwsProvider:
         if target.config_branch not in {
             ConfigBranch.ORGANIZATIONS,
             ConfigBranch.ACCOUNTS,
+            ConfigBranch.TARGETS,
         }:
             raise ValueError(f"Unsupported AWS target branch: {target.config_branch}")
 

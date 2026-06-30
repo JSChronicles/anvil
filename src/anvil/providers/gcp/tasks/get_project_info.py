@@ -43,7 +43,9 @@ def _get_state(project: object) -> str | None:
     return None
 
 
-def _project_info(project: object, *, project_id: str, location: str) -> dict[str, object]:
+def _project_info(
+    project: object, *, project_id: str, location: str
+) -> dict[str, object]:
     """Build structured project result data."""
 
     result: dict[str, object] = {

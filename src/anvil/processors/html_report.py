@@ -133,6 +133,9 @@ def _records_from_target_dict(
 
 
 def _target_type(config_branch: ConfigBranch) -> str:
+    if config_branch is ConfigBranch.TARGETS:
+        return "target"
+
     if config_branch is ConfigBranch.ACCOUNTS:
         return "account_group"
 

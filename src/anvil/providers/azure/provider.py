@@ -4,7 +4,7 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from anvil.descriptors import ConfigBranch, TargetDescriptor
+from anvil.descriptors import ConfigBranch, MODE_AZURE_TENANT, TargetDescriptor
 from anvil.execution_context import ExecutionContext
 from anvil.providers.base import (
     ExecutionTarget,
@@ -140,7 +140,7 @@ class AzureSessionFactory:
             if client_secret is not None:
                 if tenant_id is None or client_id is None:
                     raise RuntimeError(
-                        "Azure provider_options.client_secret requires tenant_id and "
+                        "Azure provider.options.client_secret requires tenant_id and "
                         "client_id when building an Azure runtime session."
                     )
                 return ClientSecretCredential(
@@ -174,9 +174,7 @@ class AzureSessionFactory:
         """Create an Azure session for a subscription/location pair."""
 
         credential = self._build_credential(
-            tenant_id=tenant_id,
-            client_id=client_id,
-            client_secret=client_secret,
+            tenant_id=tenant_id, client_id=client_id, client_secret=client_secret
         )
         return AzureSession(
             subscription_id=subscription_id,
@@ -195,9 +193,7 @@ class AzureSessionFactory:
         """List Azure subscriptions lazily through the Azure management SDK."""
 
         credential = self._build_credential(
-            tenant_id=tenant_id,
-            client_id=client_id,
-            client_secret=client_secret,
+            tenant_id=tenant_id, client_id=client_id, client_secret=client_secret
         )
         try:
             from azure.mgmt.subscription import SubscriptionClient
@@ -227,8 +223,7 @@ class AzureSessionFactory:
             raise
         except Exception as error:
             raise RuntimeError(
-                "Azure provider could not discover subscriptions: "
-                f"{error}"
+                f"Azure provider could not discover subscriptions: {error}"
             ) from error
 
 
@@ -270,37 +265,33 @@ class AzureProvider:
         self._session_factory = session_factory or AzureSessionFactory()
 
     def validate_target(self, target: TargetDescriptor) -> None:
-        """Validate Azure support: subscription targets only."""
+        """Validate Azure support for tenant discovery and explicit subscriptions."""
 
-        if target.config_branch is not ConfigBranch.ACCOUNTS:
+        if target.config_branch not in {ConfigBranch.ACCOUNTS, ConfigBranch.TARGETS}:
             raise ValueError(
-                "Azure provider currently supports subscriptions only from accounts"
+                "Azure provider supports targets config (schema_version: 2) only"
             )
         if (
             target.provider_options.get("tenant_id") is not None
             and target.provider_options.get("client_secret") is None
         ):
             raise ValueError(
-                "Azure provider_options.tenant_id is only supported with "
-                "client_secret"
+                "Azure provider.options.tenant_id is only supported with client_secret"
             )
         if (
             target.provider_options.get("subscription_id") is not None
             and target.provider_options.get("client_secret") is None
         ):
             raise ValueError(
-                "Azure provider_options.subscription_id is only supported with "
+                "Azure provider.options.subscription_id is only supported with "
                 "client_secret"
             )
-        if (
-            target.provider_options.get("client_secret") is not None
-            and (
-                target.provider_options.get("tenant_id") is None
-                or target.provider_options.get("client_id") is None
-            )
+        if target.provider_options.get("client_secret") is not None and (
+            target.provider_options.get("tenant_id") is None
+            or target.provider_options.get("client_id") is None
         ):
             raise ValueError(
-                "Azure provider_options.client_secret requires tenant_id and client_id"
+                "Azure provider.options.client_secret requires tenant_id and client_id"
             )
 
     def default_regions(self, target: TargetDescriptor) -> list[str]:
@@ -346,14 +337,12 @@ class AzureProvider:
 
         self.validate_target(target)
 
-        if target.include is None:
+        if target.mode == MODE_AZURE_TENANT or target.include is None:
             subscriptions = self._discover_subscriptions(
                 provider_options=target.provider_options
             )
             subscription_ids = self._filter_discovered_subscription_ids(
-                subscriptions=subscriptions,
-                include=include,
-                exclude=exclude,
+                subscriptions=subscriptions, include=include, exclude=exclude
             )
         else:
             subscription_ids = include or target.include
@@ -435,9 +424,7 @@ class AzureProvider:
         )
         if type(self._session_factory) is not AzureSessionFactory:
             return self._session_factory.list_subscriptions(
-                tenant_id=tenant_id,
-                client_id=client_id,
-                client_secret=client_secret,
+                tenant_id=tenant_id, client_id=client_id, client_secret=client_secret
             )
 
         discovery_key = self._subscription_discovery_cache_key(
@@ -446,25 +433,14 @@ class AzureProvider:
         return _AZURE_SUBSCRIPTION_DISCOVERY_CACHE.get_or_discover(
             key=discovery_key,
             discover=lambda: self._session_factory.list_subscriptions(
-                tenant_id=tenant_id,
-                client_id=client_id,
-                client_secret=client_secret,
+                tenant_id=tenant_id, client_id=client_id, client_secret=client_secret
             ),
         )
 
     def _subscription_discovery_cache_key(
-        self,
-        *,
-        tenant_id: str | None,
-        client_id: str | None,
-        client_secret: str | None,
+        self, *, tenant_id: str | None, client_id: str | None, client_secret: str | None
     ) -> object:
-        return (
-            AzureSessionFactory,
-            tenant_id,
-            client_id,
-            client_secret,
-        )
+        return (AzureSessionFactory, tenant_id, client_id, client_secret)
 
     def _filter_discovered_subscription_ids(
         self,
@@ -479,7 +455,11 @@ class AzureProvider:
         discovered_set = set(discovered_ids)
 
         if include is not None:
-            unknown = [subscription_id for subscription_id in include if subscription_id not in discovered_set]
+            unknown = [
+                subscription_id
+                for subscription_id in include
+                if subscription_id not in discovered_set
+            ]
             if unknown:
                 unknown_display = ", ".join(unknown)
                 raise ValueError(
@@ -491,7 +471,11 @@ class AzureProvider:
             subscription_ids = discovered_ids
 
         if exclude is not None:
-            unknown = [subscription_id for subscription_id in exclude if subscription_id not in discovered_set]
+            unknown = [
+                subscription_id
+                for subscription_id in exclude
+                if subscription_id not in discovered_set
+            ]
             if unknown:
                 unknown_display = ", ".join(unknown)
                 raise ValueError(

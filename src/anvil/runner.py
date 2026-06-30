@@ -361,9 +361,22 @@ def _resolve_effective_account_filters(
     cli_include: list[str] | None,
     cli_exclude: list[str] | None,
 ) -> tuple[list[str] | None, list[str] | None]:
+    if target.config_branch is ConfigBranch.TARGETS and target.is_explicit_mode:
+        effective_exclude = cli_exclude if cli_exclude is not None else target.exclude
+        if cli_include is None:
+            return target.include, effective_exclude
+
+        configured_target_ids = set(target.include or [])
+        narrowed_include = [
+            target_id for target_id in cli_include if target_id in configured_target_ids
+        ]
+        return narrowed_include, effective_exclude
+
     if target.is_accounts_config:
         if target.provider in {"azure", "gcp"}:
-            effective_exclude = cli_exclude if cli_exclude is not None else target.exclude
+            effective_exclude = (
+                cli_exclude if cli_exclude is not None else target.exclude
+            )
             if cli_include is None:
                 return target.include, effective_exclude
             if target.include is None:
@@ -400,11 +413,18 @@ def _resolve_effective_account_filters(
 
 
 def _validate_effective_account_filters(
-    *,
-    target: TargetDescriptor,
-    include: list[str] | None,
-    exclude: list[str] | None,
+    *, target: TargetDescriptor, include: list[str] | None, exclude: list[str] | None
 ) -> None:
+    if (
+        target.config_branch is ConfigBranch.TARGETS
+        and target.is_explicit_mode
+        and exclude is not None
+    ):
+        raise ValueError(
+            f"Target '{target.name}' provider '{target.provider}' mode "
+            f"'{target.mode}' does not allow exclude; explicit modes require include."
+        )
+
     if include is not None and exclude is not None:
         raise ValueError(
             f"Target '{target.name}' cannot use include and exclude together; "
@@ -553,9 +573,7 @@ def prepare_target(
                 cli_exclude=cli_exclude,
             )
             effective_include, effective_exclude = _resolve_effective_account_filters(
-                target=target,
-                cli_include=cli_include,
-                cli_exclude=cli_exclude,
+                target=target, cli_include=cli_include, cli_exclude=cli_exclude
             )
         except ValueError as error:
             return PreparedTarget(
@@ -598,7 +616,10 @@ def prepare_target(
         base_session_account_id: str | None = None
         discovered_accounts: dict[str, dict[str, str]] | None = None
         region_statuses: dict[str, str] | None = None
-        if effective_target.provider == "aws" and effective_target.is_organization_config:
+        if (
+            effective_target.provider == "aws"
+            and effective_target.is_organization_config
+        ):
             (
                 base_session,
                 organization_id,

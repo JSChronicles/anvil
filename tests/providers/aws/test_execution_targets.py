@@ -79,6 +79,35 @@ def test_resolve_execution_targets_maps_explicit_direct_profile_account():
     assert plan.execution_targets[0].metadata["access_strategy"] == "direct_profile"
 
 
+def test_v2_resolve_execution_targets_maps_explicit_assume_role_accounts():
+    session_factory = FakeSessionFactory()
+    target = TargetDescriptor(
+        config_branch=ConfigBranch.TARGETS,
+        name="selected",
+        provider="aws",
+        mode="accounts",
+        provider_options={"profile": "tooling", "role_name": "SecurityAccessRole"},
+        include=["111111111111", "222222222222"],
+    )
+
+    plan = AwsProvider().resolve_execution_targets(
+        target=target,
+        regions=["us-east-1"],
+        include=target.include,
+        exclude=target.exclude,
+        session_factory=session_factory,
+    )
+
+    assert plan.exclusive_execution_key is None
+    assert [execution_target.id for execution_target in plan.execution_targets] == [
+        "111111111111",
+        "222222222222",
+    ]
+    assert session_factory.base_session_calls == [
+        {"profile_name": "tooling", "region_name": "us-east-1"}
+    ]
+
+
 def test_resolve_execution_targets_maps_organization_accounts_and_execution_key():
     session_factory = FakeSessionFactory()
     base_session = BaseSession(profile_name="shared")
@@ -123,6 +152,48 @@ def test_resolve_execution_targets_maps_organization_accounts_and_execution_key(
         "is_management": False,
         "access_strategy": "assume_role",
     }
+    assert session_factory.base_session_calls == []
+
+
+def test_v2_resolve_execution_targets_maps_organization_accounts_and_execution_key():
+    session_factory = FakeSessionFactory()
+    base_session = BaseSession(profile_name="shared")
+    target = TargetDescriptor(
+        config_branch=ConfigBranch.TARGETS,
+        name="org-a",
+        provider="aws",
+        mode="organization",
+        provider_options={"profile": "shared"},
+        include=["222222222222"],
+    )
+
+    plan = AwsProvider().resolve_execution_targets(
+        target=target,
+        regions=["us-east-1"],
+        include=target.include,
+        exclude=target.exclude,
+        session_factory=session_factory,
+        base_session=base_session,
+        organization_id="o-shared",
+        management_account_id="111111111111",
+        base_session_account_id="111111111111",
+        discovered_accounts={
+            "111111111111": {
+                "account_number": "111111111111",
+                "account_alias": "management",
+            },
+            "222222222222": {
+                "account_number": "222222222222",
+                "account_alias": "member",
+            },
+        },
+        region_statuses={"us-east-1": "ENABLED_BY_DEFAULT"},
+    )
+
+    assert plan.exclusive_execution_key == "o-shared"
+    assert [execution_target.id for execution_target in plan.execution_targets] == [
+        "222222222222"
+    ]
     assert session_factory.base_session_calls == []
 
 

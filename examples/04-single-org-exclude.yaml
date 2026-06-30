@@ -1,21 +1,13 @@
-# Demonstrates:
-# - Excluding specific AWS accounts from execution
-# - Explicit single-region configuration
-#
-# Builds on 03 by replacing include with exclude.
-
-schema_version: 1
-
-organizations:
-  - name: exclude-some-org
-
-    profile: my-aws-profile
-
-    regions:
-      - us-east-1
-
-    exclude:
-      - "333333333333"
-      - "444444444444"
-    # All discovered accounts are executed except those listed.
-    # Mutually exclusive with include.
+schema_version: 2
+targets:
+- name: exclude-some-org
+  provider:
+    name: aws
+    mode: organization
+    options:
+      profile: my-aws-profile
+  regions:
+  - us-east-1
+  exclude:
+  - '333333333333'
+  - '444444444444'

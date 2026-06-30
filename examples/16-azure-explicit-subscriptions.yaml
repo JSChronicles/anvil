@@ -1,23 +1,19 @@
-schema_version: 1
-
-accounts:
-  - name: azure-explicit-subscriptions
-    provider: azure
+schema_version: 2
+targets:
+- name: azure-explicit-subscriptions
+  provider:
+    name: azure
     mode: subscriptions
-    # This example uses explicit subscription IDs. Omit include to discover
-    # visible subscriptions. Runtime requires Azure optional SDKs and credentials.
-    regions:
-      - eastus
-    include:
-      # This example lists subscription IDs directly. Management group
-      # discovery is intentionally deferred.
-      - 11111111-2222-3333-4444-555555555555
-      - aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
-    provider_options:
+    options:
       tenant_id: example-tenant-id
       client_id: example-client-id
       client_secret: example-client-secret
       subscription_id: example-runtime-subscription-id
-    dry_run: true
-    tasks:
-      - name: noop
+  regions:
+  - eastus
+  include:
+  - 11111111-2222-3333-4444-555555555555
+  - aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
+  dry_run: true
+  tasks:
+  - name: noop

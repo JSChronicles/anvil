@@ -1,58 +1,53 @@
-# Demonstrates:
-# - Executing multiple organizations in a single run
-# - Independent auth, regions, and execution contexts
-# - Multi-region execution per organization
-#
-# Builds on 09 by adding a second organization and explicit region lists.
-
-schema_version: 1
+schema_version: 2
 max_parallel_targets: 2
-
-organizations:
-  - name: primary-org
-    profile: primary-profile
-    regions:
-      - us-east-1
-      - us-west-2
-
-    exclude:
-      - "333333333333"
-      - "444444444444"
-
-    max_workers: 3
-
-    tasks:
-      - name: inventory
-
-      - name: tagging
-        depends_on: ["inventory"]
-
-      - name: compliance
-        depends_on: ["inventory"]
-        optional: true
-
-      - name: cleanup
-        depends_on: ["tagging", "compliance"]
-
-  - name: secondary-org
-    profile: secondary-profile
-    regions:
-      - us-west-2
-
-    exclude:
-      - "555555555555"
-
-    max_workers: 3
-
-    tasks:
-      - name: inventory
-
-      - name: tagging
-        depends_on: ["inventory"]
-
-      - name: compliance
-        depends_on: ["inventory"]
-        optional: true
-
-      - name: cleanup
-        depends_on: ["tagging", "compliance"]
+targets:
+- name: primary-org
+  provider:
+    name: aws
+    mode: organization
+    options:
+      profile: primary-profile
+  regions:
+  - us-east-1
+  - us-west-2
+  exclude:
+  - '333333333333'
+  - '444444444444'
+  max_workers: 3
+  tasks:
+  - name: inventory
+  - name: tagging
+    depends_on:
+    - inventory
+  - name: compliance
+    depends_on:
+    - inventory
+    optional: true
+  - name: cleanup
+    depends_on:
+    - tagging
+    - compliance
+- name: secondary-org
+  provider:
+    name: aws
+    mode: organization
+    options:
+      profile: secondary-profile
+  regions:
+  - us-west-2
+  exclude:
+  - '555555555555'
+  max_workers: 3
+  tasks:
+  - name: inventory
+  - name: tagging
+    depends_on:
+    - inventory
+  - name: compliance
+    depends_on:
+    - inventory
+    optional: true
+  - name: cleanup
+    depends_on:
+    - tagging
+    - compliance

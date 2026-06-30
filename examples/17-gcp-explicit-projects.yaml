@@ -1,21 +1,17 @@
-schema_version: 1
-
-accounts:
-  - name: gcp-explicit-projects
-    provider: gcp
+schema_version: 2
+targets:
+- name: gcp-explicit-projects
+  provider:
+    name: gcp
     mode: projects
-    # GCP supports explicit project IDs or project discovery with universal tasks.
-    # Runtime requires GCP optional SDKs and credentials.
-    regions:
-      - us-central1
-    include:
-      # Omit include to discover visible projects. Use exclude instead to remove
-      # discovered project IDs. Organization and folder discovery are deferred.
-      - anvil-dev-project
-      - anvil-prod-project
-    provider_options:
+    options:
       credentials_path: /secure/path/to/credentials.json
       quota_project_id: anvil-billing-project
-    dry_run: true
-    tasks:
-      - name: noop
+  regions:
+  - us-central1
+  include:
+  - anvil-dev-project
+  - anvil-prod-project
+  dry_run: true
+  tasks:
+  - name: noop

@@ -1,57 +1,60 @@
-# Demonstrates organization region selector forms.
-#
-# Region selectors are only supported for organization configs. Account configs
-# require explicit AWS region names.
-schema_version: 1
+schema_version: 2
 max_parallel_targets: 2
-
-organizations:
-  - name: explicit-regions
-    profile: org-root
-    # Explicit regions run exactly these configured regions when enabled.
-    regions:
-      - us-east-1
-      - us-west-2
-    role_name: OrganizationAccountAccessRole
-    tasks:
-      - name: noop
-
-  - name: all-enabled-regions
-    profile: org-root
-    # The special all selector expands to every enabled region discovered for
-    # each account. It must be lowercase and must be the only region value.
-    regions:
-      - all
-    role_name: OrganizationAccountAccessRole
-    tasks:
-      - name: noop
-
-  - name: broad-region-glob
-    profile: org-root
-    # Broad glob selectors are resolved against known AWS regions, then filtered
-    # to regions enabled for each account.
-    regions:
-      - us-*
-    role_name: OrganizationAccountAccessRole
-    tasks:
-      - name: noop
-
-  - name: narrow-region-glob
-    profile: org-root
-    # Narrower globs work too. This example matches regions such as us-east-1
-    # and us-west-1 when they are known and enabled.
-    regions:
-      - us-*-1
-    role_name: OrganizationAccountAccessRole
-    tasks:
-      - name: noop
-
-  - name: mixed-glob-and-explicit-regions
-    profile: org-root
-    # Globs can be mixed with explicit regions. The all selector cannot.
-    regions:
-      - us-*
-      - ca-central-1
-    role_name: OrganizationAccountAccessRole
-    tasks:
-      - name: noop
+targets:
+- name: explicit-regions
+  provider:
+    name: aws
+    mode: organization
+    options:
+      profile: org-root
+      role_name: OrganizationAccountAccessRole
+  regions:
+  - us-east-1
+  - us-west-2
+  tasks:
+  - name: noop
+- name: all-enabled-regions
+  provider:
+    name: aws
+    mode: organization
+    options:
+      profile: org-root
+      role_name: OrganizationAccountAccessRole
+  regions:
+  - all
+  tasks:
+  - name: noop
+- name: broad-region-glob
+  provider:
+    name: aws
+    mode: organization
+    options:
+      profile: org-root
+      role_name: OrganizationAccountAccessRole
+  regions:
+  - us-*
+  tasks:
+  - name: noop
+- name: narrow-region-glob
+  provider:
+    name: aws
+    mode: organization
+    options:
+      profile: org-root
+      role_name: OrganizationAccountAccessRole
+  regions:
+  - us-*-1
+  tasks:
+  - name: noop
+- name: mixed-glob-and-explicit-regions
+  provider:
+    name: aws
+    mode: organization
+    options:
+      profile: org-root
+      role_name: OrganizationAccountAccessRole
+  regions:
+  - us-*
+  - ca-central-1
+  tasks:
+  - name: noop

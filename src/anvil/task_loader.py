@@ -262,8 +262,7 @@ def _provider_task_discovery(
 
     for source, entry_point_group in _provider_task_entry_point_groups(provider_name):
         plugin_descriptors, plugin_issues = _iter_plugin_task_descriptors(
-            entry_point_group=entry_point_group,
-            source_prefix=f"{source} plugin:",
+            entry_point_group=entry_point_group, source_prefix=f"{source} plugin:"
         )
         issues.extend(plugin_issues)
         for descriptor in plugin_descriptors:
@@ -366,9 +365,7 @@ def _resolve_tasks_cached(
     ordered: CachedOrderedTask = tuple(
         (
             name,
-            _load_provider_task_callable(
-                provider_name=provider_name, task_name=name
-            ),
+            _load_provider_task_callable(provider_name=provider_name, task_name=name),
             tuple(spec_by_name[name].depends_on),
             spec_by_name[name].optional,
         )
@@ -489,10 +486,7 @@ def discover_tasks() -> TaskDiscoveryResult:
             issue_keys.add(key)
             issues.append(issue)
 
-    return TaskDiscoveryResult(
-        tasks=tasks,
-        issues=issues,
-    )
+    return TaskDiscoveryResult(tasks=tasks, issues=issues)
 
 
 def list_tasks() -> list[TaskDescriptor]:

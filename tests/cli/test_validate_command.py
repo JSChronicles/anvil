@@ -238,7 +238,9 @@ def test_validate_all_tasks_reports_duplicate_provider_task_names(monkeypatch):
         "discover_tasks",
         lambda: SimpleNamespace(
             tasks=[
-                cli.TaskDescriptor(name="shared", load=lambda: valid_run, source="universal"),
+                cli.TaskDescriptor(
+                    name="shared", load=lambda: valid_run, source="universal"
+                ),
                 cli.TaskDescriptor(name="shared", load=lambda: valid_run, source="aws"),
             ],
             issues=[],
@@ -260,7 +262,9 @@ def test_validate_selected_tasks_reports_duplicate_provider_task_names(monkeypat
         "discover_tasks",
         lambda: SimpleNamespace(
             tasks=[
-                cli.TaskDescriptor(name="shared", load=lambda: valid_run, source="universal"),
+                cli.TaskDescriptor(
+                    name="shared", load=lambda: valid_run, source="universal"
+                ),
                 cli.TaskDescriptor(name="shared", load=lambda: valid_run, source="aws"),
                 cli.TaskDescriptor(name="other", load=lambda: valid_run, source="aws"),
             ],
@@ -555,15 +559,15 @@ def test_validate_selected_providers_validates_all_when_no_names(monkeypatch):
     assert seen["loaded"] == ["aws"]
 
 
-def test_validate_selected_providers_does_not_call_cloud_discovery(
-    monkeypatch,
-):
+def test_validate_selected_providers_does_not_call_cloud_discovery(monkeypatch):
     cli = _import_cli_or_skip()
 
     monkeypatch.setattr(
         "anvil.providers.azure.provider.AzureSessionFactory.list_subscriptions",
         lambda self, **kwargs: (_ for _ in ()).throw(
-            AssertionError("provider validation should not discover Azure subscriptions")
+            AssertionError(
+                "provider validation should not discover Azure subscriptions"
+            )
         ),
     )
     monkeypatch.setattr(

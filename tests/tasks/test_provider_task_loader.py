@@ -60,9 +60,9 @@ def test_real_azure_descriptor_index_includes_azure_tasks_only_for_azure():
     gcp_index = task_loader.provider_task_descriptor_index(provider_name="gcp")
 
     assert "count_resource_groups" in azure_index
-    assert [descriptor.source for descriptor in azure_index["count_resource_groups"]] == [
-        "azure"
-    ]
+    assert [
+        descriptor.source for descriptor in azure_index["count_resource_groups"]
+    ] == ["azure"]
     assert "count_resource_groups" not in aws_index
     assert "count_resource_groups" not in gcp_index
 
@@ -92,9 +92,7 @@ def test_universal_noop_resolves_for_all_providers():
             task_specs=[{"name": "noop"}], provider_name=provider_name
         )
         assert execution.ordered[0].name == "noop"
-        assert execution.ordered[0].run.__module__ in {
-            "anvil.providers.tasks.noop",
-        }
+        assert execution.ordered[0].run.__module__ in {"anvil.providers.tasks.noop"}
 
 
 def test_aws_only_tasks_do_not_resolve_for_azure_or_gcp():
@@ -119,8 +117,7 @@ def test_legacy_plugin_tasks_are_ignored_for_all_providers(monkeypatch):
     for provider_name in ("aws", "azure", "gcp"):
         with pytest.raises(TaskConfigError, match="provider package"):
             task_loader.resolve_tasks(
-                task_specs=[{"name": "legacy_plugin_task"}],
-                provider_name=provider_name,
+                task_specs=[{"name": "legacy_plugin_task"}], provider_name=provider_name
             )
 
 
@@ -141,14 +138,9 @@ def test_duplicate_universal_and_provider_task_name_is_ambiguous(monkeypatch):
 
     index = task_loader.provider_task_descriptor_index(provider_name="aws")
 
-    assert [descriptor.source for descriptor in index["shared"]] == [
-        "universal",
-        "aws",
-    ]
+    assert [descriptor.source for descriptor in index["shared"]] == ["universal", "aws"]
     with pytest.raises(TaskConfigError, match="ambiguous.*universal.*aws"):
-        task_loader.resolve_tasks(
-            task_specs=[{"name": "shared"}], provider_name="aws"
-        )
+        task_loader.resolve_tasks(task_specs=[{"name": "shared"}], provider_name="aws")
 
 
 def test_provider_descriptor_index_adds_provider_package_tasks(monkeypatch):

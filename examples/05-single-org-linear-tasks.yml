@@ -1,33 +1,21 @@
-# Demonstrates:
-# - Linear task execution
-# - Explicit ordering via depends_on
-# - Required task failure propagation
-# - Explicit single-region configuration
-#
-# Builds on 04 by adding a task chain.
-
-schema_version: 1
-
-organizations:
-  - name: linear-task-org
-
-    profile: my-aws-profile
-
-    regions:
-      - us-east-1
-
-    exclude:
-      - "333333333333"
-      - "444444444444"
-
-    tasks:
-      - name: inventory
-        # Executes first
-
-      - name: tagging
-        depends_on: ["inventory"]
-        # Executes only if inventory succeeds
-
-      - name: reporting
-        depends_on: ["tagging"]
-        # Will not run if tagging fails
+schema_version: 2
+targets:
+- name: linear-task-org
+  provider:
+    name: aws
+    mode: organization
+    options:
+      profile: my-aws-profile
+  regions:
+  - us-east-1
+  exclude:
+  - '333333333333'
+  - '444444444444'
+  tasks:
+  - name: inventory
+  - name: tagging
+    depends_on:
+    - inventory
+  - name: reporting
+    depends_on:
+    - tagging

@@ -5,10 +5,14 @@
 Add or update an example config when a task needs metadata or dependencies:
 
 ```yaml
-schema_version: 1
+schema_version: 2
 
-organizations:
+targets:
   - name: example
+    provider:
+      name: aws
+      mode: organization
+      options: {}
     regions:
       - us-east-1
     dry_run: true
@@ -26,7 +30,8 @@ Use `depends_on` when task order matters. Use `optional: true` only when failure
 
 ## Region Selection
 
-Use explicit region names for `accounts:` configs:
+Use explicit region names for explicit provider modes such as `aws/accounts`,
+`azure/subscriptions`, and `gcp/projects`:
 
 ```yaml
 regions:
@@ -34,7 +39,7 @@ regions:
   - us-west-2
 ```
 
-For `organizations:` configs, prefer selectors when the user wants broad
+For AWS `organization` targets, prefer selectors when the user wants broad
 multi-region coverage. Use `all` when they want every enabled region discovered
 for each account. `all` must be lowercase and must be the only region value:
 
@@ -43,9 +48,9 @@ regions:
   - all
 ```
 
-Use region globs when the user wants multiple similar regions without listing
-each one. Organization region globs can be used alone, combined with other
-globs, or mixed with explicit regions:
+Use region globs when the user wants multiple similar AWS regions without
+listing each one. Organization region globs can be used alone, combined with
+other globs, or mixed with explicit regions:
 
 ```yaml
 regions:
