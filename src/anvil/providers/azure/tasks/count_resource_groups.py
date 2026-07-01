@@ -81,7 +81,8 @@ def run(
         from azure.mgmt.resource import ResourceManagementClient
     except ImportError as error:
         raise RuntimeError(
-            "count_resource_groups requires optional dependency 'azure-mgmt-resource'."
+            "count_resource_groups requires optional dependency "
+            "'azure-mgmt-resource'. Install with 'anvil[azure]'."
         ) from error
 
     client = ResourceManagementClient(credential, subscription_id.strip())

@@ -7,5 +7,5 @@ targets:
     options:
       profile: root
   tasks:
-  - name: noop
+    - name: noop
   dry_run: true

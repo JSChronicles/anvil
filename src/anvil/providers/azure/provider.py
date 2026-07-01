@@ -133,7 +133,8 @@ class AzureSessionFactory:
         except ImportError as error:
             raise RuntimeError(
                 "Azure provider requires optional dependency 'azure-identity' "
-                "when building an Azure runtime session."
+                "when building an Azure runtime session. Install with "
+                "'anvil[azure]'."
             ) from error
 
         try:
@@ -200,7 +201,7 @@ class AzureSessionFactory:
         except ImportError as error:
             raise RuntimeError(
                 "Azure subscription discovery requires optional dependency "
-                "'azure-mgmt-subscription'."
+                "'azure-mgmt-subscription'. Install with 'anvil[azure]'."
             ) from error
 
         try:

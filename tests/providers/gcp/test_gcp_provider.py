@@ -264,7 +264,7 @@ def test_gcp_session_factory_imports_sdk_only_when_session_is_built(monkeypatch)
 
     monkeypatch.setattr(builtins, "__import__", fake_import)
 
-    with pytest.raises(RuntimeError, match="google-auth"):
+    with pytest.raises(RuntimeError, match=r"google-auth.*anvil\[gcp\]"):
         GcpSessionFactory().create_session(
             project_id="project-a", location="us-central1"
         )
@@ -387,7 +387,9 @@ def test_gcp_session_factory_list_projects_missing_sdk_is_lazy_error(monkeypatch
 
     monkeypatch.setattr(builtins, "__import__", fake_import)
 
-    with pytest.raises(RuntimeError, match="google-cloud-resource-manager"):
+    with pytest.raises(
+        RuntimeError, match=r"google-cloud-resource-manager.*anvil\[gcp\]"
+    ):
         GcpSessionFactory().list_projects()
 
 

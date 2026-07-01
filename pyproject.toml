@@ -30,6 +30,32 @@ dependencies = [
   "jsonschema>=4.26.0,<4.30.0"
 ]
 
+[project.optional-dependencies]
+azure = [
+  "azure-identity",
+  "azure-keyvault-secrets",
+  "azure-mgmt-authorization",
+  "azure-mgmt-compute",
+  "azure-mgmt-keyvault",
+  "azure-mgmt-monitor",
+  "azure-mgmt-network",
+  "azure-mgmt-resource",
+  "azure-mgmt-resourcegraph",
+  "azure-mgmt-storage",
+  "azure-mgmt-subscription",
+]
+gcp = [
+  "google-auth",
+  "google-cloud-asset",
+  "google-cloud-compute",
+  "google-cloud-container",
+  "google-cloud-iam",
+  "google-cloud-logging",
+  "google-cloud-monitoring",
+  "google-cloud-resource-manager",
+  "google-cloud-storage",
+]
+
 [project.urls]
 Homepage = "https://github.com/JSChronicles/anvil"
 Repository = "https://github.com/JSChronicles/anvil"

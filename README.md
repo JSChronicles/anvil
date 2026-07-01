@@ -65,6 +65,13 @@ Anvil is built for teams that need repeatable cloud workflows, such as inventory
 > If you do not need/want the full Anvil framework and only want a simple starting point for small AWS Organization tasks, see: [`templates/aws_multi_account_template.py`](https://opsfoundry.dev/anvil/examples/#standalone-multi-account-script-template)
 
 
+1. Install Anvil with the provider SDKs you need:
+   1. Base installs include AWS support and the default CLI behavior:
+      `pip install anvil`
+   1. Azure users should install the Azure extra:
+      `pip install "anvil[azure]"`
+   1. GCP users should install the GCP extra:
+      `pip install "anvil[gcp]"`
 1. When using the uv tool, there are several ways to run and install dependencies. Here are only a couple examples:
 1. uv sync:
    1. Sync the project's dependencies with the environment: uv sync
@@ -109,129 +116,17 @@ targets:
     dry_run: true
 ```
 
-### Provider targets
-
-Schema v2 uses one top-level `targets` list. Each target declares
-`provider.name`, `provider.mode`, and optional `provider.options`.
-Provider-neutral execution settings stay on the target: `include`, `exclude`,
-`regions`, `tasks`, `dry_run`, `fail_fast`, `max_workers`,
-`max_parallel_regions`, and `metadata`.
-
-Public YAML uses `provider.options`; the old public `provider_options` spelling
-and top-level AWS `profile` / `role_name` fields are not supported in v0.30.
-
-Current supported provider modes:
-
-- `include` and `exclude` are mutually exclusive for all providers and modes.
-- AWS `organization`: discovers AWS Organizations accounts, supports
-  either include or exclude AWS account IDs, and supports region selectors such
-  as `all` and glob patterns.
-- AWS `accounts`: runs against explicit AWS account IDs in `include`.
-- Azure `tenant`: discovers visible Azure subscriptions and supports optional
-  `include` or `exclude`.
-- Azure `subscriptions`: runs explicit Azure subscription IDs in `include`.
-- GCP `organization`: schema-supported discovery mode. Full organization-scoped
-  project discovery is intentionally deferred and currently returns a clear
-  runtime error.
-- GCP `projects`: runs explicit GCP project IDs in `include`.
-
-Discovery modes allow omitted `include`; omitted `include` and `exclude` means
-discover every execution target in scope. Explicit modes require `include` and
-forbid `exclude`.
-
-Azure/GCP runtime session creation requires the provider's optional SDKs and
-credentials; failures are reported as provider-specific runtime errors without
-entering AWS auth, session, or account resolution code. `provider.options` are
-passed into the provider runtime session factories.
-
-### v0.30 migration notes
-
-Anvil v0.30 supports only `schema_version: 2` configs with top-level `targets`.
-The previous top-level `organizations` and `accounts` config shapes were
-removed. Public YAML now uses `provider.options`; the previous public
-`provider_options` spelling is no longer accepted. AWS `profile` and
-`role_name` also moved under `provider.options`.
-
-Discovery modes are `aws/organization`, `azure/tenant`, and
-`gcp/organization`. They may omit both `include` and `exclude` to discover all
-targets in scope, or use either selector, but not both. Explicit modes are
-`aws/accounts`, `azure/subscriptions`, and `gcp/projects`; they require
-`include` and forbid `exclude`.
-
-Result files keep `account_id` and `account_alias` as compatibility fields for
-all providers. For Azure they represent subscription ID/name; for GCP they
-represent project ID/name. GCP `organization` mode is schema-supported, but
-organization-scoped project discovery remains deferred and returns a clear
-runtime error.
-
-```yaml
-schema_version: 2
-
-targets:
-  - name: azure-explicit-subscriptions
-    provider:
-      name: azure
-      mode: subscriptions
-      options:
-        tenant_id: example-tenant-id
-        client_id: example-client-id
-        client_secret: example-client-secret
-        subscription_id: example-runtime-subscription-id
-    regions:
-      - eastus
-    include:
-      - 11111111-2222-3333-4444-555555555555
-    tasks:
-      - name: noop
-```
-
-```yaml
-schema_version: 2
-
-targets:
-  - name: gcp-explicit-projects
-    provider:
-      name: gcp
-      mode: projects
-      options:
-        credentials_path: /secure/path/to/credentials.json
-        quota_project_id: anvil-billing-project
-    regions:
-      - us-central1
-    include:
-      - anvil-dev-project
-    tasks:
-      - name: noop
-```
-
 ### Provider task packages
+> [!NOTE]
+> Duplicate task names across all packages and plugins applicable to the selected provider are rejected as ambiguous.
+>
 
-Task compatibility is determined by package location. Existing YAML task names
-stay stable where possible; for example, AWS configs can still use
-`count_vpc`, which now resolves from `anvil.providers.aws.tasks.count_vpc`.
+Task compatibility is determined by package location.
 
 - `anvil.providers.tasks.<task>` is universal and can run for any provider.
 - `anvil.providers.aws.tasks.<task>` is AWS-only.
 - `anvil.providers.azure.tasks.<task>` is Azure-only.
 - `anvil.providers.gcp.tasks.<task>` is GCP-only.
-
-Provider-owned task plugin entry points use the same compatibility model:
-
-- `anvil.providers.tasks` exposes universal plugin task packages.
-- `anvil.providers.aws.tasks` exposes AWS-only plugin task packages.
-- `anvil.providers.azure.tasks` exposes Azure-only plugin task packages.
-- `anvil.providers.gcp.tasks` exposes GCP-only plugin task packages.
-
-Each task plugin entry point value points at a package containing task modules;
-the task module filename is the YAML task name. For example:
-
-```toml
-[project.entry-points."anvil.providers.tasks"]
-portable = "my_plugin.universal_tasks"
-
-[project.entry-points."anvil.providers.aws.tasks"]
-aws-extra = "my_plugin.aws_tasks"
-```
 
 Example Azure task configuration:
 
@@ -273,22 +168,6 @@ targets:
       - name: get_project_info
 ```
 
-Legacy task plugin entry points under `anvil.tasks` remain unsupported and are
-ignored. Plugin authors migrating from `anvil.tasks` should move task modules
-into universal or provider-specific task packages and register the matching
-`anvil.providers...tasks` entry point group. Direct Python imports should use
-`anvil.providers.tasks.<task>` or
-`anvil.providers.<provider>.tasks.<task>` for first-party tasks, and the
-plugin package path for plugin tasks. Processor plugin entry points are
-separate and unchanged.
-
-Duplicate task names across all packages and plugins applicable to the selected
-provider are rejected as ambiguous.
-
-The task loader builds a cached descriptor index shaped as
-`provider_name -> task_name -> list[TaskDescriptor]`, so resolving multiple
-configured tasks does not rebuild discovery descriptors once per task.
-
 For delegated-administrator patterns, keep the base session on the
 delegated-admin profile. Anvil uses that base session directly for the
 delegated-admin account if it appears in Organizations discovery, and assumes
@@ -320,13 +199,6 @@ status, emit JSON/JSONL for automation, rerun failed work, or run a processor
 against a completed results directory. When a run has failures, Anvil prints
 ready-to-use `anvil results` commands that point at the affected run's
 `results.jsonl` file so you can inspect or rerun the failed execution targets.
-
-For compatibility, result JSON, JSONL, and table fields still use `account_id`
-and `account_alias` for resolved execution targets. For AWS these fields are
-the AWS account ID and account alias/name. For Azure they represent the
-subscription ID and subscription name/ID. For GCP they represent the project ID
-and project name/ID. Provider-native result field renaming is deferred to a
-future result-format change.
 
 See more at [Common result queries](https://opsfoundry.dev/anvil/cli/#results)
 and [Rerun failures](https://opsfoundry.dev/anvil/cli/#rerun-failures).

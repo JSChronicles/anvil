@@ -1,4 +1,5 @@
 schema_version: 2
+
 targets:
 - name: prod
   provider:
@@ -7,11 +8,11 @@ targets:
     options:
       profile: prod-root
   regions:
-  - us-east-1
+    - us-east-1
   tasks:
-  - name: compare_asg_to_cluster_instances
+    - name: compare_asg_to_cluster_instances
   metadata:
     clusters:
-    - cluster1-services
-    - cluster2-services
+      - cluster1-services
+      - cluster2-services
     ecs_region: us-west-2

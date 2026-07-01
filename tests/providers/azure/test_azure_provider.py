@@ -318,7 +318,7 @@ def test_azure_session_factory_imports_sdk_only_when_session_is_built(monkeypatc
 
     monkeypatch.setattr(builtins, "__import__", fake_import)
 
-    with pytest.raises(RuntimeError, match="azure-identity"):
+    with pytest.raises(RuntimeError, match=r"azure-identity.*anvil\[azure\]"):
         AzureSessionFactory().create_session(subscription_id="sub-a", location="eastus")
 
 

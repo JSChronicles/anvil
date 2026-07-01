@@ -166,7 +166,9 @@ def test_get_project_info_imports_google_sdk_lazily(monkeypatch):
 
     monkeypatch.setattr("builtins.__import__", fake_import)
 
-    with pytest.raises(RuntimeError, match="google-cloud-resource-manager"):
+    with pytest.raises(
+        RuntimeError, match=r"google-cloud-resource-manager.*anvil\[gcp\]"
+    ):
         _run_task(session=FakeGcpSession())
 
 

@@ -130,7 +130,8 @@ class GcpSessionFactory:
         except ImportError as error:
             raise RuntimeError(
                 "GCP provider requires optional dependency 'google-auth' "
-                "when building a GCP runtime session."
+                "when building a GCP runtime session. Install with "
+                "'anvil[gcp]'."
             ) from error
 
         try:
@@ -186,7 +187,7 @@ class GcpSessionFactory:
         except ImportError as error:
             raise RuntimeError(
                 "GCP project discovery requires optional dependency "
-                "'google-cloud-resource-manager'."
+                "'google-cloud-resource-manager'. Install with 'anvil[gcp]'."
             ) from error
 
         try:

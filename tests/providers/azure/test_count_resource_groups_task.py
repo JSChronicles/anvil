@@ -150,7 +150,7 @@ def test_count_resource_groups_imports_azure_sdk_lazily(monkeypatch):
 
     monkeypatch.setattr("builtins.__import__", fake_import)
 
-    with pytest.raises(RuntimeError, match="azure-mgmt-resource"):
+    with pytest.raises(RuntimeError, match=r"azure-mgmt-resource.*anvil\[azure\]"):
         _run_task(session=FakeAzureSession())
 
 
