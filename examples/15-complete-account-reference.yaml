@@ -24,6 +24,6 @@ targets:
     environment: production
   post_run:
   - processor: summary_markdown
-    output: reports/app-team-summary.md
+    output: app-team-summary.md
     metadata:
       include_passed: true

@@ -54,6 +54,8 @@ def _load_records(*, context: ProcessorRunContext) -> list[dict[str, object]]:
         )
     else:
         for target_result in context.target_results:
+            if not _matches_context_target(context=context, target_result=target_result):
+                continue
             records.extend(
                 _records_from_target_result(
                     target_result=target_result, config_branch=context.config_branch
@@ -61,6 +63,22 @@ def _load_records(*, context: ProcessorRunContext) -> list[dict[str, object]]:
             )
 
     return records
+
+
+def _matches_context_target(
+    *, context: ProcessorRunContext, target_result: TargetResult | dict[str, object]
+) -> bool:
+    if context.target_name is None:
+        return True
+
+    if isinstance(target_result, TargetResult):
+        return target_result.target_name == context.target_name
+
+    target_type = _target_type(context.config_branch)
+    target_name = _string_value(target_result.get(target_type)) or _string_value(
+        target_result.get("target")
+    )
+    return target_name == context.target_name
 
 
 def _records_from_target_result(

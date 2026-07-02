@@ -276,7 +276,9 @@ targets:
         run_on_failure: true
 ```
 
-See more at [HTML result reports](https://opsfoundry.dev/anvil/cli/#processors).
+See more at [HTML result reports](https://opsfoundry.dev/anvil/cli/#processors),
+including examples for separating target-level reports or combining a completed
+run into one HTML report.
 
 ------------------------------
 

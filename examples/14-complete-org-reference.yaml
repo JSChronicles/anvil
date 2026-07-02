@@ -31,7 +31,7 @@ targets:
     user_name: test
   post_run:
   - processor: summary_markdown
-    output: reports/place-summary.md
+    output: place-summary.md
     metadata:
       include_passed: false
 - name: audit
@@ -63,4 +63,4 @@ targets:
     owner: security
   post_run:
   - processor: summary_json
-    output: reports/audit-summary.json
+    output: audit-summary.json

@@ -14,6 +14,7 @@ from anvil.processor_loader import (
     run_processors,
 )
 from anvil.processor_validation import ProcessorValidationError, validate_processors
+from anvil.processors import html_report
 
 
 def _context(tmp_path: Path) -> ProcessorRunContext:
@@ -107,4 +108,80 @@ def test_load_historical_run_context_reads_complete_results_directory(tmp_path):
     assert context.target_result_paths == {"production": target_path}
     assert context.target_results == [
         {"organization": "production", "account_results": []}
+    ]
+
+
+def test_html_report_load_records_scopes_to_context_target_name(tmp_path):
+    context = ProcessorRunContext(
+        config_branch=ConfigBranch.ORGANIZATIONS,
+        run_dir=tmp_path,
+        summary_path=tmp_path / "summary.json",
+        summary={"state": "completed_success"},
+        target_result_paths={},
+        target_name="production",
+        target_results=[
+            {
+                "organization": "production",
+                "account_results": [
+                    {
+                        "account_id": "111111111111",
+                        "status": "success",
+                        "tasks": [],
+                    }
+                ],
+            },
+            {
+                "organization": "sandbox",
+                "account_results": [
+                    {
+                        "account_id": "222222222222",
+                        "status": "success",
+                        "tasks": [],
+                    }
+                ],
+            },
+        ],
+    )
+
+    records = html_report._load_records(context=context)
+
+    assert [record["account_id"] for record in records] == ["111111111111"]
+
+
+def test_html_report_load_records_keeps_historical_whole_run_context(tmp_path):
+    context = ProcessorRunContext(
+        config_branch=ConfigBranch.ORGANIZATIONS,
+        run_dir=tmp_path,
+        summary_path=tmp_path / "summary.json",
+        summary={"state": "completed_success"},
+        target_result_paths={},
+        target_results=[
+            {
+                "organization": "production",
+                "account_results": [
+                    {
+                        "account_id": "111111111111",
+                        "status": "success",
+                        "tasks": [],
+                    }
+                ],
+            },
+            {
+                "organization": "sandbox",
+                "account_results": [
+                    {
+                        "account_id": "222222222222",
+                        "status": "success",
+                        "tasks": [],
+                    }
+                ],
+            },
+        ],
+    )
+
+    records = html_report._load_records(context=context)
+
+    assert [record["account_id"] for record in records] == [
+        "111111111111",
+        "222222222222",
     ]
