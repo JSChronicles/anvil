@@ -78,6 +78,9 @@ def run(
 ) -> dict[str, object]:
     """Return metadata for the current GCP project.
 
+    This is a read-only GCP task. It fetches the current project from Google
+    Cloud Resource Manager and ignores task metadata.
+
     Args:
         provider: Provider name for the current execution target.
         execution_target_id: Current GCP project ID.
@@ -92,6 +95,10 @@ def run(
 
     Returns:
         Structured project metadata for the current GCP project.
+
+    Raises:
+        RuntimeError: If the task is used outside GCP project execution or if
+            the Google Cloud Resource Manager SDK dependency is unavailable.
     """
 
     if provider != "gcp":

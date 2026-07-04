@@ -198,12 +198,31 @@ def run(
     metadata: dict[str, object],
     actions: ActionRecorder,
 ) -> dict[str, object]:
-    """
-    Gather IAM inline policies (users, roles, groups) and optionally
-    SSO permission set inline policies.
+    """Gather AWS inline policies for IAM identities and Identity Center.
+
+    This is a read-only AWS task. By default it collects inline policies from
+    IAM users, roles, groups, and IAM Identity Center permission sets. Identity
+    Center permission set policies are collected only when the current account
+    is the AWS Organizations management account.
 
     Metadata:
-        types: list[str] (optional)
+        types: Optional list of policy categories to collect. Supported values
+            are `user`, `role`, `group`, and `sso`. Defaults to all categories.
+
+    Args:
+        account_id: Target AWS account ID.
+        account_alias: Friendly name for the target account.
+        session: Boto3 session scoped to the current region.
+        dry_run: Whether execution is running in dry-run mode.
+        metadata: Task metadata containing optional policy type filters.
+        actions: Action recorder provided by the engine.
+
+    Returns:
+        A payload with account context and collected policies grouped by
+        policy category.
+
+    Raises:
+        ValueError: If metadata.types is not a list of supported strings.
     """
 
     raw_types = metadata.get("types")

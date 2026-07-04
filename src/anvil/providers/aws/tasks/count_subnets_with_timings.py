@@ -69,8 +69,21 @@ def run(
     metadata: dict[str, object],
     actions: ActionRecorder,
 ) -> dict[str, object]:
-    """
-    Count subnets in the session's current AWS region and return timing data.
+    """Count subnets in the session's current AWS region with timing data.
+
+    This is a read-only AWS task. It uses EC2 `describe_subnets` pagination,
+    records API retry counts from response metadata, and ignores task metadata.
+
+    Args:
+        account_id: Target AWS account ID.
+        account_alias: Friendly name for the target account.
+        session: Boto3 session scoped to the current region.
+        dry_run: Whether execution is running in dry-run mode.
+        metadata: Arbitrary config metadata for the task.
+        actions: Action recorder provided by the engine.
+
+    Returns:
+        A payload containing subnet summaries, aggregate counts, and timing data.
     """
     run_start = time.perf_counter()
     region_name = session.region_name

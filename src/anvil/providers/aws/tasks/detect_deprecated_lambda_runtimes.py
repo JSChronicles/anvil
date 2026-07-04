@@ -141,6 +141,31 @@ def run(
     metadata: dict[str, object],
     actions: ActionRecorder,
 ) -> dict[str, object]:
+    """Detect Lambda functions using configured deprecated runtimes.
+
+    This is a read-only AWS detection task. It scans Lambda functions in the
+    current session region and returns SARIF-compatible findings for functions
+    whose runtime matches the configured deprecated runtime list.
+
+    Metadata:
+        runtimes: Required non-empty list of deprecated AWS Lambda runtime
+            strings to match, such as `python3.8` or `nodejs14.x`.
+
+    Args:
+        account_id: Target AWS account ID.
+        account_alias: Friendly name for the target account.
+        session: Boto3 session scoped to the current region.
+        dry_run: Whether execution is running in dry-run mode.
+        metadata: Task metadata containing deprecated runtime filters.
+        actions: Action recorder provided by the engine.
+
+    Returns:
+        A payload containing checked function count, finding count, and
+        SARIF-compatible findings under `sarif_findings`.
+
+    Raises:
+        RuntimeError: If metadata.runtimes is missing or invalid.
+    """
     region_name = session.region_name
     deprecated_runtimes = set(_validate_runtimes(metadata))
     lambda_client = session.client("lambda")

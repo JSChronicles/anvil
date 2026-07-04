@@ -24,10 +24,20 @@ def run(
     metadata: dict[str, object],
     actions: ActionRecorder,
 ) -> dict:
-    """
-    No-op task used for validation and testing.
+    """Run a no-op task for validation, smoke tests, and framework checks.
 
-    This task performs no AWS actions.
+    The task performs no provider API mutations and ignores task metadata.
+
+    Args:
+        account_id: Target account or execution target ID.
+        account_alias: Friendly name for the target account.
+        session: Provider session scoped to the current region or location.
+        dry_run: Whether execution is running in dry-run mode.
+        metadata: Arbitrary config metadata for the task.
+        actions: Action recorder provided by the engine.
+
+    Returns:
+        A small payload confirming execution context and dry-run state.
     """
 
     __LOGGER__.info(

@@ -193,6 +193,30 @@ def run(
     metadata: dict[str, object],
     actions: ActionRecorder,
 ) -> None:
+    """Remove IAM resources attached to a configured IAM user.
+
+    This AWS task deletes user-attached resources before user deletion workflows.
+    It removes group memberships, access keys, MFA devices, SSH public keys,
+    service-specific credentials, signing certificates, attached policies,
+    inline policies, tags, and the console login profile. In dry-run mode it
+    logs planned deletions without mutating IAM resources.
+
+    Metadata:
+        user_name: Required IAM user name whose attached resources should be
+            removed.
+
+    Args:
+        account_id: Target AWS account ID.
+        account_alias: Friendly name for the target account.
+        session: Boto3 session scoped to the current region.
+        dry_run: Whether execution is running in dry-run mode.
+        metadata: Task metadata containing the IAM user name.
+        actions: Action recorder provided by the engine.
+
+    Raises:
+        RuntimeError: If metadata.user_name is missing or not a string.
+        botocore.exceptions.ClientError: If an unexpected AWS API error occurs.
+    """
     user_name = metadata.get("user_name")
 
     if not isinstance(user_name, str):

@@ -36,12 +36,29 @@ def run(
     metadata: dict[str, object],
     actions: ActionRecorder,
 ) -> None:
-    """
-    Compare ECS container instances to corresponding ASG instances.
+    """Compare ECS container instances to corresponding Auto Scaling Groups.
+
+    For each configured ECS cluster, the task compares EC2 instance IDs
+    registered with the cluster against instances in an Auto Scaling Group named
+    `<cluster>-asg`. It logs instances that are present in ECS but missing from
+    the Auto Scaling Group, and logs ECS instances with zero running tasks.
 
     Metadata:
-        clusters: list[str]  (required)
-        ecs_region: str      (optional)
+        clusters: Required list of ECS cluster names to inspect.
+        ecs_region: Optional AWS region for ECS and Auto Scaling clients.
+            Defaults to the current session region.
+
+    Args:
+        account_id: Target AWS account ID.
+        account_alias: Friendly name for the target account.
+        session: Boto3 session scoped to the current region.
+        dry_run: Whether execution is running in dry-run mode.
+        metadata: Task metadata containing cluster configuration.
+        actions: Action recorder provided by the engine.
+
+    Raises:
+        ValueError: If required metadata is missing or invalid.
+        botocore.exceptions.ClientError: If AWS API calls fail.
     """
 
     raw_clusters = metadata.get("clusters")

@@ -67,6 +67,30 @@ def run(
     metadata: dict[str, object],
     actions: ActionRecorder,
 ) -> dict[str, object]:
+    """List Lambda functions using any configured runtime.
+
+    This is a read-only AWS task. It scans Lambda functions in the current
+    session region and groups matching functions by runtime.
+
+    Metadata:
+        runtimes: Required non-empty list of AWS Lambda runtime strings to
+            match, such as `python3.8` or `nodejs18.x`.
+
+    Args:
+        account_id: Target AWS account ID.
+        account_alias: Friendly name for the target account.
+        session: Boto3 session scoped to the current region.
+        dry_run: Whether execution is running in dry-run mode.
+        metadata: Task metadata containing runtime filters.
+        actions: Action recorder provided by the engine.
+
+    Returns:
+        A payload containing matching functions, matches grouped by runtime,
+        scan totals, and the target runtime list.
+
+    Raises:
+        RuntimeError: If metadata.runtimes is missing or invalid.
+    """
     region_name = session.region_name
     target_runtimes = set(_validate_runtimes(metadata))
     lambda_client = session.client("lambda")

@@ -97,11 +97,28 @@ def run(
     metadata: dict[str, object],
     actions: ActionRecorder,
 ) -> dict[str, object]:
-    """
-    Gather AWS Organization structure including:
-    - OUs and attached SCPs
-    - Control Tower enabled controls
-    - Accounts and attached SCPs
+    """Gather AWS Organizations structure from the management account.
+
+    This is a read-only AWS task. It returns organizational units, accounts,
+    attached service control policies, and Control Tower enabled controls. The
+    task skips non-management accounts because Organizations structure is only
+    collected from the management account.
+
+    Args:
+        account_id: Target AWS account ID.
+        account_alias: Friendly name for the target account.
+        session: Boto3 session scoped to the current region.
+        dry_run: Whether execution is running in dry-run mode.
+        metadata: Arbitrary config metadata for the task.
+        actions: Action recorder provided by the engine.
+
+    Returns:
+        A payload containing organization ID, organizational units, and
+        accounts, or `{"skipped": True}` for non-management accounts.
+
+    Raises:
+        TypeError: If AWS Organizations returns malformed account or OU IDs.
+        botocore.exceptions.ClientError: If an unexpected AWS API error occurs.
     """
 
     org_client: BaseClient = session.client("organizations")

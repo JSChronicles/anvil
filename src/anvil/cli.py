@@ -6,10 +6,11 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import inspect
 import json
 import logging
 import shlex
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -82,6 +83,12 @@ class ListableDescriptor(Protocol):
 
     name: str
     source: str
+
+
+class DetailDescriptor(ListableDescriptor, Protocol):
+    """Descriptor fields needed for CLI detail output."""
+
+    load: Callable[[], Callable]
 
 
 def _load_targets_from_config_file(path: Path) -> LoadedConfig:
@@ -388,15 +395,80 @@ def _print_grouped_listing(
         print(f"  - {descriptor.name}")
 
 
+def _detail_text(*, descriptor: DetailDescriptor) -> str:
+    try:
+        run = descriptor.load()
+    except Exception as exc:
+        raise ValueError(f"{descriptor.name} ({descriptor.source}): {exc}") from exc
+
+    doc = inspect.getdoc(run)
+    if doc is None:
+        module = inspect.getmodule(run)
+        if module is not None:
+            doc = inspect.getdoc(module)
+
+    if doc is None:
+        raise ValueError(
+            f"No detail available for {descriptor.name} ({descriptor.source})"
+        )
+
+    return f"{descriptor.name} ({descriptor.source})\n\n{doc}"
+
+
+def _select_detail_descriptor(
+    *, descriptors: list[DetailDescriptor], name: str, label: str
+) -> DetailDescriptor:
+    matches = [descriptor for descriptor in descriptors if descriptor.name == name]
+    if not matches:
+        available_display = ", ".join(
+            sorted({descriptor.name for descriptor in descriptors})
+        )
+        raise ValueError(
+            f"Unknown {label}: {name}. Available {label}s: {available_display}"
+        )
+
+    if len(matches) > 1:
+        source_display = ", ".join(descriptor.source for descriptor in matches)
+        raise ValueError(
+            f"{label.capitalize()} '{name}' is ambiguous; found in multiple "
+            f"sources: {source_display}"
+        )
+
+    return matches[0]
+
+
+def _print_single_detail(
+    *, descriptors: list[DetailDescriptor], name: str, label: str
+) -> None:
+    descriptor = _select_detail_descriptor(
+        descriptors=descriptors, name=name, label=label
+    )
+    print(_detail_text(descriptor=descriptor))
+
+
 def _cmd_list(args: argparse.Namespace) -> int:
     _validate_list_args(args)
 
-    if args.tasks:
+    if args.tasks is not None:
+        if args.detail:
+            _print_single_detail(
+                descriptors=discover_tasks().tasks, name=args.tasks[0], label="task"
+            )
+            return 0
+
         _print_grouped_listing(label="tasks", descriptors=list_tasks())
         return 0
 
     if getattr(args, "providers", False):
         _print_grouped_listing(label="providers", descriptors=list_providers())
+        return 0
+
+    if args.detail:
+        _print_single_detail(
+            descriptors=discover_processors().processors,
+            name=args.processors[0],
+            label="processor",
+        )
         return 0
 
     _print_grouped_listing(label="processors", descriptors=list_processors())
@@ -893,11 +965,36 @@ def _validate_list_args(
     selectors = [
         flag_name
         for flag_name in ("tasks", "processors", "providers")
-        if getattr(args, flag_name, False)
+        if (
+            getattr(args, flag_name, False)
+            if flag_name == "providers"
+            else getattr(args, flag_name, None) is not None
+        )
     ]
     if len(selectors) > 1:
         selector_display = ", ".join(f"--{selector}" for selector in selectors)
         message = f"{selector_display} cannot be used together"
+        if parser is not None:
+            parser.error(message)
+        raise ValueError(message)
+
+    detail = getattr(args, "detail", False)
+    selected_names = args.tasks if args.tasks is not None else args.processors
+
+    if detail and args.providers:
+        message = "--detail cannot be used with --providers"
+        if parser is not None:
+            parser.error(message)
+        raise ValueError(message)
+
+    if detail and selected_names is not None and len(selected_names) != 1:
+        message = "--detail requires exactly one task or processor name"
+        if parser is not None:
+            parser.error(message)
+        raise ValueError(message)
+
+    if not detail and selected_names:
+        message = "task and processor names require --detail"
         if parser is not None:
             parser.error(message)
         raise ValueError(message)
@@ -942,13 +1039,28 @@ def main() -> None:
     )
     _add_log_level_arg(list_parser)
     list_parser.add_argument(
-        "--tasks", action="store_true", help="List available tasks"
+        "--tasks",
+        nargs="*",
+        default=None,
+        metavar="TASK",
+        help="List available tasks, or show detail for one task with --detail",
     )
     list_parser.add_argument(
-        "--processors", action="store_true", help="List available processors"
+        "--processors",
+        nargs="*",
+        default=None,
+        metavar="PROCESSOR",
+        help=(
+            "List available processors, or show detail for one processor with --detail"
+        ),
     )
     list_parser.add_argument(
         "--providers", action="store_true", help="List available providers"
+    )
+    list_parser.add_argument(
+        "--detail",
+        action="store_true",
+        help="Show detailed documentation for one task or processor",
     )
     list_parser.set_defaults(func=_cmd_list)
 

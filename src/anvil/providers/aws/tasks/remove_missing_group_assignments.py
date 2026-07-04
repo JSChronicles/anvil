@@ -147,12 +147,34 @@ def run(
     metadata: dict[str, object],
     actions: ActionRecorder,
 ) -> dict[str, object]:
-    """
-    Identify and remove IAM Identity Center GROUP assignments
-    referencing non-existent Identity Store groups.
+    """Remove IAM Identity Center group assignments for missing groups.
+
+    This AWS task runs in the IAM Identity Center owner account. It finds account
+    assignments whose principal type is GROUP, verifies that the referenced
+    Identity Store groups still exist, and removes assignments for groups that
+    no longer exist. In dry-run mode it reports planned removals without
+    deleting assignments.
 
     Metadata:
-        identity_center_region: str (optional)
+        identity_center_region: Optional AWS region for IAM Identity Center and
+            Identity Store clients. Defaults to the current session region.
+
+    Args:
+        account_id: Target AWS account ID.
+        account_alias: Friendly name for the target account.
+        session: Boto3 session scoped to the current region.
+        dry_run: Whether execution is running in dry-run mode.
+        metadata: Task metadata containing optional Identity Center region.
+        actions: Action recorder provided by the engine.
+
+    Returns:
+        A payload containing Identity Center region, missing assignment count,
+        removed assignment count, and missing assignment details, or
+        `{"skipped": True}` for non-owner accounts.
+
+    Raises:
+        ValueError: If metadata.identity_center_region is not a string.
+        RuntimeError: If no active IAM Identity Center instance exists.
     """
 
     raw_region = metadata.get("identity_center_region")

@@ -123,21 +123,13 @@ def test_html_report_load_records_scopes_to_context_target_name(tmp_path):
             {
                 "organization": "production",
                 "account_results": [
-                    {
-                        "account_id": "111111111111",
-                        "status": "success",
-                        "tasks": [],
-                    }
+                    {"account_id": "111111111111", "status": "success", "tasks": []}
                 ],
             },
             {
                 "organization": "sandbox",
                 "account_results": [
-                    {
-                        "account_id": "222222222222",
-                        "status": "success",
-                        "tasks": [],
-                    }
+                    {"account_id": "222222222222", "status": "success", "tasks": []}
                 ],
             },
         ],
@@ -159,21 +151,13 @@ def test_html_report_load_records_keeps_historical_whole_run_context(tmp_path):
             {
                 "organization": "production",
                 "account_results": [
-                    {
-                        "account_id": "111111111111",
-                        "status": "success",
-                        "tasks": [],
-                    }
+                    {"account_id": "111111111111", "status": "success", "tasks": []}
                 ],
             },
             {
                 "organization": "sandbox",
                 "account_results": [
-                    {
-                        "account_id": "222222222222",
-                        "status": "success",
-                        "tasks": [],
-                    }
+                    {"account_id": "222222222222", "status": "success", "tasks": []}
                 ],
             },
         ],

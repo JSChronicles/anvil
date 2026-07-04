@@ -20,7 +20,29 @@ VALID_LEVELS = {"none", "note", "warning", "error"}
 def run(
     *, context: ProcessorRunContext, output: str | None, metadata: dict[str, object]
 ) -> dict[str, object]:
-    """Write a SARIF 2.1.0 report from explicit task sarif_findings records."""
+    """Write a SARIF 2.1.0 report from task `sarif_findings` records.
+
+    The processor scans task results for explicit `sarif_findings` payloads and
+    converts them into a SARIF report suitable for code scanning and security
+    tooling.
+
+    Metadata:
+        tool_name: Optional SARIF tool driver name. Defaults to `Anvil`.
+        automation_category: Optional SARIF automation details ID.
+
+    Args:
+        context: Completed run context provided by the Anvil processor runner.
+        output: Optional output path. Defaults to `reports/anvil.sarif` under
+            the run directory.
+        metadata: Processor metadata containing optional SARIF settings.
+
+    Returns:
+        A payload containing the written output path, finding count, and rule
+        count.
+
+    Raises:
+        RuntimeError: If any `sarif_findings` record is malformed.
+    """
     output_path = Path(output) if output is not None else _default_output_path(context)
     sarif_results, rules = _collect_sarif_results(context=context)
     payload = _build_sarif(metadata=metadata, rules=rules, results=sarif_results)

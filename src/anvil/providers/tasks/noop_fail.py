@@ -24,10 +24,23 @@ def run(
     metadata: dict[str, object],
     actions: ActionRecorder,
 ) -> dict:
-    """
-    No-op task used for validation and testing.
+    """Raise an intentional failure for error-path validation.
 
-    This task performs no AWS actions.
+    The task performs no provider API mutations and always raises before returning.
+
+    Args:
+        account_id: Target account or execution target ID.
+        account_alias: Friendly name for the target account.
+        session: Provider session scoped to the current region or location.
+        dry_run: Whether execution is running in dry-run mode.
+        metadata: Arbitrary config metadata for the task.
+        actions: Action recorder provided by the engine.
+
+    Raises:
+        RuntimeError: Always raised to exercise task failure handling.
+
+    Returns:
+        This task never returns successfully.
     """
     raise RuntimeError("Intentional noop failure for testing")
     __LOGGER__.info(

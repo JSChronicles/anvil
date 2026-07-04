@@ -18,8 +18,10 @@ def run(
     metadata: dict[str, object],
     actions: ActionRecorder,
 ) -> dict:
-    """
-    Count VPCs in the session's current AWS region.
+    """Count VPCs in the session's current AWS region.
+
+    This is a read-only AWS task. It uses EC2 `describe_vpcs` pagination and
+    ignores task metadata.
 
     Args:
         account_id: Target AWS account ID.
@@ -30,7 +32,7 @@ def run(
         actions: Action recorder provided by the engine.
 
     Returns:
-        A dictionary containing the VPC count and basic execution context.
+        A payload with the AWS region, total VPC count, and discovered VPC IDs.
     """
     region_name = session.region_name
     ec2_client = session.client("ec2")

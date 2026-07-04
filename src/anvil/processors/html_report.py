@@ -19,7 +19,24 @@ DEFAULT_OUTPUT = "html-report.html"
 def run(
     *, context: ProcessorRunContext, output: str | None, metadata: dict[str, object]
 ) -> dict[str, object]:
-    """Write a generic, self-contained HTML report for Anvil result records."""
+    """Write a self-contained HTML report for Anvil result records.
+
+    The processor flattens completed Anvil target results into account and task
+    records, then writes an interactive HTML report with summary cards, filters,
+    and expandable error/result details.
+
+    Metadata:
+        title: Optional report title. Defaults to `Anvil Results Report`.
+
+    Args:
+        context: Completed run context provided by the Anvil processor runner.
+        output: Optional output path. Defaults to `reports/html-report.html`
+            under the run directory.
+        metadata: Processor metadata containing optional report settings.
+
+    Returns:
+        A payload containing the written output path and rendered record count.
+    """
     title = _metadata_string(metadata=metadata, key="title", default=DEFAULT_TITLE)
     records = _load_records(context=context)
     output_path = Path(output) if output is not None else _default_output_path(context)
@@ -54,7 +71,9 @@ def _load_records(*, context: ProcessorRunContext) -> list[dict[str, object]]:
         )
     else:
         for target_result in context.target_results:
-            if not _matches_context_target(context=context, target_result=target_result):
+            if not _matches_context_target(
+                context=context, target_result=target_result
+            ):
                 continue
             records.extend(
                 _records_from_target_result(

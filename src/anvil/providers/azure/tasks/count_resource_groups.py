@@ -47,6 +47,10 @@ def run(
 ) -> dict[str, object]:
     """Count resource groups in the current Azure subscription.
 
+    This is a read-only Azure task. It lists resource groups for the current
+    subscription and includes individual resource group summaries when the count
+    is at or below the task's listing threshold. Task metadata is ignored.
+
     Args:
         provider: Provider name for the current execution target.
         execution_target_id: Current subscription ID.
@@ -61,6 +65,10 @@ def run(
 
     Returns:
         Structured resource group count data for the subscription.
+
+    Raises:
+        RuntimeError: If the task is used outside Azure subscription execution
+            or if the Azure resource SDK dependency is unavailable.
     """
 
     if provider != "azure":
