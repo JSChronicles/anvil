@@ -1,0 +1,42 @@
+schema_version: 2
+targets:
+
+- name: github-org-code-search
+  provider:
+    name: github
+    mode: organizations
+    options:
+      auth_type: token
+      token_env: GITHUB_TOKEN
+  regions:
+  - global
+  include:
+  - octo-org
+  dry_run: true
+  metadata:
+    query: TODO
+    language: Python
+    max_results: 25
+  tasks:
+  - name: search_code
+
+- name: github-repo-code-search-enterprise
+  provider:
+    name: github
+    mode: repositories
+    options:
+      auth_type: token
+      token_env: GITHUB_ENTERPRISE_TOKEN
+      api_url: https://github.example.com/api/v3
+  regions:
+  - global
+  include:
+  - octo-org/example
+  dry_run: true
+  metadata:
+    query: secret
+    path: src
+    extension: py
+    max_results: 10
+  tasks:
+  - name: search_code

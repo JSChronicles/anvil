@@ -29,11 +29,13 @@ targets:
     - backup_iam_users
   metadata:
     user_name: test
+
   post_run:
   - processor: summary_markdown
     output: place-summary.md
     metadata:
       include_passed: false
+
 - name: audit
   provider:
     name: aws
@@ -61,6 +63,7 @@ targets:
     optional: true
   metadata:
     owner: security
+
   post_run:
   - processor: summary_json
     output: audit-summary.json
