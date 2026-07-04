@@ -46,7 +46,8 @@
                 "enum": [
                   "aws",
                   "azure",
-                  "gcp"
+                  "gcp",
+                  "github"
                 ]
               },
               "mode": {
@@ -56,7 +57,9 @@
                   "accounts",
                   "tenant",
                   "subscriptions",
-                  "projects"
+                  "projects",
+                  "organizations",
+                  "repositories"
                 ]
               },
               "options": {
@@ -324,6 +327,90 @@
                 }
               }
             }
+          },
+          {
+            "if": {
+              "properties": {
+                "provider": {
+                  "properties": {
+                    "name": {
+                      "const": "github"
+                    },
+                    "mode": {
+                      "const": "organizations"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "mode"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "include"
+              ],
+              "not": {
+                "required": [
+                  "exclude"
+                ]
+              },
+              "properties": {
+                "include": {
+                  "$ref": "common.schema.v1.json#/$defs/githubOrganizationList"
+                },
+                "provider": {
+                  "properties": {
+                    "options": {
+                      "$ref": "common.schema.v1.json#/$defs/githubProviderOptions"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "provider": {
+                  "properties": {
+                    "name": {
+                      "const": "github"
+                    },
+                    "mode": {
+                      "const": "repositories"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "mode"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "include"
+              ],
+              "not": {
+                "required": [
+                  "exclude"
+                ]
+              },
+              "properties": {
+                "include": {
+                  "$ref": "common.schema.v1.json#/$defs/githubRepositoryList"
+                },
+                "provider": {
+                  "properties": {
+                    "options": {
+                      "$ref": "common.schema.v1.json#/$defs/githubProviderOptions"
+                    }
+                  }
+                }
+              }
+            }
           }
         ],
         "anyOf": [
@@ -372,6 +459,23 @@
                     "enum": [
                       "organization",
                       "projects"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "properties": {
+              "provider": {
+                "properties": {
+                  "name": {
+                    "const": "github"
+                  },
+                  "mode": {
+                    "enum": [
+                      "organizations",
+                      "repositories"
                     ]
                   }
                 }

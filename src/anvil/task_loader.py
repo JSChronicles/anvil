@@ -466,7 +466,7 @@ def discover_tasks() -> TaskDiscoveryResult:
     task_keys: set[tuple[str, str, int]] = set()
     issue_keys: set[tuple[str, str, str]] = set()
     issues: list[DiscoveryIssue] = []
-    for provider_name in ("aws", "azure", "gcp"):
+    for provider_name in ("aws", "azure", "gcp", "github"):
         index, provider_issues = _provider_task_discovery(provider_name)
         for name, descriptors in index.items():
             source_counts: dict[tuple[str, str], int] = defaultdict(int)

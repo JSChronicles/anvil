@@ -168,7 +168,7 @@ def test_universal_provider_plugin_task_resolves_for_all_providers(
     importlib.invalidate_caches()
     _clear_task_loader_caches()
 
-    for provider_name in ("aws", "azure", "gcp"):
+    for provider_name in ("aws", "azure", "gcp", "github"):
         execution = task_loader.resolve_tasks(
             task_specs=[{"name": "universal_plugin_task"}], provider_name=provider_name
         )
@@ -182,6 +182,7 @@ def test_universal_provider_plugin_task_resolves_for_all_providers(
         ("aws", "anvil.providers.aws.tasks", "aws_plugin_task"),
         ("azure", "anvil.providers.azure.tasks", "azure_plugin_task"),
         ("gcp", "anvil.providers.gcp.tasks", "gcp_plugin_task"),
+        ("github", "anvil.providers.github.tasks", "github_plugin_task"),
     ],
 )
 def test_provider_specific_plugin_task_resolves_only_for_own_provider(
@@ -205,7 +206,7 @@ def test_provider_specific_plugin_task_resolves_only_for_own_provider(
     )
     assert execution.ordered[0].run() == f"{provider_name}-plugin"
 
-    other_providers = {"aws", "azure", "gcp"} - {provider_name}
+    other_providers = {"aws", "azure", "gcp", "github"} - {provider_name}
     for other_provider in other_providers:
         with pytest.raises(task_loader.TaskConfigError, match="not available"):
             task_loader.resolve_tasks(

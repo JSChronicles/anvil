@@ -9,6 +9,7 @@ from anvil.regions import ALL_REGION_SELECTOR, is_region_selector
 PROVIDER_AWS = "aws"
 PROVIDER_AZURE = "azure"
 PROVIDER_GCP = "gcp"
+PROVIDER_GITHUB = "github"
 
 MODE_AWS_ORGANIZATION = "organization"
 MODE_AWS_ACCOUNTS = "accounts"
@@ -16,17 +17,30 @@ MODE_AZURE_TENANT = "tenant"
 MODE_AZURE_SUBSCRIPTIONS = "subscriptions"
 MODE_GCP_ORGANIZATION = "organization"
 MODE_GCP_PROJECTS = "projects"
+MODE_GITHUB_ORGANIZATIONS = "organizations"
+MODE_GITHUB_REPOSITORIES = "repositories"
 
-SUPPORTED_PROVIDERS = {PROVIDER_AWS, PROVIDER_AZURE, PROVIDER_GCP}
+SUPPORTED_PROVIDERS = {PROVIDER_AWS, PROVIDER_AZURE, PROVIDER_GCP, PROVIDER_GITHUB}
 SUPPORTED_PROVIDER_MODES = {
     PROVIDER_AWS: {MODE_AWS_ORGANIZATION, MODE_AWS_ACCOUNTS},
     PROVIDER_AZURE: {MODE_AZURE_TENANT, MODE_AZURE_SUBSCRIPTIONS},
     PROVIDER_GCP: {MODE_GCP_ORGANIZATION, MODE_GCP_PROJECTS},
+    PROVIDER_GITHUB: {MODE_GITHUB_ORGANIZATIONS, MODE_GITHUB_REPOSITORIES},
 }
 SUPPORTED_PROVIDER_OPTIONS = {
     PROVIDER_AWS: {"profile", "role_name"},
     PROVIDER_AZURE: {"tenant_id", "client_id", "client_secret", "subscription_id"},
     PROVIDER_GCP: {"credentials_path", "organization_id", "quota_project_id"},
+    PROVIDER_GITHUB: {
+        "auth_type",
+        "api_url",
+        "api_version",
+        "token_env",
+        "app_id",
+        "installation_id",
+        "private_key_env",
+        "private_key_path",
+    },
 }
 
 
@@ -80,6 +94,8 @@ class TargetDescriptor:
             and self.mode == MODE_AZURE_SUBSCRIPTIONS
             or self.provider == PROVIDER_GCP
             and self.mode == MODE_GCP_PROJECTS
+            or self.provider == PROVIDER_GITHUB
+            and self.mode in {MODE_GITHUB_ORGANIZATIONS, MODE_GITHUB_REPOSITORIES}
         )
 
     @property
@@ -182,6 +198,14 @@ class TargetDescriptor:
                 raise ValueError(
                     "accounts config entries cannot use include and exclude together"
                 )
+
+            if self.provider == PROVIDER_GITHUB and not self.include:
+                raise ValueError(
+                    f"provider '{self.provider}' mode '{self.mode}' requires include"
+                )
+
+            if self.provider == PROVIDER_GITHUB and self.exclude is not None:
+                raise ValueError("accounts config entries do not allow exclude")
 
             if (
                 self.provider == PROVIDER_AWS
@@ -288,6 +312,12 @@ class TargetDescriptor:
                     "client_id"
                 )
 
+        if (
+            self.provider == PROVIDER_GITHUB
+            and self.provider_options.get("auth_type") not in {None, "token", "app"}
+        ):
+            raise ValueError("GitHub provider.options.auth_type must be token or app")
+
     def _normalize_provider_option_aliases(self) -> None:
         if self.provider != PROVIDER_AWS:
             return
@@ -330,6 +360,8 @@ class TargetDescriptor:
                 mode = MODE_AZURE_SUBSCRIPTIONS
             elif self.provider == PROVIDER_GCP:
                 mode = MODE_GCP_PROJECTS
+            elif self.provider == PROVIDER_GITHUB:
+                mode = MODE_GITHUB_REPOSITORIES
 
         if mode not in SUPPORTED_PROVIDER_MODES[self.provider]:
             supported = ", ".join(sorted(SUPPORTED_PROVIDER_MODES[self.provider]))
@@ -351,6 +383,7 @@ class TargetDescriptor:
                 PROVIDER_AWS: MODE_AWS_ACCOUNTS,
                 PROVIDER_AZURE: MODE_AZURE_SUBSCRIPTIONS,
                 PROVIDER_GCP: MODE_GCP_PROJECTS,
+                PROVIDER_GITHUB: MODE_GITHUB_REPOSITORIES,
             }[self.provider]
             if mode != expected_mode:
                 raise ValueError(

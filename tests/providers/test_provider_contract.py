@@ -6,10 +6,16 @@ from anvil.providers.aws import create_provider as create_aws_provider
 from anvil.providers.azure import create_provider as create_azure_provider
 from anvil.providers.base import ProviderMetadata, validate_provider_contract
 from anvil.providers.gcp import create_provider as create_gcp_provider
+from anvil.providers.github import create_provider as create_github_provider
 
 
 def test_first_party_providers_satisfy_provider_contract():
-    providers = [create_aws_provider(), create_azure_provider(), create_gcp_provider()]
+    providers = [
+        create_aws_provider(),
+        create_azure_provider(),
+        create_gcp_provider(),
+        create_github_provider(),
+    ]
 
     for provider in providers:
         validate_provider_contract(provider)

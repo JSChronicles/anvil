@@ -46,9 +46,11 @@ def test_real_non_aws_descriptor_index_excludes_aws_only_tasks():
 
     azure_index = task_loader.provider_task_descriptor_index(provider_name="azure")
     gcp_index = task_loader.provider_task_descriptor_index(provider_name="gcp")
+    github_index = task_loader.provider_task_descriptor_index(provider_name="github")
 
     assert "count_vpc" not in azure_index
     assert "count_vpc" not in gcp_index
+    assert "count_vpc" not in github_index
 
 
 def test_real_azure_descriptor_index_includes_azure_tasks_only_for_azure():
@@ -58,6 +60,7 @@ def test_real_azure_descriptor_index_includes_azure_tasks_only_for_azure():
     aws_index = task_loader.provider_task_descriptor_index(provider_name="aws")
     azure_index = task_loader.provider_task_descriptor_index(provider_name="azure")
     gcp_index = task_loader.provider_task_descriptor_index(provider_name="gcp")
+    github_index = task_loader.provider_task_descriptor_index(provider_name="github")
 
     assert "count_resource_groups" in azure_index
     assert [
@@ -65,6 +68,7 @@ def test_real_azure_descriptor_index_includes_azure_tasks_only_for_azure():
     ] == ["azure"]
     assert "count_resource_groups" not in aws_index
     assert "count_resource_groups" not in gcp_index
+    assert "count_resource_groups" not in github_index
 
 
 def test_real_gcp_descriptor_index_includes_gcp_tasks_only_for_gcp():
@@ -74,6 +78,7 @@ def test_real_gcp_descriptor_index_includes_gcp_tasks_only_for_gcp():
     aws_index = task_loader.provider_task_descriptor_index(provider_name="aws")
     azure_index = task_loader.provider_task_descriptor_index(provider_name="azure")
     gcp_index = task_loader.provider_task_descriptor_index(provider_name="gcp")
+    github_index = task_loader.provider_task_descriptor_index(provider_name="github")
 
     assert "get_project_info" in gcp_index
     assert [descriptor.source for descriptor in gcp_index["get_project_info"]] == [
@@ -81,13 +86,14 @@ def test_real_gcp_descriptor_index_includes_gcp_tasks_only_for_gcp():
     ]
     assert "get_project_info" not in aws_index
     assert "get_project_info" not in azure_index
+    assert "get_project_info" not in github_index
 
 
 def test_universal_noop_resolves_for_all_providers():
     task_loader = importlib.import_module("anvil.task_loader")
     _clear_task_loader_caches(task_loader)
 
-    for provider_name in ("aws", "azure", "gcp"):
+    for provider_name in ("aws", "azure", "gcp", "github"):
         execution = task_loader.resolve_tasks(
             task_specs=[{"name": "noop"}], provider_name=provider_name
         )
@@ -99,7 +105,7 @@ def test_aws_only_tasks_do_not_resolve_for_azure_or_gcp():
     task_loader = importlib.import_module("anvil.task_loader")
     _clear_task_loader_caches(task_loader)
 
-    for provider_name in ("azure", "gcp"):
+    for provider_name in ("azure", "gcp", "github"):
         with pytest.raises(TaskConfigError, match="count_vpc"):
             task_loader.resolve_tasks(
                 task_specs=[{"name": "count_vpc"}], provider_name=provider_name
@@ -114,7 +120,7 @@ def test_legacy_plugin_tasks_are_ignored_for_all_providers(monkeypatch):
         task_loader, "_provider_task_descriptor_index", lambda provider_name: {}
     )
 
-    for provider_name in ("aws", "azure", "gcp"):
+    for provider_name in ("aws", "azure", "gcp", "github"):
         with pytest.raises(TaskConfigError, match="provider package"):
             task_loader.resolve_tasks(
                 task_specs=[{"name": "legacy_plugin_task"}], provider_name=provider_name
@@ -233,3 +239,18 @@ def test_discover_tasks_ignores_legacy_discovery_issues(monkeypatch):
 
     assert [task.name for task in discovery.tasks] == ["noop"]
     assert discovery.issues == []
+
+
+def test_discover_tasks_includes_github_provider_list(monkeypatch):
+    task_loader = importlib.import_module("anvil.task_loader")
+    seen: list[str] = []
+
+    def fake_discovery(provider_name):
+        seen.append(provider_name)
+        return {}, ()
+
+    monkeypatch.setattr(task_loader, "_provider_task_discovery", fake_discovery)
+
+    task_loader.discover_tasks()
+
+    assert seen == ["aws", "azure", "gcp", "github"]

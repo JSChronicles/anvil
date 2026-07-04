@@ -16,7 +16,7 @@ def _v2_target(*, provider_name: str, mode: str, **overrides):
         "provider": {"name": provider_name, "mode": mode, "options": {}},
         "regions": [
             "global"
-            if provider_name == "gcp"
+            if provider_name in {"gcp", "github"}
             else "eastus"
             if provider_name == "azure"
             else "us-east-1"
@@ -183,6 +183,39 @@ def test_v2_schema_accepts_final_multicloud_target_shapes():
                 include=["my-project"],
                 tasks=[{"name": "get_project_info"}],
             ),
+            _v2_target(
+                provider_name="github",
+                mode="organizations",
+                name="github-organizations",
+                provider={
+                    "name": "github",
+                    "mode": "organizations",
+                    "options": {
+                        "auth_type": "token",
+                        "api_url": "https://api.github.com",
+                        "api_version": "2022-11-28",
+                        "token_env": "GITHUB_TOKEN",
+                    },
+                },
+                include=["octo-org"],
+            ),
+            _v2_target(
+                provider_name="github",
+                mode="repositories",
+                name="github-repositories",
+                provider={
+                    "name": "github",
+                    "mode": "repositories",
+                    "options": {
+                        "auth_type": "app",
+                        "app_id": "12345",
+                        "installation_id": "67890",
+                        "private_key_env": "GITHUB_PRIVATE_KEY",
+                        "private_key_path": "./github-app.pem",
+                    },
+                },
+                include=["octo-org/example"],
+            ),
         ],
     }
 
@@ -197,9 +230,13 @@ def test_v2_schema_accepts_final_multicloud_target_shapes():
         ("azure", "subscriptions"),
         ("gcp", "organization"),
         ("gcp", "projects"),
+        ("github", "organizations"),
+        ("github", "repositories"),
     ]
     assert loaded.targets[3].provider_options == {}
     assert loaded.targets[5].provider_options == {"credentials_path": "./gcp.json"}
+    assert loaded.targets[6].provider_options["token_env"] == "GITHUB_TOKEN"
+    assert loaded.targets[7].provider_options["auth_type"] == "app"
 
 
 @pytest.mark.parametrize("provider", [{}, {"mode": "accounts"}, {"name": "aws"}])
@@ -221,9 +258,11 @@ def test_v2_rejects_provider_missing_name_or_mode(provider):
         ("aws", "organization"),
         ("azure", "tenant"),
         ("gcp", "organization"),
+        ("github", "organizations"),
         ("aws", "accounts"),
         ("azure", "subscriptions"),
         ("gcp", "projects"),
+        ("github", "repositories"),
     ],
 )
 def test_v2_rejects_include_and_exclude_together_for_all_modes(provider, mode):
@@ -266,7 +305,13 @@ def test_v2_discovery_modes_allow_omitted_include(provider, mode):
 
 @pytest.mark.parametrize(
     ("provider", "mode"),
-    [("aws", "accounts"), ("azure", "subscriptions"), ("gcp", "projects")],
+    [
+        ("aws", "accounts"),
+        ("azure", "subscriptions"),
+        ("gcp", "projects"),
+        ("github", "organizations"),
+        ("github", "repositories"),
+    ],
 )
 def test_v2_explicit_modes_require_include_and_reject_exclude(provider, mode):
     validators = _import_validators_or_skip()
@@ -289,6 +334,31 @@ def test_v2_explicit_modes_require_include_and_reject_exclude(provider, mode):
                         mode=mode,
                         include=["111111111111" if provider == "aws" else "target-a"],
                         exclude=["222222222222" if provider == "aws" else "target-b"],
+                    )
+                ],
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    ("mode", "include"),
+    [
+        ("organizations", ["octo-org/example"]),
+        ("repositories", ["example"]),
+    ],
+)
+def test_v2_github_modes_validate_include_shape(mode, include):
+    validators = _import_validators_or_skip()
+
+    with pytest.raises(ValueError, match="include"):
+        validators.validate_config_schema(
+            config={
+                "schema_version": 2,
+                "targets": [
+                    _v2_target(
+                        provider_name="github",
+                        mode=mode,
+                        include=include,
                     )
                 ],
             }

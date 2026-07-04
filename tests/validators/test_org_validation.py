@@ -68,6 +68,48 @@ def test_gcp_project_mode_allows_multiple_target_ids():
     assert descriptor.include == ["project-a", "project-b"]
 
 
+def test_github_organization_mode_allows_multiple_org_logins():
+    descriptor = TargetDescriptor(
+        config_branch=ConfigBranch.TARGETS,
+        name="github-organizations",
+        provider="github",
+        mode="organizations",
+        include=["octo-org", "another-org"],
+    )
+
+    assert descriptor.provider == "github"
+    assert descriptor.mode == "organizations"
+    assert descriptor.include == ["octo-org", "another-org"]
+
+
+def test_github_repository_mode_allows_owner_repo_values():
+    descriptor = TargetDescriptor(
+        config_branch=ConfigBranch.TARGETS,
+        name="github-repositories",
+        provider="github",
+        mode="repositories",
+        include=["octo-org/example"],
+        provider_options={"auth_type": "app", "private_key_path": "./app.pem"},
+    )
+
+    assert descriptor.provider == "github"
+    assert descriptor.mode == "repositories"
+    assert descriptor.provider_options == {
+        "auth_type": "app",
+        "private_key_path": "./app.pem",
+    }
+
+
+def test_github_modes_require_include():
+    with pytest.raises(ValueError, match="requires include"):
+        TargetDescriptor(
+            config_branch=ConfigBranch.TARGETS,
+            name="github-repositories",
+            provider="github",
+            mode="repositories",
+        )
+
+
 def test_invalid_provider_is_rejected():
     with pytest.raises(ValueError, match="Unsupported provider"):
         TargetDescriptor(

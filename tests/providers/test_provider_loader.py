@@ -13,6 +13,7 @@ def test_list_providers_returns_aws_without_loading_provider(monkeypatch):
     monkeypatch.setattr(provider_loader, "_load_aws_provider", fail_load)
     monkeypatch.setattr(provider_loader, "_load_azure_provider", fail_load)
     monkeypatch.setattr(provider_loader, "_load_gcp_provider", fail_load)
+    monkeypatch.setattr(provider_loader, "_load_github_provider", fail_load)
     monkeypatch.setattr(provider_loader, "entry_points", lambda *, group: [])
 
     providers = provider_loader.list_providers()
@@ -20,7 +21,12 @@ def test_list_providers_returns_aws_without_loading_provider(monkeypatch):
     assert [
         (provider.name, provider.display_name, provider.source)
         for provider in providers
-    ] == [("aws", "AWS", "stock"), ("azure", "Azure", "stock"), ("gcp", "GCP", "stock")]
+    ] == [
+        ("aws", "AWS", "stock"),
+        ("azure", "Azure", "stock"),
+        ("gcp", "GCP", "stock"),
+        ("github", "GitHub", "stock"),
+    ]
 
 
 def test_discover_providers_reports_duplicate_plugin_name(monkeypatch):
@@ -41,6 +47,7 @@ def test_discover_providers_reports_duplicate_plugin_name(monkeypatch):
         "aws",
         "azure",
         "gcp",
+        "github",
     ]
     assert len(discovery.issues) == 1
     assert discovery.issues[0].name == "aws"

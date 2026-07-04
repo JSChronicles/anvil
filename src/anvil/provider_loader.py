@@ -47,6 +47,12 @@ def _load_gcp_provider() -> Provider:
     return create_provider()
 
 
+def _load_github_provider() -> Provider:
+    from anvil.providers.github import create_provider
+
+    return create_provider()
+
+
 def _load_plugin_provider(entry_point: EntryPoint) -> Provider:
     loaded = entry_point.load()
     if hasattr(loaded, "create_provider"):
@@ -91,6 +97,13 @@ def _builtin_provider_descriptors() -> list[ProviderDescriptor]:
             display_name="GCP",
             description="Google Cloud provider",
             load=_load_gcp_provider,
+            source="stock",
+        ),
+        ProviderDescriptor(
+            name="github",
+            display_name="GitHub",
+            description="GitHub provider",
+            load=_load_github_provider,
             source="stock",
         ),
     ]
