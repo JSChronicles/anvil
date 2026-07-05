@@ -25,7 +25,7 @@ targets:
   - name: audit_rulesets
   - name: audit_repo_security_settings
 
-- name: github-org-alert-inventory
+- name: github-owner-repository-security-audit
   provider:
     name: github
     mode: organizations
@@ -38,11 +38,16 @@ targets:
   - global
   include:
   - octo-org
+  - octocat
   dry_run: true
   metadata:
     state: open
+    branch: main
     max_results: 100
   tasks:
   - name: list_code_scanning_alerts
   - name: list_secret_scanning_alerts
   - name: list_dependabot_alerts
+  - name: audit_branch_protection
+  - name: audit_rulesets
+  - name: audit_repo_security_settings

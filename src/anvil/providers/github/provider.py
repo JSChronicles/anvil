@@ -3,6 +3,8 @@ from __future__ import annotations
 import inspect
 import os
 import re
+import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
@@ -32,6 +34,77 @@ GITHUB_LOGIN_PATTERN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9]
 GITHUB_REPOSITORY_PATTERN = re.compile(
     r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[^/\s]+$"
 )
+
+
+@dataclass(frozen=True, slots=True)
+class GithubRepository:
+    """GitHub repository identity discovered from an owner login."""
+
+    full_name: str
+    name: str | None = None
+    owner: str | None = None
+
+
+@dataclass(slots=True)
+class _GithubRepositoryDiscoveryFlight:
+    event: threading.Event
+    repositories: list[GithubRepository] | None = None
+    error: BaseException | None = None
+
+
+class _GithubRepositoryDiscoveryCache:
+    """Single-flight cache for GitHub repository discovery."""
+
+    def __init__(self) -> None:
+        self._values: dict[object, list[GithubRepository]] = {}
+        self._flights: dict[object, _GithubRepositoryDiscoveryFlight] = {}
+        self._lock = threading.Lock()
+
+    def get_or_discover(
+        self, *, key: object, discover: Callable[[], list[GithubRepository]]
+    ) -> list[GithubRepository]:
+        with self._lock:
+            cached = self._values.get(key)
+            if cached is not None:
+                return list(cached)
+
+            flight = self._flights.get(key)
+            if flight is None:
+                flight = _GithubRepositoryDiscoveryFlight(event=threading.Event())
+                self._flights[key] = flight
+                owns_discovery = True
+            else:
+                owns_discovery = False
+
+        if owns_discovery:
+            try:
+                repositories = list(discover())
+            except BaseException as error:
+                with self._lock:
+                    flight.error = error
+                    self._flights.pop(key, None)
+                    flight.event.set()
+                raise
+
+            with self._lock:
+                cached = self._values.get(key)
+                stored = list(cached) if cached is not None else repositories
+                self._values[key] = list(stored)
+                flight.repositories = list(stored)
+                self._flights.pop(key, None)
+                flight.event.set()
+
+            return list(stored)
+
+        flight.event.wait()
+        if flight.error is not None:
+            raise flight.error
+        if flight.repositories is None:
+            raise RuntimeError("GitHub repository discovery completed empty")
+        return list(flight.repositories)
+
+
+_GITHUB_REPOSITORY_DISCOVERY_CACHE = _GithubRepositoryDiscoveryCache()
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,6 +150,43 @@ class CachedGitHubClient:
             self._organizations[login] = organization
 
         return organization
+
+    def list_owner_repositories(self, login: str) -> list[GithubRepository]:
+        """Return repositories visible under one organization or user login."""
+
+        owner = self._get_repository_owner(login)
+        get_repos = getattr(owner, "get_repos", None)
+        if not callable(get_repos):
+            raise RuntimeError(
+                "GitHub owner object does not expose get_repos()"
+            )
+
+        repositories: list[GithubRepository] = []
+        for repository in get_repos():
+            full_name = getattr(repository, "full_name", None)
+            if not isinstance(full_name, str) or not full_name.strip():
+                continue
+            name = getattr(repository, "name", None)
+            repositories.append(
+                GithubRepository(
+                    full_name=full_name.strip(),
+                    name=name if isinstance(name, str) else None,
+                    owner=login,
+                )
+            )
+
+        return sorted(repositories, key=lambda item: item.full_name.lower())
+
+    def _get_repository_owner(self, login: str) -> object:
+        try:
+            return self.get_organization(login)
+        except Exception as error:
+            if not _is_not_found(error):
+                raise
+            get_user = getattr(self._client, "get_user", None)
+            if not callable(get_user):
+                raise
+            return get_user(login)
 
     def search_code(self, query: str, *, highlight: bool = False) -> object:
         """Run a PyGithub code search through the scoped client."""
@@ -149,6 +259,51 @@ class GitHubSessionFactory:
             api_url=api_url,
             api_version=api_version,
         )
+
+    def list_owner_repositories(
+        self, *, owner_logins: list[str], provider_options: dict[str, object]
+    ) -> list[GithubRepository]:
+        """List repositories visible in configured GitHub owner logins."""
+
+        if not owner_logins:
+            raise RuntimeError(
+                "GitHub repository discovery requires at least one owner login"
+            )
+
+        github_module = self._load_pygithub()
+        auth_type = self._string_option(
+            provider_options=provider_options, option_name="auth_type"
+        )
+        if auth_type is None:
+            auth_type = "token"
+        api_url = self._string_option(
+            provider_options=provider_options, option_name="api_url"
+        )
+        api_version = self._string_option(
+            provider_options=provider_options, option_name="api_version"
+        )
+        if api_version is None:
+            api_version = DEFAULT_GITHUB_API_VERSION
+
+        auth = self._build_auth(
+            github_module=github_module,
+            auth_type=auth_type,
+            provider_options=provider_options,
+        )
+        client = CachedGitHubClient(
+            client=self._build_client(
+                github_module=github_module,
+                auth=auth,
+                api_url=api_url,
+                api_version=api_version,
+            )
+        )
+
+        repositories: list[GithubRepository] = []
+        for owner_login in owner_logins:
+            repositories.extend(client.list_owner_repositories(owner_login))
+
+        return sorted(repositories, key=lambda item: item.full_name.lower())
 
     def _build_auth(
         self,
@@ -327,7 +482,7 @@ class GithubExecutionRuntime:
 
 
 class GithubProvider:
-    """GitHub provider for explicit organization and repository targets."""
+    """GitHub provider for organization-discovered and explicit repository targets."""
 
     metadata = ProviderMetadata(
         name="github", display_name="GitHub", description="GitHub provider"
@@ -347,7 +502,8 @@ class GithubProvider:
             raise ValueError(f"Unsupported GitHub target mode: {target.mode}")
         if not target.include:
             raise ValueError(
-                f"GitHub mode '{target.mode}' requires include with explicit targets"
+                f"GitHub mode '{target.mode}' requires include with owner or "
+                "repository targets"
             )
         if target.exclude is not None:
             raise ValueError(f"GitHub mode '{target.mode}' does not allow exclude")
@@ -394,16 +550,23 @@ class GithubProvider:
         include: list[str] | None,
         exclude: list[str] | None,
     ) -> ProviderExecutionPlan:
-        """Resolve configured GitHub org or repository IDs without API calls."""
+        """Resolve configured GitHub organizations or repositories."""
 
         self.validate_target(target)
         if exclude is not None:
             raise ValueError(f"GitHub mode '{target.mode}' does not allow exclude")
 
-        target_ids = include or target.include or []
-        target_type = (
-            "organization" if target.mode == MODE_GITHUB_ORGANIZATIONS else "repository"
-        )
+        if target.mode == MODE_GITHUB_ORGANIZATIONS:
+            repositories = self._discover_repositories(
+                owner_logins=include or target.include or [],
+                provider_options=target.provider_options,
+            )
+            target_ids = [repository.full_name for repository in repositories]
+            target_type = "repository"
+        else:
+            target_ids = include or target.include or []
+            target_type = "repository"
+
         execution_targets = [
             self._execution_target(
                 target_id=target_id,
@@ -413,6 +576,46 @@ class GithubProvider:
             for target_id in target_ids
         ]
         return ProviderExecutionPlan(execution_targets=execution_targets)
+
+    def _discover_repositories(
+        self, *, owner_logins: list[str], provider_options: dict[str, object]
+    ) -> list[GithubRepository]:
+        if type(self._session_factory) is not GitHubSessionFactory:
+            return self._session_factory.list_owner_repositories(
+                owner_logins=owner_logins,
+                provider_options=provider_options,
+            )
+
+        discovery_key = self._repository_discovery_cache_key(
+            owner_logins=owner_logins, provider_options=provider_options
+        )
+        return _GITHUB_REPOSITORY_DISCOVERY_CACHE.get_or_discover(
+            key=discovery_key,
+            discover=lambda: self._session_factory.list_owner_repositories(
+                owner_logins=owner_logins,
+                provider_options=provider_options,
+            ),
+        )
+
+    def _repository_discovery_cache_key(
+        self, *, owner_logins: list[str], provider_options: dict[str, object]
+    ) -> object:
+        auth_type = provider_options.get("auth_type", "token")
+        api_url = provider_options.get("api_url")
+        api_version = provider_options.get("api_version", DEFAULT_GITHUB_API_VERSION)
+        token_env = provider_options.get("token_env", DEFAULT_GITHUB_TOKEN_ENV)
+        app_id = provider_options.get("app_id")
+        installation_id = provider_options.get("installation_id")
+        return (
+            GitHubSessionFactory,
+            tuple(owner_logins),
+            auth_type,
+            api_url,
+            api_version,
+            token_env,
+            app_id,
+            installation_id,
+        )
 
     def prepare_execution_runtime(
         self,
@@ -463,7 +666,7 @@ class GithubProvider:
             if invalid:
                 invalid_display = ", ".join(invalid)
                 raise ValueError(
-                    "GitHub organizations mode include values must be organization "
+                    "GitHub organizations mode include values must be owner "
                     f"logins: {invalid_display}"
                 )
             return
@@ -490,3 +693,11 @@ def create_provider() -> GithubProvider:
 GitHubExecutionTargetData = GithubExecutionTargetData
 GitHubExecutionRuntime = GithubExecutionRuntime
 GitHubProvider = GithubProvider
+
+
+def _is_not_found(error: Exception) -> bool:
+    status = getattr(error, "status", None)
+    data = getattr(error, "data", None)
+    return status == 404 or "404" in str(error) or (
+        isinstance(data, dict) and data.get("status") == "404"
+    )

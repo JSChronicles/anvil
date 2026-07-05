@@ -95,7 +95,7 @@ class TargetDescriptor:
             or self.provider == PROVIDER_GCP
             and self.mode == MODE_GCP_PROJECTS
             or self.provider == PROVIDER_GITHUB
-            and self.mode in {MODE_GITHUB_ORGANIZATIONS, MODE_GITHUB_REPOSITORIES}
+            and self.mode == MODE_GITHUB_REPOSITORIES
         )
 
     @property
@@ -107,6 +107,8 @@ class TargetDescriptor:
             and self.mode == MODE_AZURE_TENANT
             or self.provider == PROVIDER_GCP
             and self.mode == MODE_GCP_ORGANIZATION
+            or self.provider == PROVIDER_GITHUB
+            and self.mode == MODE_GITHUB_ORGANIZATIONS
         )
 
     @property

@@ -14,6 +14,7 @@ from anvil.providers.github import create_provider
 from anvil.providers.github.provider import (
     DEFAULT_GITHUB_API_VERSION,
     GitHubSessionFactory,
+    GithubRepository,
     GithubExecutionTargetData,
     GithubProvider,
 )
@@ -30,6 +31,7 @@ class FakeSession:
 class FakeSessionFactory:
     def __init__(self) -> None:
         self.calls: list[dict[str, object]] = []
+        self.repositories: dict[str, list[str]] = {}
 
     def create_session(
         self,
@@ -49,6 +51,24 @@ class FakeSessionFactory:
         )
         return FakeSession(
             target_id=target_id, target_type=target_type, region_name=region_name
+        )
+
+    def list_owner_repositories(
+        self, *, owner_logins: list[str], provider_options: dict[str, object]
+    ) -> list[GithubRepository]:
+        self.calls.append(
+            {
+                "owner_logins": list(owner_logins),
+                "provider_options": dict(provider_options),
+            }
+        )
+        return sorted(
+            [
+                GithubRepository(full_name=full_name, owner=owner_login)
+                for owner_login in owner_logins
+                for full_name in self.repositories.get(owner_login, [])
+            ],
+            key=lambda repository: repository.full_name.lower(),
         )
 
 
@@ -88,6 +108,7 @@ class FakeGithubClient:
         self.kwargs = kwargs
         self.repo_calls: list[str] = []
         self.organization_calls: list[str] = []
+        self.user_calls: list[str] = []
         FakeGithubClient.instances.append(self)
 
     def get_repo(self, full_name_or_id):
@@ -96,6 +117,40 @@ class FakeGithubClient:
 
     def get_organization(self, login):
         self.organization_calls.append(login)
+        if login == "personal-user":
+            error = RuntimeError("404")
+            error.status = 404
+            raise error
+        return FakeRepositoryOwner(login=login)
+
+    def get_user(self, login):
+        self.user_calls.append(login)
+        return FakeRepositoryOwner(login=login)
+
+
+class FakeRepository:
+    def __init__(self, *, full_name, name):
+        self.full_name = full_name
+        self.name = name
+
+
+class FakeRepositoryOwner:
+    def __init__(self, *, login):
+        self.login = login
+
+    def get_repos(self):
+        return [
+            FakeRepository(full_name=f"{self.login}/alpha", name="alpha"),
+            FakeRepository(full_name=f"{self.login}/beta", name="beta"),
+        ]
+
+
+class FakeLegacyOrganizationClient:
+    def __init__(self, raw_client):
+        self.raw_client = raw_client
+
+    def get_organization(self, login):
+        self.raw_client.organization_calls.append(login)
         return {"organization": login}
 
 
@@ -165,12 +220,17 @@ def test_github_provider_rejects_organization_include_with_repo_path():
     provider = create_provider()
     target = _target(mode="organizations", include=["octo-org/example"])
 
-    with pytest.raises(ValueError, match="organization logins"):
+    with pytest.raises(ValueError, match="owner logins"):
         provider.validate_target(target)
 
 
-def test_github_provider_resolves_organization_targets_offline():
-    provider = create_provider()
+def test_github_provider_discovers_repository_targets_from_owner_logins():
+    session_factory = FakeSessionFactory()
+    session_factory.repositories = {
+        "octo-org": ["octo-org/example", "octo-org/other"],
+        "another-org": ["another-org/repo"],
+    }
+    provider = GithubProvider(session_factory=session_factory)
     target = _target(
         name="github-organizations",
         mode="organizations",
@@ -181,9 +241,10 @@ def test_github_provider_resolves_organization_targets_offline():
         target=target, regions=["global"], include=target.include, exclude=None
     )
 
-    assert [(item.id, item.type, item.provider) for item in plan.execution_targets] == [
-        ("octo-org", "organization", "github"),
-        ("another-org", "organization", "github"),
+    assert [(item.id, item.type) for item in plan.execution_targets] == [
+        ("another-org/repo", "repository"),
+        ("octo-org/example", "repository"),
+        ("octo-org/other", "repository"),
     ]
     assert isinstance(
         plan.execution_targets[0].provider_data, GithubExecutionTargetData
@@ -476,11 +537,35 @@ def test_cached_github_client_reuses_repo_and_organization_objects(monkeypatch):
         provider_options={"auth_type": "token"},
     )
 
+    raw_client = FakeGithubClient.instances[0]
+    raw_client.get_organization = FakeLegacyOrganizationClient(
+        raw_client
+    ).get_organization
+
     assert session.client.get_repo("octo-org/example") == {"repo": "octo-org/example"}
     assert session.client.get_repo("octo-org/example") == {"repo": "octo-org/example"}
     assert session.client.get_organization("octo-org") == {"organization": "octo-org"}
     assert session.client.get_organization("octo-org") == {"organization": "octo-org"}
 
-    raw_client = FakeGithubClient.instances[0]
     assert raw_client.repo_calls == ["octo-org/example"]
     assert raw_client.organization_calls == ["octo-org"]
+
+
+def test_github_session_factory_lists_org_and_user_repositories(monkeypatch):
+    _install_fake_pygithub(monkeypatch)
+    monkeypatch.setenv("GITHUB_TOKEN", "secret-token")
+
+    repositories = GitHubSessionFactory().list_owner_repositories(
+        owner_logins=["octo-org", "personal-user"],
+        provider_options={"auth_type": "token"},
+    )
+
+    assert [repository.full_name for repository in repositories] == [
+        "octo-org/alpha",
+        "octo-org/beta",
+        "personal-user/alpha",
+        "personal-user/beta",
+    ]
+    raw_client = FakeGithubClient.instances[0]
+    assert raw_client.organization_calls == ["octo-org", "personal-user"]
+    assert raw_client.user_calls == ["personal-user"]
