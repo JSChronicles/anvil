@@ -1,0 +1,48 @@
+schema_version: 2
+targets:
+
+- name: github-repo-security-audit
+  provider:
+    name: github
+    mode: repositories
+    options:
+      auth_type: token
+      token_env: GITHUB_TOKEN
+  regions:
+  - global
+  include:
+  - octo-org/example
+  dry_run: true
+  metadata:
+    state: open
+    branch: main
+    max_results: 100
+  tasks:
+  - name: list_code_scanning_alerts
+  - name: list_secret_scanning_alerts
+  - name: list_dependabot_alerts
+  - name: audit_branch_protection
+  - name: audit_rulesets
+  - name: audit_repo_security_settings
+
+- name: github-org-alert-inventory
+  provider:
+    name: github
+    mode: organizations
+    options:
+      auth_type: app
+      app_id: "12345"
+      installation_id: "67890"
+      private_key_env: GITHUB_APP_PRIVATE_KEY
+  regions:
+  - global
+  include:
+  - octo-org
+  dry_run: true
+  metadata:
+    state: open
+    max_results: 100
+  tasks:
+  - name: list_code_scanning_alerts
+  - name: list_secret_scanning_alerts
+  - name: list_dependabot_alerts
