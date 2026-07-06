@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import builtins
 import sys
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
@@ -307,12 +308,40 @@ def test_github_provider_resolves_repository_targets_offline():
     ]
 
 
-def test_github_auth_check_is_deferred_offline():
+def test_github_auth_check_resolves_inline_token_env(monkeypatch):
     provider = create_provider()
+    monkeypatch.setenv("GITHUB_TOKEN", "secret-token")
+
     result = provider.auth_check(_target())
 
     assert result.status is ExecutionStatus.SUCCESS
-    assert result.source == "deferred"
+    assert result.source == "inline"
+
+
+def test_github_auth_check_reports_missing_token_env(monkeypatch):
+    provider = create_provider()
+    monkeypatch.delenv("MISSING_GITHUB_TOKEN", raising=False)
+
+    result = provider.auth_check(
+        _target(provider_options={"token_env": "MISSING_GITHUB_TOKEN"})
+    )
+
+    assert result.status is ExecutionStatus.ERROR
+    assert result.source == "github"
+    assert "MISSING_GITHUB_TOKEN" in str(result.message)
+
+
+def test_github_auth_check_reports_missing_profile(tmp_path, monkeypatch):
+    provider = create_provider()
+    config_path = tmp_path / "github-config.toml"
+    config_path.write_text('[default]\ntoken_env = "GITHUB_TOKEN"\n', encoding="utf-8")
+    monkeypatch.setenv(GITHUB_CONFIG_ENV, str(config_path))
+
+    result = provider.auth_check(_target(provider_options={"profile": "work"}))
+
+    assert result.status is ExecutionStatus.ERROR
+    assert result.source == "github"
+    assert "profile 'work'" in str(result.message)
 
 
 def test_github_runtime_uses_injected_session_factory():
@@ -751,6 +780,60 @@ def test_github_session_factory_caches_installation_lookup(monkeypatch):
     ]
 
 
+def test_github_session_factory_single_flights_installation_lookup(monkeypatch):
+    _install_fake_pygithub(monkeypatch)
+    monkeypatch.setenv("GITHUB_PRIVATE_KEY", "private-key")
+    started = threading.Event()
+    release = threading.Event()
+    calls: list[str] = []
+
+    def slow_resolve(self, *, client, lookup_paths, target_id):
+        calls.append(target_id)
+        started.set()
+        assert release.wait(timeout=5)
+        return 67890
+
+    monkeypatch.setattr(
+        GitHubSessionFactory, "_resolve_installation_id", slow_resolve
+    )
+    session_factory = GitHubSessionFactory()
+    errors: list[BaseException] = []
+
+    def create_session() -> None:
+        try:
+            session_factory.create_session(
+                target_id="octo-org/example",
+                target_type="repository",
+                region_name="global",
+                provider_options={
+                    "app_id": "12345",
+                    "private_key_env": "GITHUB_PRIVATE_KEY",
+                },
+            )
+        except BaseException as error:
+            errors.append(error)
+
+    first = threading.Thread(target=create_session)
+    second = threading.Thread(target=create_session)
+    first.start()
+    assert started.wait(timeout=5)
+    second.start()
+    release.set()
+    first.join(timeout=5)
+    second.join(timeout=5)
+
+    assert not first.is_alive()
+    assert not second.is_alive()
+    assert errors == []
+    assert calls == ["octo-org/example"]
+    lookup_clients = [
+        client
+        for client in FakeGithubClient.instances
+        if isinstance(client.kwargs["auth"], FakeAppAuth)
+    ]
+    assert len(lookup_clients) == 1
+
+
 def test_github_session_factory_requires_app_private_key(monkeypatch):
     _install_fake_pygithub(monkeypatch)
 
@@ -823,3 +906,20 @@ def test_github_session_factory_lists_org_and_user_repositories(monkeypatch):
     raw_client = FakeGithubClient.instances[0]
     assert raw_client.organization_calls == ["octo-org", "personal-user"]
     assert raw_client.user_calls == ["personal-user"]
+
+
+def test_repository_discovery_cache_key_uses_resolved_token_value(monkeypatch):
+    provider = GithubProvider()
+    monkeypatch.setenv("GITHUB_TOKEN", "first-token")
+
+    first_key = provider._repository_discovery_cache_key(
+        owner_logins=["octo-org"], provider_options={}
+    )
+    monkeypatch.setenv("GITHUB_TOKEN", "second-token")
+    second_key = provider._repository_discovery_cache_key(
+        owner_logins=["octo-org"], provider_options={}
+    )
+
+    assert first_key != second_key
+    assert "first-token" not in str(first_key)
+    assert "second-token" not in str(second_key)

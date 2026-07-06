@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import inspect
 import netrc
 import os
@@ -224,6 +225,25 @@ class GitHubAuthSettings:
     use_netrc: bool = False
     gh_token: str | None = None
 
+    def cache_identity(self) -> tuple[object, ...]:
+        """Return a stable, non-secret identity for credential-sensitive caches."""
+
+        token_fingerprint = None
+        if self.token_env is not None:
+            token_fingerprint = _secret_fingerprint(os.environ.get(self.token_env))
+
+        return (
+            self.source,
+            self.api_url,
+            self.api_version,
+            self.token_env,
+            token_fingerprint,
+            self.app_id,
+            _secret_fingerprint(self.private_key),
+            self.use_netrc,
+            _secret_fingerprint(self.gh_token),
+        )
+
 
 class GitHubProfileConfig:
     """Load Anvil GitHub profiles from the user profile config file."""
@@ -291,12 +311,20 @@ class GitHubSession:
     auth_source: str
 
 
+@dataclass(slots=True)
+class _GitHubInstallationFlight:
+    event: threading.Event
+    installation_id: int | None = None
+    error: BaseException | None = None
+
+
 class GitHubSessionFactory:
     """Create PyGithub clients lazily from runtime GitHub provider options."""
 
     def __init__(self, *, profile_config: GitHubProfileConfig | None = None) -> None:
         self._profile_config = profile_config or GitHubProfileConfig()
         self._installation_ids: dict[object, int] = {}
+        self._installation_flights: dict[object, _GitHubInstallationFlight] = {}
         self._installation_lock = threading.Lock()
 
     def create_session(
@@ -385,6 +413,20 @@ class GitHubSessionFactory:
             )
             repositories.extend(client.list_owner_repositories(owner_login))
         return sorted(repositories, key=lambda item: item.full_name.lower())
+
+    def resolve_auth_settings(
+        self, *, provider_options: dict[str, object]
+    ) -> GitHubAuthSettings:
+        """Resolve GitHub auth settings without importing PyGithub or calling GitHub."""
+
+        return self._resolve_auth_settings(provider_options=provider_options)
+
+    def auth_cache_identity(self, *, provider_options: dict[str, object]) -> object:
+        """Return a credential-sensitive cache identity without exposing secrets."""
+
+        return self.resolve_auth_settings(
+            provider_options=provider_options
+        ).cache_identity()
 
     def _build_auth(
         self,
@@ -675,18 +717,47 @@ class GitHubSessionFactory:
             if cached is not None:
                 return cached
 
+            flight = self._installation_flights.get(cache_key)
+            if flight is None:
+                flight = _GitHubInstallationFlight(event=threading.Event())
+                self._installation_flights[cache_key] = flight
+                owns_lookup = True
+            else:
+                owns_lookup = False
+
+        if not owns_lookup:
+            flight.event.wait()
+            if flight.error is not None:
+                raise flight.error
+            if flight.installation_id is None:
+                raise RuntimeError("GitHub app installation lookup completed empty")
+            return flight.installation_id
+
         app_client = self._build_client(
             github_module=github_module,
             auth=app_auth,
             api_url=settings.api_url,
             api_version=settings.api_version,
         )
-        installation_id = self._resolve_installation_id(
-            client=app_client, lookup_paths=lookup_paths, target_id=target_id
-        )
+        try:
+            installation_id = self._resolve_installation_id(
+                client=app_client, lookup_paths=lookup_paths, target_id=target_id
+            )
+        except BaseException as error:
+            with self._installation_lock:
+                flight.error = error
+                self._installation_flights.pop(cache_key, None)
+                flight.event.set()
+            raise
+
         with self._installation_lock:
-            self._installation_ids[cache_key] = installation_id
-        return installation_id
+            cached = self._installation_ids.get(cache_key)
+            stored_installation_id = cached if cached is not None else installation_id
+            self._installation_ids[cache_key] = stored_installation_id
+            flight.installation_id = stored_installation_id
+            self._installation_flights.pop(cache_key, None)
+            flight.event.set()
+        return stored_installation_id
 
     def _resolve_installation_id(
         self, *, client: object, lookup_paths: list[str], target_id: str
@@ -859,20 +930,32 @@ class GithubProvider:
     def auth_cache_key(self, target: TargetDescriptor) -> object | None:
         """Return a stable auth cache identity without importing PyGithub."""
 
-        profile = target.provider_options.get("profile")
-        api_url = target.provider_options.get("api_url")
-        token_env = target.provider_options.get("token_env")
-        app_id = target.provider_options.get("app_id")
-        return (self.metadata.name, profile, api_url, token_env, app_id)
+        return (
+            self.metadata.name,
+            self._session_factory.auth_cache_identity(
+                provider_options=target.provider_options
+            ),
+        )
 
     def auth_check(self, target: TargetDescriptor) -> ProviderAuthResult:
-        """Report deferred GitHub auth checks without runtime API calls."""
+        """Validate GitHub auth settings without importing PyGithub or calling GitHub."""
 
         self.validate_target(target)
+        try:
+            settings = self._session_factory.resolve_auth_settings(
+                provider_options=target.provider_options
+            )
+        except RuntimeError as error:
+            return ProviderAuthResult(
+                status=ExecutionStatus.ERROR,
+                source="github",
+                message=str(error),
+            )
+
         return ProviderAuthResult(
             status=ExecutionStatus.SUCCESS,
-            source="deferred",
-            message="GitHub authentication is validated when runtime API support is added.",
+            source=settings.source,
+            message="GitHub authentication settings resolved.",
         )
 
     def discover_regions(self, target: TargetDescriptor) -> list[ProviderRegion]:
@@ -941,23 +1024,12 @@ class GithubProvider:
     def _repository_discovery_cache_key(
         self, *, owner_logins: list[str], provider_options: dict[str, object]
     ) -> object:
-        api_url = provider_options.get("api_url")
-        api_version = provider_options.get("api_version", DEFAULT_GITHUB_API_VERSION)
-        profile = provider_options.get("profile")
-        token_env = provider_options.get("token_env")
-        app_id = provider_options.get("app_id")
-        private_key_env = provider_options.get("private_key_env")
-        private_key_path = provider_options.get("private_key_path")
         return (
             GitHubSessionFactory,
             tuple(owner_logins),
-            profile,
-            api_url,
-            api_version,
-            token_env,
-            app_id,
-            private_key_env,
-            private_key_path,
+            self._session_factory.auth_cache_identity(
+                provider_options=provider_options
+            ),
         )
 
     def prepare_execution_runtime(
@@ -1051,6 +1123,15 @@ def _github_netrc_host(api_url: str | None) -> str:
         return "github.com"
     parsed = urlparse(api_url)
     return parsed.hostname or api_url
+
+
+def _secret_fingerprint(secret: str | None) -> str | None:
+    if secret is None:
+        return None
+    stripped = secret.strip()
+    if not stripped:
+        return None
+    return hashlib.sha256(stripped.encode("utf-8")).hexdigest()
 
 
 def _installation_lookup_paths(*, target_id: str, target_type: str) -> list[str]:
