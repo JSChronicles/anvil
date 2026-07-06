@@ -186,6 +186,16 @@ class FakeLegacyOrganizationClient:
         return {"organization": login}
 
 
+class CountingProfileConfig(GitHubProfileConfig):
+    def __init__(self, *, path: Path) -> None:
+        super().__init__(path=path)
+        self.load_calls = 0
+
+    def load(self) -> dict[str, dict[str, str]]:
+        self.load_calls += 1
+        return super().load()
+
+
 def _target(**overrides) -> TargetDescriptor:
     values = {
         "config_branch": ConfigBranch.TARGETS,
@@ -702,12 +712,30 @@ def test_github_profile_config_rejects_invalid_toml(monkeypatch, tmp_path):
         GitHubProfileConfig(path=config_path).load()
 
 
+def test_github_session_factory_caches_profile_config_resolution(monkeypatch, tmp_path):
+    monkeypatch.delenv(GITHUB_CONFIG_ENV, raising=False)
+    monkeypatch.setenv("WORK_GITHUB_TOKEN", "profile-token")
+    config_path = tmp_path / "config"
+    config_path.write_text('[work]\ntoken_env = "WORK_GITHUB_TOKEN"\n', encoding="utf-8")
+    profile_config = CountingProfileConfig(path=config_path)
+    session_factory = GitHubSessionFactory(profile_config=profile_config)
+
+    first_settings = session_factory.resolve_auth_settings(
+        provider_options={"profile": "work"}
+    )
+    second_settings = session_factory.resolve_auth_settings(
+        provider_options={"profile": "work"}
+    )
+
+    assert first_settings.source == "profile:work"
+    assert second_settings.source == "profile:work"
+    assert profile_config.load_calls == 1
+
+
 def test_github_session_factory_uses_app_auth_private_key_env(monkeypatch):
     _install_fake_pygithub(monkeypatch)
     monkeypatch.setenv("GITHUB_PRIVATE_KEY", "private-key")
-    FakeGithubClient.rest_responses = {
-        "/repos/octo-org/example/installation": {"id": 67890}
-    }
+    FakeGithubClient.rest_responses = {"/orgs/octo-org/installation": {"id": 67890}}
 
     session = GitHubSessionFactory().create_session(
         target_id="octo-org/example",
@@ -725,7 +753,7 @@ def test_github_session_factory_uses_app_auth_private_key_env(monkeypatch):
     assert FakeAppAuth.instances[0].private_key == "private-key"
     assert auth.installation_id == 67890
     assert FakeGithubClient.instances[0].rest_calls == [
-        ("GET", "/repos/octo-org/example/installation")
+        ("GET", "/orgs/octo-org/installation")
     ]
 
 
@@ -753,9 +781,7 @@ def test_github_session_factory_uses_app_auth_private_key_path(monkeypatch, tmp_
 def test_github_session_factory_caches_installation_lookup(monkeypatch):
     _install_fake_pygithub(monkeypatch)
     monkeypatch.setenv("GITHUB_PRIVATE_KEY", "private-key")
-    FakeGithubClient.rest_responses = {
-        "/repos/octo-org/example/installation": {"id": 67890}
-    }
+    FakeGithubClient.rest_responses = {"/orgs/octo-org/installation": {"id": 67890}}
     session_factory = GitHubSessionFactory()
 
     for _index in range(2):
@@ -776,8 +802,48 @@ def test_github_session_factory_caches_installation_lookup(monkeypatch):
     ]
     assert len(lookup_clients) == 1
     assert lookup_clients[0].rest_calls == [
-        ("GET", "/repos/octo-org/example/installation")
+        ("GET", "/orgs/octo-org/installation")
     ]
+
+
+def test_github_session_factory_caches_installation_and_client_by_owner(monkeypatch):
+    _install_fake_pygithub(monkeypatch)
+    monkeypatch.setenv("GITHUB_PRIVATE_KEY", "private-key")
+    FakeGithubClient.rest_responses = {"/orgs/octo-org/installation": {"id": 67890}}
+    session_factory = GitHubSessionFactory()
+
+    first_session = session_factory.create_session(
+        target_id="octo-org/example",
+        target_type="repository",
+        region_name="global",
+        provider_options={
+            "app_id": "12345",
+            "private_key_env": "GITHUB_PRIVATE_KEY",
+        },
+    )
+    second_session = session_factory.create_session(
+        target_id="octo-org/other",
+        target_type="repository",
+        region_name="global",
+        provider_options={
+            "app_id": "12345",
+            "private_key_env": "GITHUB_PRIVATE_KEY",
+        },
+    )
+
+    lookup_clients = [
+        client
+        for client in FakeGithubClient.instances
+        if isinstance(client.kwargs["auth"], FakeAppAuth)
+    ]
+    installation_clients = [
+        client
+        for client in FakeGithubClient.instances
+        if isinstance(client.kwargs["auth"], FakeInstallationAuth)
+    ]
+    assert len(lookup_clients) == 1
+    assert len(installation_clients) == 1
+    assert first_session.client is second_session.client
 
 
 def test_github_session_factory_single_flights_installation_lookup(monkeypatch):

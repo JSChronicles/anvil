@@ -323,8 +323,11 @@ class GitHubSessionFactory:
 
     def __init__(self, *, profile_config: GitHubProfileConfig | None = None) -> None:
         self._profile_config = profile_config or GitHubProfileConfig()
+        self._profile_cache: tuple[Path, dict[str, dict[str, str]]] | None = None
+        self._profile_lock = threading.Lock()
         self._installation_ids: dict[object, int] = {}
         self._installation_flights: dict[object, _GitHubInstallationFlight] = {}
+        self._installation_clients: dict[object, CachedGitHubClient] = {}
         self._installation_lock = threading.Lock()
 
     def create_session(
@@ -339,23 +342,17 @@ class GitHubSessionFactory:
 
         github_module = self._load_pygithub()
         settings = self._resolve_auth_settings(provider_options=provider_options)
-        auth = self._build_auth(
+        client = self._build_session_client(
             github_module=github_module,
             settings=settings,
             target_id=target_id,
             target_type=target_type,
         )
-        raw_client = self._build_client(
-            github_module=github_module,
-            auth=auth,
-            api_url=settings.api_url,
-            api_version=settings.api_version,
-        )
         return GitHubSession(
             target_id=target_id,
             target_type=target_type,
             region_name=region_name,
-            client=CachedGitHubClient(client=raw_client),
+            client=client,
             api_url=settings.api_url,
             api_version=settings.api_version,
             auth_source=settings.source,
@@ -397,19 +394,11 @@ class GitHubSessionFactory:
 
         repositories = []
         for owner_login in owner_logins:
-            auth = self._build_auth(
+            client = self._build_session_client(
                 github_module=github_module,
                 settings=settings,
                 target_id=owner_login,
                 target_type="organization",
-            )
-            client = CachedGitHubClient(
-                client=self._build_client(
-                    github_module=github_module,
-                    auth=auth,
-                    api_url=settings.api_url,
-                    api_version=settings.api_version,
-                )
             )
             repositories.extend(client.list_owner_repositories(owner_login))
         return sorted(repositories, key=lambda item: item.full_name.lower())
@@ -427,6 +416,37 @@ class GitHubSessionFactory:
         return self.resolve_auth_settings(
             provider_options=provider_options
         ).cache_identity()
+
+    def _build_session_client(
+        self,
+        *,
+        github_module: ModuleType,
+        settings: GitHubAuthSettings,
+        target_id: str,
+        target_type: str,
+    ) -> CachedGitHubClient:
+        if settings.app_id is not None:
+            return self._installation_client(
+                github_module=github_module,
+                settings=settings,
+                target_id=target_id,
+                target_type=target_type,
+            )
+
+        auth = self._build_auth(
+            github_module=github_module,
+            settings=settings,
+            target_id=target_id,
+            target_type=target_type,
+        )
+        return CachedGitHubClient(
+            client=self._build_client(
+                github_module=github_module,
+                auth=auth,
+                api_url=settings.api_url,
+                api_version=settings.api_version,
+            )
+        )
 
     def _build_auth(
         self,
@@ -465,6 +485,56 @@ class GitHubSessionFactory:
 
         raise RuntimeError("GitHub authentication could not be resolved")
 
+    def _installation_client(
+        self,
+        *,
+        github_module: ModuleType,
+        settings: GitHubAuthSettings,
+        target_id: str,
+        target_type: str,
+    ) -> CachedGitHubClient:
+        auth_module = getattr(github_module, "Auth", None)
+        if auth_module is None:
+            raise RuntimeError("PyGithub module does not expose github.Auth")
+        if settings.app_id is None or settings.private_key is None:
+            raise RuntimeError("GitHub app authentication could not be resolved")
+
+        app_auth = auth_module.AppAuth(settings.app_id, settings.private_key)
+        installation_id = self._installation_id(
+            github_module=github_module,
+            app_auth=app_auth,
+            settings=settings,
+            target_id=target_id,
+            target_type=target_type,
+        )
+        client_key = (
+            settings.api_url,
+            settings.api_version,
+            settings.app_id,
+            _secret_fingerprint(settings.private_key),
+            installation_id,
+        )
+        with self._installation_lock:
+            cached_client = self._installation_clients.get(client_key)
+            if cached_client is not None:
+                return cached_client
+
+        installation_auth = app_auth.get_installation_auth(installation_id)
+        client = CachedGitHubClient(
+            client=self._build_client(
+                github_module=github_module,
+                auth=installation_auth,
+                api_url=settings.api_url,
+                api_version=settings.api_version,
+            )
+        )
+        with self._installation_lock:
+            cached_client = self._installation_clients.get(client_key)
+            if cached_client is not None:
+                return cached_client
+            self._installation_clients[client_key] = client
+            return client
+
     def _build_client(
         self,
         *,
@@ -502,7 +572,7 @@ class GitHubSessionFactory:
                     "GitHub provider.options.profile cannot be combined with "
                     "inline GitHub auth options"
                 )
-            profiles = self._profile_config.load()
+            profiles = self._load_profiles()
             profile = profiles.get(profile_name)
             if profile is None:
                 raise RuntimeError(
@@ -518,7 +588,7 @@ class GitHubSessionFactory:
                 options=provider_options, source="inline", fail_on_missing=True
             )
 
-        profiles = self._profile_config.load()
+        profiles = self._load_profiles()
         default_profile = profiles.get("default")
         if default_profile is not None:
             return self._settings_from_options(
@@ -581,6 +651,26 @@ class GitHubSessionFactory:
         return self._default_chain(
             api_url=api_url, api_version=api_version, source=source
         )
+
+    def _load_profiles(self) -> dict[str, dict[str, str]]:
+        path = self._profile_config.path
+        with self._profile_lock:
+            if self._profile_cache is not None and self._profile_cache[0] == path:
+                return {
+                    profile_name: dict(profile)
+                    for profile_name, profile in self._profile_cache[1].items()
+                }
+
+            profiles = self._profile_config.load()
+            cached_profiles = {
+                profile_name: dict(profile)
+                for profile_name, profile in profiles.items()
+            }
+            self._profile_cache = (path, cached_profiles)
+            return {
+                profile_name: dict(profile)
+                for profile_name, profile in cached_profiles.items()
+            }
 
     def _default_chain(
         self, *, api_url: str | None, api_version: str, source: str
@@ -711,7 +801,11 @@ class GitHubSessionFactory:
         lookup_paths = _installation_lookup_paths(
             target_id=target_id, target_type=target_type
         )
-        cache_key = (settings.api_url, settings.app_id, tuple(lookup_paths))
+        cache_key = (
+            settings.api_url,
+            settings.app_id,
+            _installation_cache_owner(target_id=target_id, target_type=target_type),
+        )
         with self._installation_lock:
             cached = self._installation_ids.get(cache_key)
             if cached is not None:
@@ -1137,8 +1231,15 @@ def _secret_fingerprint(secret: str | None) -> str | None:
 def _installation_lookup_paths(*, target_id: str, target_type: str) -> list[str]:
     owner, separator, repository = target_id.partition("/")
     if target_type == "repository" and separator == "/" and owner and repository:
-        return [f"/repos/{owner}/{repository}/installation"]
+        return [f"/orgs/{owner}/installation", f"/users/{owner}/installation"]
     return [f"/orgs/{target_id}/installation", f"/users/{target_id}/installation"]
+
+
+def _installation_cache_owner(*, target_id: str, target_type: str) -> str:
+    owner, separator, repository = target_id.partition("/")
+    if target_type == "repository" and separator == "/" and owner and repository:
+        return owner
+    return target_id
 
 
 def _installation_id_from_response(*, data: object, target_id: str) -> int:
