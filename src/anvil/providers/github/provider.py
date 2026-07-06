@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 import inspect
+import netrc
 import os
 import re
+import subprocess
 import threading
+import tomllib
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
 from typing import Any
+from urllib.parse import urlparse
 
 from anvil.descriptors import (
     ConfigBranch,
@@ -29,7 +33,17 @@ from anvil.results import ExecutionStatus
 
 DEFAULT_GITHUB_REGIONS = ["global"]
 DEFAULT_GITHUB_API_VERSION = "2022-11-28"
-DEFAULT_GITHUB_TOKEN_ENV = "GITHUB_TOKEN"
+GITHUB_CONFIG_ENV = "ANVIL_GITHUB_CONFIG"
+GITHUB_CONFIG_PATH = Path(".github") / "config"
+GITHUB_FALLBACK_TOKEN_ENVS = ("GITHUB_TOKEN", "GH_TOKEN")
+GITHUB_PROFILE_OPTIONS = {
+    "api_url",
+    "api_version",
+    "token_env",
+    "app_id",
+    "private_key_env",
+    "private_key_path",
+}
 GITHUB_LOGIN_PATTERN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$")
 GITHUB_REPOSITORY_PATTERN = re.compile(
     r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[^/\s]+$"
@@ -198,6 +212,73 @@ class CachedGitHubClient:
 
 
 @dataclass(frozen=True, slots=True)
+class GitHubAuthSettings:
+    """Resolved GitHub authentication and endpoint settings."""
+
+    source: str
+    api_url: str | None
+    api_version: str
+    token_env: str | None = None
+    app_id: int | None = None
+    private_key: str | None = None
+    use_netrc: bool = False
+    gh_token: str | None = None
+
+
+class GitHubProfileConfig:
+    """Load Anvil GitHub profiles from the user profile config file."""
+
+    def __init__(self, *, path: Path | None = None) -> None:
+        self._path = path
+
+    @property
+    def path(self) -> Path:
+        configured_path = os.environ.get(GITHUB_CONFIG_ENV)
+        if configured_path:
+            return Path(configured_path).expanduser()
+        if self._path is not None:
+            return self._path.expanduser()
+        return Path.home() / GITHUB_CONFIG_PATH
+
+    def load(self) -> dict[str, dict[str, str]]:
+        """Return configured GitHub profiles keyed by profile name."""
+
+        path = self.path
+        if not path.exists():
+            return {}
+
+        try:
+            raw_profiles = tomllib.loads(path.read_text(encoding="utf-8"))
+        except tomllib.TOMLDecodeError as error:
+            raise RuntimeError(f"GitHub profile config '{path}' is invalid: {error}") from error
+        except OSError as error:
+            raise RuntimeError(f"GitHub profile config '{path}' could not be read: {error}") from error
+
+        profiles: dict[str, dict[str, str]] = {}
+        for profile_name, raw_profile in raw_profiles.items():
+            if not isinstance(raw_profile, dict):
+                raise RuntimeError(
+                    f"GitHub profile '{profile_name}' in '{path}' must be a table"
+                )
+            profile: dict[str, str] = {}
+            for option_name, option_value in raw_profile.items():
+                if option_name not in GITHUB_PROFILE_OPTIONS:
+                    raise RuntimeError(
+                        f"GitHub profile '{profile_name}' in '{path}' has unsupported "
+                        f"option '{option_name}'"
+                    )
+                if not isinstance(option_value, str) or not option_value.strip():
+                    raise RuntimeError(
+                        f"GitHub profile '{profile_name}' option '{option_name}' "
+                        "must be a non-empty string"
+                    )
+                profile[option_name] = option_value.strip()
+            profiles[profile_name] = profile
+
+        return profiles
+
+
+@dataclass(frozen=True, slots=True)
 class GitHubSession:
     """GitHub runtime session for one configured org or repository target."""
 
@@ -205,13 +286,18 @@ class GitHubSession:
     target_type: str
     region_name: str
     client: CachedGitHubClient
-    auth_type: str
     api_url: str | None
     api_version: str
+    auth_source: str
 
 
 class GitHubSessionFactory:
     """Create PyGithub clients lazily from runtime GitHub provider options."""
+
+    def __init__(self, *, profile_config: GitHubProfileConfig | None = None) -> None:
+        self._profile_config = profile_config or GitHubProfileConfig()
+        self._installation_ids: dict[object, int] = {}
+        self._installation_lock = threading.Lock()
 
     def create_session(
         self,
@@ -224,40 +310,27 @@ class GitHubSessionFactory:
         """Create a GitHub session for one explicit target."""
 
         github_module = self._load_pygithub()
-        auth_type = self._string_option(
-            provider_options=provider_options, option_name="auth_type"
-        )
-        if auth_type is None:
-            auth_type = "token"
-
-        api_url = self._string_option(
-            provider_options=provider_options, option_name="api_url"
-        )
-        api_version = self._string_option(
-            provider_options=provider_options, option_name="api_version"
-        )
-        if api_version is None:
-            api_version = DEFAULT_GITHUB_API_VERSION
-
+        settings = self._resolve_auth_settings(provider_options=provider_options)
         auth = self._build_auth(
             github_module=github_module,
-            auth_type=auth_type,
-            provider_options=provider_options,
+            settings=settings,
+            target_id=target_id,
+            target_type=target_type,
         )
         raw_client = self._build_client(
             github_module=github_module,
             auth=auth,
-            api_url=api_url,
-            api_version=api_version,
+            api_url=settings.api_url,
+            api_version=settings.api_version,
         )
         return GitHubSession(
             target_id=target_id,
             target_type=target_type,
             region_name=region_name,
             client=CachedGitHubClient(client=raw_client),
-            auth_type=auth_type,
-            api_url=api_url,
-            api_version=api_version,
+            api_url=settings.api_url,
+            api_version=settings.api_version,
+            auth_source=settings.source,
         )
 
     def list_owner_repositories(
@@ -271,67 +344,84 @@ class GitHubSessionFactory:
             )
 
         github_module = self._load_pygithub()
-        auth_type = self._string_option(
-            provider_options=provider_options, option_name="auth_type"
-        )
-        if auth_type is None:
-            auth_type = "token"
-        api_url = self._string_option(
-            provider_options=provider_options, option_name="api_url"
-        )
-        api_version = self._string_option(
-            provider_options=provider_options, option_name="api_version"
-        )
-        if api_version is None:
-            api_version = DEFAULT_GITHUB_API_VERSION
+        settings = self._resolve_auth_settings(provider_options=provider_options)
 
-        auth = self._build_auth(
-            github_module=github_module,
-            auth_type=auth_type,
-            provider_options=provider_options,
-        )
-        client = CachedGitHubClient(
-            client=self._build_client(
+        if settings.app_id is None:
+            auth = self._build_auth(
                 github_module=github_module,
-                auth=auth,
-                api_url=api_url,
-                api_version=api_version,
+                settings=settings,
+                target_id=owner_logins[0],
+                target_type="organization",
             )
-        )
+            client = CachedGitHubClient(
+                client=self._build_client(
+                    github_module=github_module,
+                    auth=auth,
+                    api_url=settings.api_url,
+                    api_version=settings.api_version,
+                )
+            )
 
-        repositories: list[GithubRepository] = []
+            repositories: list[GithubRepository] = []
+            for owner_login in owner_logins:
+                repositories.extend(client.list_owner_repositories(owner_login))
+            return sorted(repositories, key=lambda item: item.full_name.lower())
+
+        repositories = []
         for owner_login in owner_logins:
+            auth = self._build_auth(
+                github_module=github_module,
+                settings=settings,
+                target_id=owner_login,
+                target_type="organization",
+            )
+            client = CachedGitHubClient(
+                client=self._build_client(
+                    github_module=github_module,
+                    auth=auth,
+                    api_url=settings.api_url,
+                    api_version=settings.api_version,
+                )
+            )
             repositories.extend(client.list_owner_repositories(owner_login))
-
         return sorted(repositories, key=lambda item: item.full_name.lower())
 
     def _build_auth(
         self,
         *,
         github_module: ModuleType,
-        auth_type: str,
-        provider_options: dict[str, object],
+        settings: GitHubAuthSettings,
+        target_id: str,
+        target_type: str,
     ) -> object:
         auth_module = getattr(github_module, "Auth", None)
         if auth_module is None:
             raise RuntimeError("PyGithub module does not expose github.Auth")
 
-        if auth_type == "token":
-            token = self._token_from_env(provider_options=provider_options)
-            return auth_module.Token(token)
+        if settings.token_env is not None:
+            return auth_module.Token(self._required_env_token(settings.token_env))
 
-        if auth_type == "app":
-            private_key = self._private_key(provider_options=provider_options)
-            app_id = self._required_int_option(
-                provider_options=provider_options, option_name="app_id"
+        if settings.gh_token is not None:
+            return auth_module.Token(settings.gh_token)
+
+        if settings.use_netrc:
+            netrc_auth = getattr(auth_module, "NetrcAuth", None)
+            if netrc_auth is None:
+                raise RuntimeError("PyGithub module does not expose github.Auth.NetrcAuth")
+            return netrc_auth()
+
+        if settings.app_id is not None and settings.private_key is not None:
+            app_auth = auth_module.AppAuth(settings.app_id, settings.private_key)
+            installation_id = self._installation_id(
+                github_module=github_module,
+                app_auth=app_auth,
+                settings=settings,
+                target_id=target_id,
+                target_type=target_type,
             )
-            installation_id = self._required_int_option(
-                provider_options=provider_options, option_name="installation_id"
-            )
-            app_auth = auth_module.AppAuth(app_id, private_key)
             return app_auth.get_installation_auth(installation_id)
 
-        raise RuntimeError("GitHub provider.options.auth_type must be token or app")
+        raise RuntimeError("GitHub authentication could not be resolved")
 
     def _build_client(
         self,
@@ -358,24 +448,145 @@ class GitHubSessionFactory:
                 f"GitHub provider could not build a runtime session: {error}"
             ) from error
 
-    def _token_from_env(self, *, provider_options: dict[str, object]) -> str:
-        token_env = self._string_option(
-            provider_options=provider_options, option_name="token_env"
+    def _resolve_auth_settings(
+        self, *, provider_options: dict[str, object]
+    ) -> GitHubAuthSettings:
+        profile_name = self._string_option(
+            provider_options=provider_options, option_name="profile"
         )
-        if token_env is None:
-            token_env = DEFAULT_GITHUB_TOKEN_ENV
-
-        token = os.environ.get(token_env)
-        if token is None or not token.strip():
-            raise RuntimeError(
-                f"GitHub token auth requires environment variable '{token_env}'"
+        if profile_name is not None:
+            if len(provider_options) > 1:
+                raise RuntimeError(
+                    "GitHub provider.options.profile cannot be combined with "
+                    "inline GitHub auth options"
+                )
+            profiles = self._profile_config.load()
+            profile = profiles.get(profile_name)
+            if profile is None:
+                raise RuntimeError(
+                    f"GitHub profile '{profile_name}' was not found in "
+                    f"'{self._profile_config.path}'"
+                )
+            return self._settings_from_options(
+                options=profile, source=f"profile:{profile_name}", fail_on_missing=True
             )
-        return token
 
-    def _private_key(self, *, provider_options: dict[str, object]) -> str:
-        private_key_env = self._string_option(
-            provider_options=provider_options, option_name="private_key_env"
+        if self._has_explicit_auth_options(provider_options):
+            return self._settings_from_options(
+                options=provider_options, source="inline", fail_on_missing=True
+            )
+
+        profiles = self._profile_config.load()
+        default_profile = profiles.get("default")
+        if default_profile is not None:
+            return self._settings_from_options(
+                options=default_profile, source="profile:default", fail_on_missing=True
+            )
+
+        return self._default_chain(
+            api_url=None, api_version=DEFAULT_GITHUB_API_VERSION, source="default"
         )
+
+    def _settings_from_options(
+        self, *, options: dict[str, object], source: str, fail_on_missing: bool
+    ) -> GitHubAuthSettings:
+        api_url = self._string_option(provider_options=options, option_name="api_url")
+        api_version = self._string_option(
+            provider_options=options, option_name="api_version"
+        )
+        if api_version is None:
+            api_version = DEFAULT_GITHUB_API_VERSION
+
+        has_token = self._string_option(
+            provider_options=options, option_name="token_env"
+        ) is not None
+        has_app = any(
+            self._string_option(provider_options=options, option_name=option_name)
+            is not None
+            for option_name in ("app_id", "private_key_env", "private_key_path")
+        )
+        if has_token and has_app:
+            raise RuntimeError(
+                f"GitHub auth settings from {source} mix token and app credentials"
+            )
+
+        if has_app:
+            app_id = self._required_int_option(
+                provider_options=options, option_name="app_id"
+            )
+            private_key = self._private_key(options=options, source=source)
+            return GitHubAuthSettings(
+                source=source,
+                api_url=api_url,
+                api_version=api_version,
+                app_id=app_id,
+                private_key=private_key,
+            )
+
+        if has_token:
+            token_env = self._required_string_option(
+                provider_options=options, option_name="token_env", source=source
+            )
+            if fail_on_missing:
+                self._required_env_token(token_env)
+            return GitHubAuthSettings(
+                source=source,
+                api_url=api_url,
+                api_version=api_version,
+                token_env=token_env,
+            )
+
+        return self._default_chain(
+            api_url=api_url, api_version=api_version, source=source
+        )
+
+    def _default_chain(
+        self, *, api_url: str | None, api_version: str, source: str
+    ) -> GitHubAuthSettings:
+        for token_env in GITHUB_FALLBACK_TOKEN_ENVS:
+            token = os.environ.get(token_env)
+            if token is not None and token.strip():
+                return GitHubAuthSettings(
+                    source=f"{source}:{token_env}",
+                    api_url=api_url,
+                    api_version=api_version,
+                    token_env=token_env,
+                )
+
+        if self._has_netrc_credentials(api_url=api_url):
+            return GitHubAuthSettings(
+                source=f"{source}:netrc",
+                api_url=api_url,
+                api_version=api_version,
+                use_netrc=True,
+            )
+
+        gh_token = self._github_cli_token()
+        if gh_token is not None:
+            return GitHubAuthSettings(
+                source=f"{source}:gh",
+                api_url=api_url,
+                api_version=api_version,
+                gh_token=gh_token,
+            )
+
+        tried = ", ".join(
+            [*GITHUB_FALLBACK_TOKEN_ENVS, ".netrc", "gh auth token"]
+        )
+        raise RuntimeError(f"GitHub authentication failed. Tried: {tried}")
+
+    def _private_key(self, *, options: dict[str, object], source: str) -> str:
+        private_key_env = self._string_option(
+            provider_options=options, option_name="private_key_env"
+        )
+        private_key_path = self._string_option(
+            provider_options=options, option_name="private_key_path"
+        )
+        if private_key_env is not None and private_key_path is not None:
+            raise RuntimeError(
+                f"GitHub app auth from {source} must set only one of "
+                "private_key_env or private_key_path"
+            )
         if private_key_env is not None:
             private_key = os.environ.get(private_key_env)
             if private_key is None or not private_key.strip():
@@ -385,28 +596,147 @@ class GitHubSessionFactory:
                 )
             return private_key
 
-        private_key_path = self._string_option(
-            provider_options=provider_options, option_name="private_key_path"
-        )
         if private_key_path is None:
             raise RuntimeError(
-                "GitHub app auth requires provider.options.private_key_env or "
-                "provider.options.private_key_path"
+                f"GitHub app auth from {source} requires private_key_env or "
+                "private_key_path"
             )
 
+        path = Path(private_key_path).expanduser()
         try:
-            private_key = Path(private_key_path).read_text(encoding="utf-8")
+            private_key = path.read_text(encoding="utf-8")
         except OSError as error:
             raise RuntimeError(
-                "GitHub app auth could not read private key file "
-                f"'{private_key_path}': {error}"
+                f"GitHub app auth could not read private key file '{path}': {error}"
             ) from error
 
         if not private_key.strip():
-            raise RuntimeError(
-                f"GitHub app auth private key file '{private_key_path}' is empty"
-            )
+            raise RuntimeError(f"GitHub app auth private key file '{path}' is empty")
         return private_key
+
+    @staticmethod
+    def _required_env_token(token_env: str) -> str:
+        token = os.environ.get(token_env)
+        if token is None or not token.strip():
+            raise RuntimeError(
+                f"GitHub token auth requires environment variable '{token_env}'"
+            )
+        return token.strip()
+
+    @staticmethod
+    def _has_explicit_auth_options(provider_options: dict[str, object]) -> bool:
+        return any(option_name in provider_options for option_name in GITHUB_PROFILE_OPTIONS)
+
+    @staticmethod
+    def _has_netrc_credentials(*, api_url: str | None) -> bool:
+        try:
+            credentials = netrc.netrc()
+        except (FileNotFoundError, netrc.NetrcParseError, OSError):
+            return False
+
+        hosts = [_github_netrc_host(api_url)]
+        if hosts[0] == "api.github.com":
+            hosts.append("github.com")
+        return any(credentials.authenticators(host) is not None for host in hosts)
+
+    @staticmethod
+    def _github_cli_token() -> str | None:
+        try:
+            result = subprocess.run(
+                ["gh", "auth", "token"],
+                capture_output=True,
+                check=False,
+                text=True,
+                timeout=10,
+            )
+        except (FileNotFoundError, subprocess.SubprocessError, OSError):
+            return None
+
+        if result.returncode != 0:
+            return None
+        token = result.stdout.strip()
+        return token or None
+
+    def _installation_id(
+        self,
+        *,
+        github_module: ModuleType,
+        app_auth: object,
+        settings: GitHubAuthSettings,
+        target_id: str,
+        target_type: str,
+    ) -> int:
+        lookup_paths = _installation_lookup_paths(
+            target_id=target_id, target_type=target_type
+        )
+        cache_key = (settings.api_url, settings.app_id, tuple(lookup_paths))
+        with self._installation_lock:
+            cached = self._installation_ids.get(cache_key)
+            if cached is not None:
+                return cached
+
+        app_client = self._build_client(
+            github_module=github_module,
+            auth=app_auth,
+            api_url=settings.api_url,
+            api_version=settings.api_version,
+        )
+        installation_id = self._resolve_installation_id(
+            client=app_client, lookup_paths=lookup_paths, target_id=target_id
+        )
+        with self._installation_lock:
+            self._installation_ids[cache_key] = installation_id
+        return installation_id
+
+    def _resolve_installation_id(
+        self, *, client: object, lookup_paths: list[str], target_id: str
+    ) -> int:
+        last_not_found: Exception | None = None
+        for lookup_path in lookup_paths:
+            try:
+                data = self._rest_get_json(client=client, path=lookup_path)
+            except Exception as error:
+                if _is_not_found(error):
+                    last_not_found = error
+                    continue
+                raise RuntimeError(
+                    f"GitHub app installation lookup failed for '{target_id}': {error}"
+                ) from error
+            return _installation_id_from_response(data=data, target_id=target_id)
+
+        if last_not_found is not None:
+            raise RuntimeError(
+                f"GitHub app is not installed for target '{target_id}'"
+            ) from last_not_found
+        raise RuntimeError(f"GitHub app installation lookup failed for '{target_id}'")
+
+    @staticmethod
+    def _rest_get_json(*, client: object, path: str) -> object:
+        custom = getattr(client, "rest_get_json", None)
+        if callable(custom):
+            return custom(path, params={})
+
+        requester = getattr(client, "requester", None)
+        if requester is None:
+            requester = getattr(client, "_Github__requester", None)
+        if requester is None or not callable(
+            getattr(requester, "requestJsonAndCheck", None)
+        ):
+            raise RuntimeError(
+                "PyGithub client does not expose a REST requester for app "
+                "installation lookup"
+            )
+
+        try:
+            _headers, data = requester.requestJsonAndCheck("GET", path)
+        except TypeError:
+            try:
+                _headers, data = requester.requestJsonAndCheck(
+                    "GET", path, parameters={}, headers={}
+                )
+            except TypeError:
+                _headers, data = requester.requestJsonAndCheck("GET", path, {}, {})
+        return data
 
     @staticmethod
     def _load_pygithub() -> ModuleType:
@@ -419,6 +749,15 @@ class GitHubSessionFactory:
             ) from error
 
         return github
+
+    @staticmethod
+    def _required_string_option(
+        *, provider_options: dict[str, object], option_name: str, source: str
+    ) -> str:
+        option = provider_options.get(option_name)
+        if not isinstance(option, str) or not option.strip():
+            raise RuntimeError(f"GitHub auth from {source} requires {option_name}")
+        return option.strip()
 
     @staticmethod
     def _required_int_option(
@@ -520,9 +859,11 @@ class GithubProvider:
     def auth_cache_key(self, target: TargetDescriptor) -> object | None:
         """Return a stable auth cache identity without importing PyGithub."""
 
-        auth_type = target.provider_options.get("auth_type", "token")
+        profile = target.provider_options.get("profile")
         api_url = target.provider_options.get("api_url")
-        return (self.metadata.name, auth_type, api_url)
+        token_env = target.provider_options.get("token_env")
+        app_id = target.provider_options.get("app_id")
+        return (self.metadata.name, profile, api_url, token_env, app_id)
 
     def auth_check(self, target: TargetDescriptor) -> ProviderAuthResult:
         """Report deferred GitHub auth checks without runtime API calls."""
@@ -600,21 +941,23 @@ class GithubProvider:
     def _repository_discovery_cache_key(
         self, *, owner_logins: list[str], provider_options: dict[str, object]
     ) -> object:
-        auth_type = provider_options.get("auth_type", "token")
         api_url = provider_options.get("api_url")
         api_version = provider_options.get("api_version", DEFAULT_GITHUB_API_VERSION)
-        token_env = provider_options.get("token_env", DEFAULT_GITHUB_TOKEN_ENV)
+        profile = provider_options.get("profile")
+        token_env = provider_options.get("token_env")
         app_id = provider_options.get("app_id")
-        installation_id = provider_options.get("installation_id")
+        private_key_env = provider_options.get("private_key_env")
+        private_key_path = provider_options.get("private_key_path")
         return (
             GitHubSessionFactory,
             tuple(owner_logins),
-            auth_type,
+            profile,
             api_url,
             api_version,
             token_env,
             app_id,
-            installation_id,
+            private_key_env,
+            private_key_path,
         )
 
     def prepare_execution_runtime(
@@ -700,4 +1043,40 @@ def _is_not_found(error: Exception) -> bool:
     data = getattr(error, "data", None)
     return status == 404 or "404" in str(error) or (
         isinstance(data, dict) and data.get("status") == "404"
+    )
+
+
+def _github_netrc_host(api_url: str | None) -> str:
+    if api_url is None:
+        return "github.com"
+    parsed = urlparse(api_url)
+    return parsed.hostname or api_url
+
+
+def _installation_lookup_paths(*, target_id: str, target_type: str) -> list[str]:
+    owner, separator, repository = target_id.partition("/")
+    if target_type == "repository" and separator == "/" and owner and repository:
+        return [f"/repos/{owner}/{repository}/installation"]
+    return [f"/orgs/{target_id}/installation", f"/users/{target_id}/installation"]
+
+
+def _installation_id_from_response(*, data: object, target_id: str) -> int:
+    installation_id: object
+    if isinstance(data, dict):
+        installation_id = data.get("id")
+    else:
+        installation_id = getattr(data, "id", None)
+
+    if isinstance(installation_id, bool):
+        installation_id = None
+    if isinstance(installation_id, int):
+        return installation_id
+    if isinstance(installation_id, str) and installation_id.strip():
+        try:
+            return int(installation_id)
+        except ValueError:
+            pass
+
+    raise RuntimeError(
+        f"GitHub app installation lookup for '{target_id}' did not return an id"
     )

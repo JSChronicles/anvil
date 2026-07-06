@@ -32,14 +32,13 @@ SUPPORTED_PROVIDER_OPTIONS = {
     PROVIDER_AZURE: {"tenant_id", "client_id", "client_secret", "subscription_id"},
     PROVIDER_GCP: {"credentials_path", "organization_id", "quota_project_id"},
     PROVIDER_GITHUB: {
-        "auth_type",
         "api_url",
         "api_version",
         "token_env",
         "app_id",
-        "installation_id",
         "private_key_env",
         "private_key_path",
+        "profile",
     },
 }
 
@@ -314,11 +313,13 @@ class TargetDescriptor:
                     "client_id"
                 )
 
-        if (
-            self.provider == PROVIDER_GITHUB
-            and self.provider_options.get("auth_type") not in {None, "token", "app"}
-        ):
-            raise ValueError("GitHub provider.options.auth_type must be token or app")
+        if self.provider == PROVIDER_GITHUB:
+            profile = self.provider_options.get("profile")
+            if profile is not None and len(self.provider_options) > 1:
+                raise ValueError(
+                    "GitHub provider.options.profile cannot be combined with "
+                    "inline GitHub auth options"
+                )
 
     def _normalize_provider_option_aliases(self) -> None:
         if self.provider != PROVIDER_AWS:

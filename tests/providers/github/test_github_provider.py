@@ -3,6 +3,7 @@ from __future__ import annotations
 import builtins
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 from types import ModuleType
 
 import pytest
@@ -13,12 +14,19 @@ from anvil.providers.base import ExecutionTarget
 from anvil.providers.github import create_provider
 from anvil.providers.github.provider import (
     DEFAULT_GITHUB_API_VERSION,
+    GITHUB_CONFIG_ENV,
+    GitHubProfileConfig,
     GitHubSessionFactory,
     GithubRepository,
     GithubExecutionTargetData,
     GithubProvider,
 )
 from anvil.results import ExecutionStatus
+
+
+@pytest.fixture(autouse=True)
+def _isolated_github_config(monkeypatch):
+    monkeypatch.setenv(GITHUB_CONFIG_ENV, str(Path.cwd() / ".missing-github-config"))
 
 
 @dataclass(frozen=True)
@@ -100,15 +108,38 @@ class FakeAuth:
     Token = FakeTokenAuth
     AppAuth = FakeAppAuth
 
+    class NetrcAuth:
+        pass
+
+
+class FakeRequester:
+    def __init__(self, client):
+        self.client = client
+
+    def requestJsonAndCheck(self, method, path, *args, **kwargs):  # noqa: N802
+        self.client.rest_calls.append((method, path))
+        response = self.client.rest_responses.get(path)
+        if isinstance(response, Exception):
+            raise response
+        if response is None:
+            error = RuntimeError("404")
+            error.status = 404
+            raise error
+        return {}, response
+
 
 class FakeGithubClient:
     instances: list["FakeGithubClient"] = []
+    rest_responses: dict[str, object] = {}
 
     def __init__(self, **kwargs):
         self.kwargs = kwargs
         self.repo_calls: list[str] = []
         self.organization_calls: list[str] = []
         self.user_calls: list[str] = []
+        self.rest_calls: list[tuple[str, str]] = []
+        self.rest_responses = dict(FakeGithubClient.rest_responses)
+        self.requester = FakeRequester(self)
         FakeGithubClient.instances.append(self)
 
     def get_repo(self, full_name_or_id):
@@ -161,7 +192,7 @@ def _target(**overrides) -> TargetDescriptor:
         "provider": "github",
         "mode": "repositories",
         "include": ["octo-org/example"],
-        "provider_options": {"auth_type": "token", "token_env": "GITHUB_TOKEN"},
+        "provider_options": {"token_env": "GITHUB_TOKEN"},
     }
     values.update(overrides)
     return TargetDescriptor(**values)
@@ -175,6 +206,7 @@ def _context() -> ExecutionContext:
 
 def _install_fake_pygithub(monkeypatch) -> ModuleType:
     FakeGithubClient.instances = []
+    FakeGithubClient.rest_responses = {}
     FakeAppAuth.instances = []
     github_module = ModuleType("github")
     github_module.Auth = FakeAuth
@@ -203,9 +235,19 @@ def test_github_provider_rejects_exclude():
         _target(exclude=["octo-org/skip"])
 
 
-def test_github_provider_rejects_unknown_auth_type():
+def test_github_provider_rejects_removed_auth_type():
     with pytest.raises(ValueError, match="auth_type"):
-        _target(provider_options={"auth_type": "basic"})
+        _target(provider_options={"auth_type": "token"})
+
+
+def test_github_provider_rejects_removed_installation_id():
+    with pytest.raises(ValueError, match="installation_id"):
+        _target(provider_options={"installation_id": "67890"})
+
+
+def test_github_provider_rejects_profile_with_inline_auth():
+    with pytest.raises(ValueError, match="profile cannot be combined"):
+        _target(provider_options={"profile": "work", "token_env": "GITHUB_TOKEN"})
 
 
 def test_github_provider_rejects_repository_include_without_owner():
@@ -278,8 +320,7 @@ def test_github_runtime_uses_injected_session_factory():
     provider = GithubProvider(session_factory=session_factory)
     target = _target(
         provider_options={
-            "auth_type": "token",
-            "token_env": "ANVIL_GITHUB_TOKEN",
+            "token_env": "WORK_GITHUB_TOKEN",
             "api_url": "https://github.example/api/v3",
         }
     )
@@ -300,8 +341,7 @@ def test_github_runtime_uses_injected_session_factory():
             "target_type": "repository",
             "region_name": "global",
             "provider_options": {
-                "auth_type": "token",
-                "token_env": "ANVIL_GITHUB_TOKEN",
+                "token_env": "WORK_GITHUB_TOKEN",
                 "api_url": "https://github.example/api/v3",
             },
         }
@@ -385,28 +425,27 @@ def test_github_session_factory_imports_pygithub_only_when_session_is_built(
             target_id="octo-org/example",
             target_type="repository",
             region_name="global",
-            provider_options={"auth_type": "token"},
+            provider_options={},
         )
 
 
 def test_github_session_factory_uses_token_env_api_url_and_default_version(monkeypatch):
     _install_fake_pygithub(monkeypatch)
-    monkeypatch.setenv("ANVIL_GITHUB_TOKEN", "secret-token")
+    monkeypatch.setenv("WORK_GITHUB_TOKEN", "secret-token")
 
     session = GitHubSessionFactory().create_session(
         target_id="octo-org/example",
         target_type="repository",
         region_name="global",
         provider_options={
-            "auth_type": "token",
-            "token_env": "ANVIL_GITHUB_TOKEN",
+            "token_env": "WORK_GITHUB_TOKEN",
             "api_url": "https://github.example/api/v3",
         },
     )
 
     assert session.target_id == "octo-org/example"
     assert session.region_name == "global"
-    assert session.auth_type == "token"
+    assert session.auth_source == "inline"
     assert session.api_url == "https://github.example/api/v3"
     assert session.api_version == DEFAULT_GITHUB_API_VERSION
     assert FakeGithubClient.instances[0].kwargs == {
@@ -425,7 +464,7 @@ def test_github_session_factory_uses_custom_api_version(monkeypatch):
         target_id="octo-org/example",
         target_type="repository",
         region_name="global",
-        provider_options={"auth_type": "token", "api_version": "2023-01-01"},
+        provider_options={"api_version": "2023-01-01"},
     )
 
     assert session.api_version == "2023-01-01"
@@ -442,55 +481,274 @@ def test_github_session_factory_requires_token_env(monkeypatch):
             target_type="repository",
             region_name="global",
             provider_options={
-                "auth_type": "token",
                 "token_env": "MISSING_GITHUB_TOKEN",
             },
         )
 
 
+def test_github_session_factory_uses_named_profile(monkeypatch, tmp_path):
+    _install_fake_pygithub(monkeypatch)
+    monkeypatch.setenv("WORK_GITHUB_TOKEN", "profile-token")
+    config_path = tmp_path / "github-config.toml"
+    config_path.write_text(
+        '[work]\ntoken_env = "WORK_GITHUB_TOKEN"\n'
+        'api_url = "https://github.example/api/v3"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv(GITHUB_CONFIG_ENV, str(config_path))
+
+    session = GitHubSessionFactory().create_session(
+        target_id="octo-org/example",
+        target_type="repository",
+        region_name="global",
+        provider_options={"profile": "work"},
+    )
+
+    assert session.auth_source == "profile:work"
+    assert session.api_url == "https://github.example/api/v3"
+    assert FakeGithubClient.instances[0].kwargs["auth"].token == "profile-token"
+
+
+def test_github_session_factory_inline_auth_beats_default_profile(monkeypatch, tmp_path):
+    _install_fake_pygithub(monkeypatch)
+    monkeypatch.setenv("INLINE_GITHUB_TOKEN", "inline-token")
+    monkeypatch.setenv("DEFAULT_GITHUB_TOKEN", "default-token")
+    config_path = tmp_path / "github-config.toml"
+    config_path.write_text(
+        '[default]\ntoken_env = "DEFAULT_GITHUB_TOKEN"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv(GITHUB_CONFIG_ENV, str(config_path))
+
+    GitHubSessionFactory().create_session(
+        target_id="octo-org/example",
+        target_type="repository",
+        region_name="global",
+        provider_options={"token_env": "INLINE_GITHUB_TOKEN"},
+    )
+
+    assert FakeGithubClient.instances[0].kwargs["auth"].token == "inline-token"
+
+
+def test_github_session_factory_default_profile_beats_github_token(
+    monkeypatch, tmp_path
+):
+    _install_fake_pygithub(monkeypatch)
+    monkeypatch.setenv("GITHUB_TOKEN", "fallback-token")
+    monkeypatch.setenv("DEFAULT_GITHUB_TOKEN", "default-token")
+    config_path = tmp_path / "github-config.toml"
+    config_path.write_text(
+        '[default]\ntoken_env = "DEFAULT_GITHUB_TOKEN"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv(GITHUB_CONFIG_ENV, str(config_path))
+
+    session = GitHubSessionFactory().create_session(
+        target_id="octo-org/example",
+        target_type="repository",
+        region_name="global",
+        provider_options={},
+    )
+
+    assert session.auth_source == "profile:default"
+    assert FakeGithubClient.instances[0].kwargs["auth"].token == "default-token"
+
+
+def test_github_session_factory_uses_gh_token_fallback(monkeypatch):
+    _install_fake_pygithub(monkeypatch)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.setattr(
+        GitHubSessionFactory,
+        "_has_netrc_credentials",
+        staticmethod(lambda *, api_url: False),
+    )
+
+    class Result:
+        returncode = 0
+        stdout = "cli-token\n"
+
+    monkeypatch.setattr(
+        "anvil.providers.github.provider.subprocess.run",
+        lambda *args, **kwargs: Result(),
+    )
+
+    session = GitHubSessionFactory().create_session(
+        target_id="octo-org/example",
+        target_type="repository",
+        region_name="global",
+        provider_options={},
+    )
+
+    assert session.auth_source == "default:gh"
+    assert FakeGithubClient.instances[0].kwargs["auth"].token == "cli-token"
+
+
+def test_github_session_factory_uses_netrc_before_gh(monkeypatch):
+    _install_fake_pygithub(monkeypatch)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.setattr(
+        GitHubSessionFactory,
+        "_has_netrc_credentials",
+        staticmethod(lambda *, api_url: True),
+    )
+
+    def fail_gh(*args, **kwargs):
+        raise AssertionError("gh auth token should not run when netrc is available")
+
+    monkeypatch.setattr("anvil.providers.github.provider.subprocess.run", fail_gh)
+
+    session = GitHubSessionFactory().create_session(
+        target_id="octo-org/example",
+        target_type="repository",
+        region_name="global",
+        provider_options={},
+    )
+
+    assert session.auth_source == "default:netrc"
+    assert isinstance(FakeGithubClient.instances[0].kwargs["auth"], FakeAuth.NetrcAuth)
+
+
+def test_github_session_factory_rejects_missing_profile(monkeypatch, tmp_path):
+    _install_fake_pygithub(monkeypatch)
+    config_path = tmp_path / "github-config.toml"
+    config_path.write_text('[default]\ntoken_env = "GITHUB_TOKEN"\n', encoding="utf-8")
+    monkeypatch.setenv(GITHUB_CONFIG_ENV, str(config_path))
+
+    with pytest.raises(RuntimeError, match="profile 'work'.*not found"):
+        GitHubSessionFactory().create_session(
+            target_id="octo-org/example",
+            target_type="repository",
+            region_name="global",
+            provider_options={"profile": "work"},
+        )
+
+
+def test_github_session_factory_rejects_ambiguous_profile(monkeypatch, tmp_path):
+    _install_fake_pygithub(monkeypatch)
+    monkeypatch.setenv("GITHUB_PRIVATE_KEY", "private-key")
+    config_path = tmp_path / "github-config.toml"
+    config_path.write_text(
+        '[bad]\ntoken_env = "GITHUB_TOKEN"\napp_id = "12345"\n'
+        'private_key_env = "GITHUB_PRIVATE_KEY"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv(GITHUB_CONFIG_ENV, str(config_path))
+
+    with pytest.raises(RuntimeError, match="mix token and app"):
+        GitHubSessionFactory().create_session(
+            target_id="octo-org/example",
+            target_type="repository",
+            region_name="global",
+            provider_options={"profile": "bad"},
+        )
+
+
+def test_github_profile_config_loads_injected_path(monkeypatch, tmp_path):
+    monkeypatch.delenv(GITHUB_CONFIG_ENV, raising=False)
+    config_path = tmp_path / "config"
+    config_path.write_text(
+        '[enterprise]\napi_url = "https://github.example/api/v3"\n'
+        'token_env = "GHE_TOKEN"\n',
+        encoding="utf-8",
+    )
+
+    profiles = GitHubProfileConfig(path=Path(config_path)).load()
+
+    assert profiles == {
+        "enterprise": {
+            "api_url": "https://github.example/api/v3",
+            "token_env": "GHE_TOKEN",
+        }
+    }
+
+
+def test_github_profile_config_rejects_invalid_toml(monkeypatch, tmp_path):
+    monkeypatch.delenv(GITHUB_CONFIG_ENV, raising=False)
+    config_path = tmp_path / "config"
+    config_path.write_text("[default\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="invalid"):
+        GitHubProfileConfig(path=config_path).load()
+
+
 def test_github_session_factory_uses_app_auth_private_key_env(monkeypatch):
     _install_fake_pygithub(monkeypatch)
     monkeypatch.setenv("GITHUB_PRIVATE_KEY", "private-key")
+    FakeGithubClient.rest_responses = {
+        "/repos/octo-org/example/installation": {"id": 67890}
+    }
 
     session = GitHubSessionFactory().create_session(
-        target_id="octo-org",
-        target_type="organization",
+        target_id="octo-org/example",
+        target_type="repository",
         region_name="global",
         provider_options={
-            "auth_type": "app",
             "app_id": "12345",
-            "installation_id": "67890",
             "private_key_env": "GITHUB_PRIVATE_KEY",
         },
     )
 
-    auth = FakeGithubClient.instances[0].kwargs["auth"]
-    assert session.auth_type == "app"
+    auth = FakeGithubClient.instances[1].kwargs["auth"]
+    assert session.auth_source == "inline"
     assert FakeAppAuth.instances[0].app_id == 12345
     assert FakeAppAuth.instances[0].private_key == "private-key"
     assert auth.installation_id == 67890
+    assert FakeGithubClient.instances[0].rest_calls == [
+        ("GET", "/repos/octo-org/example/installation")
+    ]
 
 
 def test_github_session_factory_uses_app_auth_private_key_path(monkeypatch, tmp_path):
     _install_fake_pygithub(monkeypatch)
     private_key_path = tmp_path / "github-app.pem"
     private_key_path.write_text("file-private-key", encoding="utf-8")
+    FakeGithubClient.rest_responses = {"/orgs/octo-org/installation": {"id": "67890"}}
 
     GitHubSessionFactory().create_session(
         target_id="octo-org",
         target_type="organization",
         region_name="global",
         provider_options={
-            "auth_type": "app",
             "app_id": "12345",
-            "installation_id": "67890",
             "private_key_path": str(private_key_path),
         },
     )
 
-    auth = FakeGithubClient.instances[0].kwargs["auth"]
+    auth = FakeGithubClient.instances[1].kwargs["auth"]
     assert FakeAppAuth.instances[0].private_key == "file-private-key"
     assert auth.installation_id == 67890
+
+
+def test_github_session_factory_caches_installation_lookup(monkeypatch):
+    _install_fake_pygithub(monkeypatch)
+    monkeypatch.setenv("GITHUB_PRIVATE_KEY", "private-key")
+    FakeGithubClient.rest_responses = {
+        "/repos/octo-org/example/installation": {"id": 67890}
+    }
+    session_factory = GitHubSessionFactory()
+
+    for _index in range(2):
+        session_factory.create_session(
+            target_id="octo-org/example",
+            target_type="repository",
+            region_name="global",
+            provider_options={
+                "app_id": "12345",
+                "private_key_env": "GITHUB_PRIVATE_KEY",
+            },
+        )
+
+    lookup_clients = [
+        client
+        for client in FakeGithubClient.instances
+        if isinstance(client.kwargs["auth"], FakeAppAuth)
+    ]
+    assert len(lookup_clients) == 1
+    assert lookup_clients[0].rest_calls == [
+        ("GET", "/repos/octo-org/example/installation")
+    ]
 
 
 def test_github_session_factory_requires_app_private_key(monkeypatch):
@@ -502,9 +760,7 @@ def test_github_session_factory_requires_app_private_key(monkeypatch):
             target_type="organization",
             region_name="global",
             provider_options={
-                "auth_type": "app",
                 "app_id": "12345",
-                "installation_id": "67890",
             },
         )
 
@@ -519,9 +775,7 @@ def test_github_session_factory_requires_integer_app_options(monkeypatch):
             target_type="organization",
             region_name="global",
             provider_options={
-                "auth_type": "app",
                 "app_id": "not-an-int",
-                "installation_id": "67890",
                 "private_key_env": "GITHUB_PRIVATE_KEY",
             },
         )
@@ -534,7 +788,7 @@ def test_cached_github_client_reuses_repo_and_organization_objects(monkeypatch):
         target_id="octo-org/example",
         target_type="repository",
         region_name="global",
-        provider_options={"auth_type": "token"},
+        provider_options={},
     )
 
     raw_client = FakeGithubClient.instances[0]
@@ -557,7 +811,7 @@ def test_github_session_factory_lists_org_and_user_repositories(monkeypatch):
 
     repositories = GitHubSessionFactory().list_owner_repositories(
         owner_logins=["octo-org", "personal-user"],
-        provider_options={"auth_type": "token"},
+        provider_options={},
     )
 
     assert [repository.full_name for repository in repositories] == [

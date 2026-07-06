@@ -191,7 +191,6 @@ def test_v2_schema_accepts_final_multicloud_target_shapes():
                     "name": "github",
                     "mode": "organizations",
                     "options": {
-                        "auth_type": "token",
                         "api_url": "https://api.github.com",
                         "api_version": "2022-11-28",
                         "token_env": "GITHUB_TOKEN",
@@ -207,11 +206,8 @@ def test_v2_schema_accepts_final_multicloud_target_shapes():
                     "name": "github",
                     "mode": "repositories",
                     "options": {
-                        "auth_type": "app",
                         "app_id": "12345",
-                        "installation_id": "67890",
                         "private_key_env": "GITHUB_PRIVATE_KEY",
-                        "private_key_path": "./github-app.pem",
                     },
                 },
                 include=["octo-org/example"],
@@ -236,7 +232,7 @@ def test_v2_schema_accepts_final_multicloud_target_shapes():
     assert loaded.targets[3].provider_options == {}
     assert loaded.targets[5].provider_options == {"credentials_path": "./gcp.json"}
     assert loaded.targets[6].provider_options["token_env"] == "GITHUB_TOKEN"
-    assert loaded.targets[7].provider_options["auth_type"] == "app"
+    assert loaded.targets[7].provider_options["app_id"] == "12345"
 
 
 @pytest.mark.parametrize("provider", [{}, {"mode": "accounts"}, {"name": "aws"}])

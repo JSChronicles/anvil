@@ -6,7 +6,6 @@ targets:
     name: github
     mode: repositories
     options:
-      auth_type: token
       token_env: GITHUB_TOKEN
   regions:
   - global
@@ -30,9 +29,7 @@ targets:
     name: github
     mode: organizations
     options:
-      auth_type: app
       app_id: "12345"
-      installation_id: "67890"
       private_key_env: GITHUB_APP_PRIVATE_KEY
   regions:
   - global

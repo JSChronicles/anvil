@@ -89,13 +89,13 @@ def test_github_repository_mode_allows_owner_repo_values():
         provider="github",
         mode="repositories",
         include=["octo-org/example"],
-        provider_options={"auth_type": "app", "private_key_path": "./app.pem"},
+        provider_options={"app_id": "12345", "private_key_path": "./app.pem"},
     )
 
     assert descriptor.provider == "github"
     assert descriptor.mode == "repositories"
     assert descriptor.provider_options == {
-        "auth_type": "app",
+        "app_id": "12345",
         "private_key_path": "./app.pem",
     }
 

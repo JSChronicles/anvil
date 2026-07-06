@@ -6,7 +6,6 @@ targets:
     name: github
     mode: organizations
     options:
-      auth_type: token
       token_env: GITHUB_TOKEN
   regions:
   - global
@@ -25,7 +24,6 @@ targets:
     name: github
     mode: repositories
     options:
-      auth_type: token
       token_env: GITHUB_ENTERPRISE_TOKEN
       api_url: https://github.example.com/api/v3
   regions:

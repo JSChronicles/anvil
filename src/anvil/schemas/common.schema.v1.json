@@ -72,7 +72,7 @@
           "type": "null"
         }
       ],
-      "description": "AWS CLI profile for the source authentication context when used under provider.options."
+      "description": "Provider profile for the source authentication context when used under provider.options."
     },
     "regions": {
       "type": "array",
@@ -227,13 +227,59 @@
     "githubProviderOptions": {
       "type": "object",
       "additionalProperties": false,
+      "allOf": [
+        {
+          "not": {
+            "required": [
+              "profile",
+              "api_url"
+            ]
+          }
+        },
+        {
+          "not": {
+            "required": [
+              "profile",
+              "api_version"
+            ]
+          }
+        },
+        {
+          "not": {
+            "required": [
+              "profile",
+              "token_env"
+            ]
+          }
+        },
+        {
+          "not": {
+            "required": [
+              "profile",
+              "app_id"
+            ]
+          }
+        },
+        {
+          "not": {
+            "required": [
+              "profile",
+              "private_key_env"
+            ]
+          }
+        },
+        {
+          "not": {
+            "required": [
+              "profile",
+              "private_key_path"
+            ]
+          }
+        }
+      ],
       "properties": {
-        "auth_type": {
-          "type": "string",
-          "enum": [
-            "token",
-            "app"
-          ]
+        "profile": {
+          "$ref": "#/$defs/profile"
         },
         "api_url": {
           "type": "string",
@@ -248,10 +294,6 @@
           "minLength": 1
         },
         "app_id": {
-          "type": "string",
-          "minLength": 1
-        },
-        "installation_id": {
           "type": "string",
           "minLength": 1
         },

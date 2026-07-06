@@ -5,7 +5,6 @@ targets:
     name: github
     mode: repositories
     options:
-      auth_type: token
       token_env: GITHUB_TOKEN
   regions:
   - global

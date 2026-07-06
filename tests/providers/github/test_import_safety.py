@@ -32,7 +32,7 @@ def test_offline_github_paths_do_not_import_pygithub(monkeypatch):
                     "provider": {
                         "name": "github",
                         "mode": "repositories",
-                        "options": {"auth_type": "token"},
+                        "options": {"token_env": "GITHUB_TOKEN"},
                     },
                     "regions": ["global"],
                     "include": ["octo-org/example"],
