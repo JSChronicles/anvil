@@ -115,7 +115,9 @@ def test_validate_tasks_rejects_missing_detail_docstring():
         pass
 
     run.__doc__ = None
-    task = ResolvedTask(name="missing-docstring", run=run, depends_on=[], optional=False)
+    task = ResolvedTask(
+        name="missing-docstring", run=run, depends_on=[], optional=False
+    )
 
     with pytest.raises(TaskValidationError, match="detail documentation"):
         validate_tasks([task])

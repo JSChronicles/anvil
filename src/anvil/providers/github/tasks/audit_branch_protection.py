@@ -53,8 +53,7 @@ def run(
 
     try:
         protection = rest_get(
-            session=session,
-            path=f"/repos/{owner}/{repo}/branches/{branch}/protection",
+            session=session, path=f"/repos/{owner}/{repo}/branches/{branch}/protection"
         )
         protected = True
     except Exception as error:
@@ -77,6 +76,8 @@ def run(
 def _is_not_found(error: Exception) -> bool:
     status = getattr(error, "status", None)
     data = getattr(error, "data", None)
-    return status == 404 or "404" in str(error) or (
-        isinstance(data, dict) and data.get("status") == "404"
+    return (
+        status == 404
+        or "404" in str(error)
+        or (isinstance(data, dict) and data.get("status") == "404")
     )

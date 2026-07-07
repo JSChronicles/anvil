@@ -49,10 +49,7 @@ def run(
         default=DEFAULT_MAX_RESULTS,
     )
     includes_parents = metadata_bool(
-        task_name=TASK_NAME,
-        metadata=metadata,
-        key="includes_parents",
-        default=True,
+        task_name=TASK_NAME, metadata=metadata, key="includes_parents", default=True
     )
     params = {"includes_parents": includes_parents}
     rulesets = list_rest_items(

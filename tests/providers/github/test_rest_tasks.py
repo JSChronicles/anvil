@@ -174,9 +174,7 @@ def test_audit_branch_protection_reports_unprotected_branch() -> None:
     )
 
     result, _actions = _run_task(
-        audit_branch_protection,
-        client=client,
-        metadata={"branch": "release"},
+        audit_branch_protection, client=client, metadata={"branch": "release"}
     )
 
     assert result == {"branch": "release", "protected": False, "protection": None}
@@ -187,9 +185,7 @@ def test_audit_rulesets_lists_repository_rulesets() -> None:
     client = FakeRestClient({path: [{"id": 1, "name": "main"}]})
 
     result, _actions = _run_task(
-        audit_rulesets,
-        client=client,
-        metadata={"includes_parents": False},
+        audit_rulesets, client=client, metadata={"includes_parents": False}
     )
 
     assert result == {
@@ -198,11 +194,7 @@ def test_audit_rulesets_lists_repository_rulesets() -> None:
         "includes_parents": False,
     }
     assert client.calls == [
-        {
-            "path": path,
-            "params": {"includes_parents": False},
-            "max_results": 100,
-        }
+        {"path": path, "params": {"includes_parents": False}, "max_results": 100}
     ]
 
 
@@ -238,8 +230,7 @@ def test_audit_repo_security_settings_returns_selected_fields() -> None:
 
 
 @pytest.mark.parametrize(
-    "task",
-    [audit_branch_protection, audit_rulesets, audit_repo_security_settings],
+    "task", [audit_branch_protection, audit_rulesets, audit_repo_security_settings]
 )
 def test_repository_audit_tasks_require_repository_targets(task) -> None:
     with pytest.raises(RuntimeError, match="repository target"):

@@ -63,9 +63,7 @@ def run(
         raise RuntimeError(f"{TASK_NAME} could not read repository metadata")
 
     settings = {
-        key: repository.get(key)
-        for key in REPOSITORY_SETTING_KEYS
-        if key in repository
+        key: repository.get(key) for key in REPOSITORY_SETTING_KEYS if key in repository
     }
 
     __LOGGER__.info(

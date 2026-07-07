@@ -519,9 +519,7 @@ def test_github_session_factory_requires_token_env(monkeypatch):
             target_id="octo-org/example",
             target_type="repository",
             region_name="global",
-            provider_options={
-                "token_env": "MISSING_GITHUB_TOKEN",
-            },
+            provider_options={"token_env": "MISSING_GITHUB_TOKEN"},
         )
 
 
@@ -548,14 +546,15 @@ def test_github_session_factory_uses_named_profile(monkeypatch, tmp_path):
     assert FakeGithubClient.instances[0].kwargs["auth"].token == "profile-token"
 
 
-def test_github_session_factory_inline_auth_beats_default_profile(monkeypatch, tmp_path):
+def test_github_session_factory_inline_auth_beats_default_profile(
+    monkeypatch, tmp_path
+):
     _install_fake_pygithub(monkeypatch)
     monkeypatch.setenv("INLINE_GITHUB_TOKEN", "inline-token")
     monkeypatch.setenv("DEFAULT_GITHUB_TOKEN", "default-token")
     config_path = tmp_path / "github-config.toml"
     config_path.write_text(
-        '[default]\ntoken_env = "DEFAULT_GITHUB_TOKEN"\n',
-        encoding="utf-8",
+        '[default]\ntoken_env = "DEFAULT_GITHUB_TOKEN"\n', encoding="utf-8"
     )
     monkeypatch.setenv(GITHUB_CONFIG_ENV, str(config_path))
 
@@ -577,8 +576,7 @@ def test_github_session_factory_default_profile_beats_github_token(
     monkeypatch.setenv("DEFAULT_GITHUB_TOKEN", "default-token")
     config_path = tmp_path / "github-config.toml"
     config_path.write_text(
-        '[default]\ntoken_env = "DEFAULT_GITHUB_TOKEN"\n',
-        encoding="utf-8",
+        '[default]\ntoken_env = "DEFAULT_GITHUB_TOKEN"\n', encoding="utf-8"
     )
     monkeypatch.setenv(GITHUB_CONFIG_ENV, str(config_path))
 
@@ -716,7 +714,9 @@ def test_github_session_factory_caches_profile_config_resolution(monkeypatch, tm
     monkeypatch.delenv(GITHUB_CONFIG_ENV, raising=False)
     monkeypatch.setenv("WORK_GITHUB_TOKEN", "profile-token")
     config_path = tmp_path / "config"
-    config_path.write_text('[work]\ntoken_env = "WORK_GITHUB_TOKEN"\n', encoding="utf-8")
+    config_path.write_text(
+        '[work]\ntoken_env = "WORK_GITHUB_TOKEN"\n', encoding="utf-8"
+    )
     profile_config = CountingProfileConfig(path=config_path)
     session_factory = GitHubSessionFactory(profile_config=profile_config)
 
@@ -741,10 +741,7 @@ def test_github_session_factory_uses_app_auth_private_key_env(monkeypatch):
         target_id="octo-org/example",
         target_type="repository",
         region_name="global",
-        provider_options={
-            "app_id": "12345",
-            "private_key_env": "GITHUB_PRIVATE_KEY",
-        },
+        provider_options={"app_id": "12345", "private_key_env": "GITHUB_PRIVATE_KEY"},
     )
 
     auth = FakeGithubClient.instances[1].kwargs["auth"]
@@ -767,10 +764,7 @@ def test_github_session_factory_uses_app_auth_private_key_path(monkeypatch, tmp_
         target_id="octo-org",
         target_type="organization",
         region_name="global",
-        provider_options={
-            "app_id": "12345",
-            "private_key_path": str(private_key_path),
-        },
+        provider_options={"app_id": "12345", "private_key_path": str(private_key_path)},
     )
 
     auth = FakeGithubClient.instances[1].kwargs["auth"]
@@ -801,9 +795,7 @@ def test_github_session_factory_caches_installation_lookup(monkeypatch):
         if isinstance(client.kwargs["auth"], FakeAppAuth)
     ]
     assert len(lookup_clients) == 1
-    assert lookup_clients[0].rest_calls == [
-        ("GET", "/orgs/octo-org/installation")
-    ]
+    assert lookup_clients[0].rest_calls == [("GET", "/orgs/octo-org/installation")]
 
 
 def test_github_session_factory_caches_installation_and_client_by_owner(monkeypatch):
@@ -816,19 +808,13 @@ def test_github_session_factory_caches_installation_and_client_by_owner(monkeypa
         target_id="octo-org/example",
         target_type="repository",
         region_name="global",
-        provider_options={
-            "app_id": "12345",
-            "private_key_env": "GITHUB_PRIVATE_KEY",
-        },
+        provider_options={"app_id": "12345", "private_key_env": "GITHUB_PRIVATE_KEY"},
     )
     second_session = session_factory.create_session(
         target_id="octo-org/other",
         target_type="repository",
         region_name="global",
-        provider_options={
-            "app_id": "12345",
-            "private_key_env": "GITHUB_PRIVATE_KEY",
-        },
+        provider_options={"app_id": "12345", "private_key_env": "GITHUB_PRIVATE_KEY"},
     )
 
     lookup_clients = [
@@ -859,9 +845,7 @@ def test_github_session_factory_single_flights_installation_lookup(monkeypatch):
         assert release.wait(timeout=5)
         return 67890
 
-    monkeypatch.setattr(
-        GitHubSessionFactory, "_resolve_installation_id", slow_resolve
-    )
+    monkeypatch.setattr(GitHubSessionFactory, "_resolve_installation_id", slow_resolve)
     session_factory = GitHubSessionFactory()
     errors: list[BaseException] = []
 
@@ -969,9 +953,7 @@ def test_github_session_factory_requires_app_private_key(monkeypatch):
             target_id="octo-org",
             target_type="organization",
             region_name="global",
-            provider_options={
-                "app_id": "12345",
-            },
+            provider_options={"app_id": "12345"},
         )
 
 
@@ -1020,8 +1002,7 @@ def test_github_session_factory_lists_org_and_user_repositories(monkeypatch):
     monkeypatch.setenv("GITHUB_TOKEN", "secret-token")
 
     repositories = GitHubSessionFactory().list_owner_repositories(
-        owner_logins=["octo-org", "personal-user"],
-        provider_options={},
+        owner_logins=["octo-org", "personal-user"], provider_options={}
     )
 
     assert [repository.full_name for repository in repositories] == [

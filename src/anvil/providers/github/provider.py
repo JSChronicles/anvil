@@ -172,9 +172,7 @@ class CachedGitHubClient:
         owner = self._get_repository_owner(login)
         get_repos = getattr(owner, "get_repos", None)
         if not callable(get_repos):
-            raise RuntimeError(
-                "GitHub owner object does not expose get_repos()"
-            )
+            raise RuntimeError("GitHub owner object does not expose get_repos()")
 
         repositories: list[GithubRepository] = []
         for repository in get_repos():
@@ -270,9 +268,13 @@ class GitHubProfileConfig:
         try:
             raw_profiles = tomllib.loads(path.read_text(encoding="utf-8"))
         except tomllib.TOMLDecodeError as error:
-            raise RuntimeError(f"GitHub profile config '{path}' is invalid: {error}") from error
+            raise RuntimeError(
+                f"GitHub profile config '{path}' is invalid: {error}"
+            ) from error
         except OSError as error:
-            raise RuntimeError(f"GitHub profile config '{path}' could not be read: {error}") from error
+            raise RuntimeError(
+                f"GitHub profile config '{path}' could not be read: {error}"
+            ) from error
 
         profiles: dict[str, dict[str, str]] = {}
         for profile_name, raw_profile in raw_profiles.items():
@@ -479,7 +481,9 @@ class GitHubSessionFactory:
         if settings.use_netrc:
             netrc_auth = getattr(auth_module, "NetrcAuth", None)
             if netrc_auth is None:
-                raise RuntimeError("PyGithub module does not expose github.Auth.NetrcAuth")
+                raise RuntimeError(
+                    "PyGithub module does not expose github.Auth.NetrcAuth"
+                )
             return netrc_auth()
 
         if settings.app_id is not None and settings.private_key is not None:
@@ -542,7 +546,9 @@ class GitHubSessionFactory:
             if flight.error is not None:
                 raise flight.error
             if flight.client is None:
-                raise RuntimeError("GitHub app installation client build completed empty")
+                raise RuntimeError(
+                    "GitHub app installation client build completed empty"
+                )
             return flight.client
 
         try:
@@ -649,9 +655,10 @@ class GitHubSessionFactory:
         if api_version is None:
             api_version = DEFAULT_GITHUB_API_VERSION
 
-        has_token = self._string_option(
-            provider_options=options, option_name="token_env"
-        ) is not None
+        has_token = (
+            self._string_option(provider_options=options, option_name="token_env")
+            is not None
+        )
         has_app = any(
             self._string_option(provider_options=options, option_name=option_name)
             is not None
@@ -742,9 +749,7 @@ class GitHubSessionFactory:
                 gh_token=gh_token,
             )
 
-        tried = ", ".join(
-            [*GITHUB_FALLBACK_TOKEN_ENVS, ".netrc", "gh auth token"]
-        )
+        tried = ", ".join([*GITHUB_FALLBACK_TOKEN_ENVS, ".netrc", "gh auth token"])
         raise RuntimeError(f"GitHub authentication failed. Tried: {tried}")
 
     def _private_key(self, *, options: dict[str, object], source: str) -> str:
@@ -797,13 +802,15 @@ class GitHubSessionFactory:
 
     @staticmethod
     def _has_explicit_auth_options(provider_options: dict[str, object]) -> bool:
-        return any(option_name in provider_options for option_name in GITHUB_PROFILE_OPTIONS)
+        return any(
+            option_name in provider_options for option_name in GITHUB_PROFILE_OPTIONS
+        )
 
     @staticmethod
     def _has_netrc_credentials(*, api_url: str | None) -> bool:
         try:
             credentials = netrc.netrc()
-        except (FileNotFoundError, netrc.NetrcParseError, OSError):
+        except FileNotFoundError, netrc.NetrcParseError, OSError:
             return False
 
         hosts = [_github_netrc_host(api_url)]
@@ -821,7 +828,7 @@ class GitHubSessionFactory:
                 text=True,
                 timeout=10,
             )
-        except (FileNotFoundError, subprocess.SubprocessError, OSError):
+        except FileNotFoundError, subprocess.SubprocessError, OSError:
             return None
 
         if result.returncode != 0:
@@ -1081,9 +1088,7 @@ class GithubProvider:
             )
         except RuntimeError as error:
             return ProviderAuthResult(
-                status=ExecutionStatus.ERROR,
-                source="github",
-                message=str(error),
+                status=ExecutionStatus.ERROR, source="github", message=str(error)
             )
 
         return ProviderAuthResult(
@@ -1140,8 +1145,7 @@ class GithubProvider:
     ) -> list[GithubRepository]:
         if type(self._session_factory) is not GitHubSessionFactory:
             return self._session_factory.list_owner_repositories(
-                owner_logins=owner_logins,
-                provider_options=provider_options,
+                owner_logins=owner_logins, provider_options=provider_options
             )
 
         discovery_key = self._repository_discovery_cache_key(
@@ -1150,8 +1154,7 @@ class GithubProvider:
         return _GITHUB_REPOSITORY_DISCOVERY_CACHE.get_or_discover(
             key=discovery_key,
             discover=lambda: self._session_factory.list_owner_repositories(
-                owner_logins=owner_logins,
-                provider_options=provider_options,
+                owner_logins=owner_logins, provider_options=provider_options
             ),
         )
 
@@ -1247,8 +1250,10 @@ GitHubProvider = GithubProvider
 def _is_not_found(error: Exception) -> bool:
     status = getattr(error, "status", None)
     data = getattr(error, "data", None)
-    return status == 404 or "404" in str(error) or (
-        isinstance(data, dict) and data.get("status") == "404"
+    return (
+        status == 404
+        or "404" in str(error)
+        or (isinstance(data, dict) and data.get("status") == "404")
     )
 
 

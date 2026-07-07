@@ -338,10 +338,7 @@ def test_v2_explicit_modes_require_include_and_reject_exclude(provider, mode):
 
 @pytest.mark.parametrize(
     ("mode", "include"),
-    [
-        ("organizations", ["octo-org/example"]),
-        ("repositories", ["example"]),
-    ],
+    [("organizations", ["octo-org/example"]), ("repositories", ["example"])],
 )
 def test_v2_github_modes_validate_include_shape(mode, include):
     validators = _import_validators_or_skip()
@@ -351,11 +348,7 @@ def test_v2_github_modes_validate_include_shape(mode, include):
             config={
                 "schema_version": 2,
                 "targets": [
-                    _v2_target(
-                        provider_name="github",
-                        mode=mode,
-                        include=include,
-                    )
+                    _v2_target(provider_name="github", mode=mode, include=include)
                 ],
             }
         )

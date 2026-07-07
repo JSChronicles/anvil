@@ -43,11 +43,7 @@ def metadata_int(
 
 
 def metadata_string(
-    *,
-    task_name: str,
-    metadata: dict[str, object],
-    key: str,
-    required: bool = False,
+    *, task_name: str, metadata: dict[str, object], key: str, required: bool = False
 ) -> str | None:
     """Read an optional or required string task metadata value."""
 
@@ -190,9 +186,10 @@ def runtime_error_from_provider_error(error: Exception) -> RuntimeError:
         return RuntimeError(f"GitHub authentication failed: {message}")
     if error_name in {"RateLimitExceededException", "RateLimitExceeded"}:
         return RuntimeError(f"GitHub rate limit exceeded: {message}")
-    if error_name in {"GithubException", "GithubRetry"} or error.__class__.__module__.startswith(
-        "github"
-    ):
+    if error_name in {
+        "GithubException",
+        "GithubRetry",
+    } or error.__class__.__module__.startswith("github"):
         return RuntimeError(f"GitHub API request failed: {message}")
     return RuntimeError(f"GitHub REST request failed: {message}")
 
@@ -209,7 +206,9 @@ def _requester(*, client: object) -> object:
     requester = getattr(raw_client, "requester", None)
     if requester is None:
         requester = getattr(raw_client, "_Github__requester", None)
-    if requester is None or not callable(getattr(requester, "requestJsonAndCheck", None)):
+    if requester is None or not callable(
+        getattr(requester, "requestJsonAndCheck", None)
+    ):
         raise RuntimeError(
             "GitHub REST tasks require a PyGithub requester or rest_get_json helper"
         )
