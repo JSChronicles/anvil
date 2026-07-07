@@ -900,6 +900,67 @@ def test_github_session_factory_single_flights_installation_lookup(monkeypatch):
     assert len(lookup_clients) == 1
 
 
+def test_github_session_factory_single_flights_installation_client_build(monkeypatch):
+    _install_fake_pygithub(monkeypatch)
+    monkeypatch.setenv("GITHUB_PRIVATE_KEY", "private-key")
+    FakeGithubClient.rest_responses = {"/orgs/octo-org/installation": {"id": 67890}}
+    started = threading.Event()
+    release = threading.Event()
+    calls: list[int] = []
+    original_get_installation_auth = FakeAppAuth.get_installation_auth
+
+    def slow_get_installation_auth(self, installation_id):
+        calls.append(installation_id)
+        started.set()
+        assert release.wait(timeout=5)
+        return original_get_installation_auth(self, installation_id)
+
+    monkeypatch.setattr(
+        FakeAppAuth, "get_installation_auth", slow_get_installation_auth
+    )
+    session_factory = GitHubSessionFactory()
+    sessions = []
+    errors: list[BaseException] = []
+
+    def create_session(target_id: str) -> None:
+        try:
+            sessions.append(
+                session_factory.create_session(
+                    target_id=target_id,
+                    target_type="repository",
+                    region_name="global",
+                    provider_options={
+                        "app_id": "12345",
+                        "private_key_env": "GITHUB_PRIVATE_KEY",
+                    },
+                )
+            )
+        except BaseException as error:
+            errors.append(error)
+
+    first = threading.Thread(target=create_session, args=("octo-org/example",))
+    second = threading.Thread(target=create_session, args=("octo-org/other",))
+    first.start()
+    assert started.wait(timeout=5)
+    second.start()
+    release.set()
+    first.join(timeout=5)
+    second.join(timeout=5)
+
+    assert not first.is_alive()
+    assert not second.is_alive()
+    assert errors == []
+    assert calls == [67890]
+    assert len(sessions) == 2
+    assert sessions[0].client is sessions[1].client
+    installation_clients = [
+        client
+        for client in FakeGithubClient.instances
+        if isinstance(client.kwargs["auth"], FakeInstallationAuth)
+    ]
+    assert len(installation_clients) == 1
+
+
 def test_github_session_factory_requires_app_private_key(monkeypatch):
     _install_fake_pygithub(monkeypatch)
 

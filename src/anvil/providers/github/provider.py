@@ -318,6 +318,13 @@ class _GitHubInstallationFlight:
     error: BaseException | None = None
 
 
+@dataclass(slots=True)
+class _GitHubInstallationClientFlight:
+    event: threading.Event
+    client: CachedGitHubClient | None = None
+    error: BaseException | None = None
+
+
 class GitHubSessionFactory:
     """Create PyGithub clients lazily from runtime GitHub provider options."""
 
@@ -328,6 +335,9 @@ class GitHubSessionFactory:
         self._installation_ids: dict[object, int] = {}
         self._installation_flights: dict[object, _GitHubInstallationFlight] = {}
         self._installation_clients: dict[object, CachedGitHubClient] = {}
+        self._installation_client_flights: dict[
+            object, _GitHubInstallationClientFlight
+        ] = {}
         self._installation_lock = threading.Lock()
 
     def create_session(
@@ -519,20 +529,50 @@ class GitHubSessionFactory:
             if cached_client is not None:
                 return cached_client
 
-        installation_auth = app_auth.get_installation_auth(installation_id)
-        client = CachedGitHubClient(
-            client=self._build_client(
-                github_module=github_module,
-                auth=installation_auth,
-                api_url=settings.api_url,
-                api_version=settings.api_version,
+            flight = self._installation_client_flights.get(client_key)
+            if flight is None:
+                flight = _GitHubInstallationClientFlight(event=threading.Event())
+                self._installation_client_flights[client_key] = flight
+                owns_build = True
+            else:
+                owns_build = False
+
+        if not owns_build:
+            flight.event.wait()
+            if flight.error is not None:
+                raise flight.error
+            if flight.client is None:
+                raise RuntimeError("GitHub app installation client build completed empty")
+            return flight.client
+
+        try:
+            installation_auth = app_auth.get_installation_auth(installation_id)
+            client = CachedGitHubClient(
+                client=self._build_client(
+                    github_module=github_module,
+                    auth=installation_auth,
+                    api_url=settings.api_url,
+                    api_version=settings.api_version,
+                )
             )
-        )
+        except BaseException as error:
+            with self._installation_lock:
+                flight.error = error
+                self._installation_client_flights.pop(client_key, None)
+                flight.event.set()
+            raise
+
         with self._installation_lock:
             cached_client = self._installation_clients.get(client_key)
             if cached_client is not None:
+                flight.client = cached_client
+                self._installation_client_flights.pop(client_key, None)
+                flight.event.set()
                 return cached_client
             self._installation_clients[client_key] = client
+            flight.client = client
+            self._installation_client_flights.pop(client_key, None)
+            flight.event.set()
             return client
 
     def _build_client(
