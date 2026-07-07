@@ -58,6 +58,16 @@ def run(
 ) -> dict:
 ```
 
+`anvil list --tasks <task_name> --detail` uses the `run()` docstring first and
+falls back to the module docstring only when the callable has no docstring. New
+tasks should put the operator-facing detail on `run()` in Google style:
+
+- Start with a concise summary of what the task does.
+- Document provider and target assumptions.
+- Document required and optional `metadata` keys.
+- Include `Args:`, `Returns:`, and `Raises:` sections when they apply.
+- Keep implementation details out unless they help operators use the task safely.
+
 Runtime facts:
 
 - The provided `session` is already scoped to the provider target and region/location.
@@ -94,6 +104,24 @@ def run(
     metadata: dict[str, object],
     actions: ActionRecorder,
 ) -> dict:
+    """Check the current provider target and return a simple status payload.
+
+    Args:
+        provider: Provider name for the current execution target.
+        execution_target_id: Provider-specific target ID.
+        execution_target_name: Display name for the current target.
+        execution_target_type: Provider-specific target type.
+        region: Current execution region or location.
+        location: Provider-neutral location alias for the current execution.
+        session: Provider runtime session scoped to the target and location.
+        dry_run: Whether Anvil is running in dry-run mode.
+        metadata: Task metadata from YAML. This task does not require metadata.
+        actions: Action recorder provided by the Anvil engine.
+
+    Returns:
+        A JSON-serializable payload indicating that the target was checked.
+    """
+
     actions.record(
         f"Checked {provider} {execution_target_type} {execution_target_id} "
         f"in location {location or region}"

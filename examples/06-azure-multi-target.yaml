@@ -1,0 +1,35 @@
+schema_version: 2
+max_parallel_targets: 2
+targets:
+- name: azure-platform-subscriptions
+  provider:
+    name: azure
+    mode: subscriptions
+    options:
+      tenant_id: example-tenant-id
+      client_id: example-client-id
+      client_secret: example-client-secret
+  regions:
+  - eastus
+  include:
+  - 11111111-2222-3333-4444-555555555555
+  - 22222222-3333-4444-5555-666666666666
+  dry_run: true
+  tasks:
+  - name: count_resource_groups
+
+- name: azure-application-subscriptions
+  provider:
+    name: azure
+    mode: subscriptions
+    options:
+      tenant_id: example-tenant-id
+      client_id: example-client-id
+      client_secret: example-client-secret
+  regions:
+  - westus2
+  include:
+  - aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
+  dry_run: true
+  tasks:
+  - name: count_resource_groups

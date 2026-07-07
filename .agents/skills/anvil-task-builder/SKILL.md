@@ -12,10 +12,11 @@ Use this skill to create Anvil tasks that satisfy the runtime contract, behave s
 1. Decide whether the task is a stock task or plugin task.
 2. Create or edit the task module.
 3. Implement the Anvil `run()` contract.
-4. Follow Anvil task conventions for dry-run behavior, logging, actions, and returned data.
-5. Apply normal Python and provider-specific implementation hygiene.
-6. Add or update YAML examples that reference the task when useful.
-7. Run `uv run anvil validate --tasks`.
+4. Add useful Google-style docstrings, especially on `run()`, so `anvil list --tasks <task_name> --detail` explains the task.
+5. Follow Anvil task conventions for dry-run behavior, logging, actions, and returned data.
+6. Apply normal Python and provider-specific implementation hygiene.
+7. Add or update YAML examples that reference the task when useful.
+8. Run `uv run anvil validate --tasks`.
 
 ## Core Rules
 
@@ -26,6 +27,7 @@ Use this skill to create Anvil tasks that satisfy the runtime contract, behave s
   `anvil.providers.tasks`, `anvil.providers.aws.tasks`,
   `anvil.providers.azure.tasks`, or `anvil.providers.gcp.tasks`.
 - Every task module must define a callable keyword-only `run()` function.
+- Every task `run()` function must have a useful Google-style docstring. Include a short summary plus `Args:`, `Returns:`, and `Raises:` sections when applicable; document required `metadata` keys explicitly.
 - The provided `session` is already scoped to the provider target and region/location.
 - Check `dry_run` before every mutating API call.
 - Prefix dry-run log and action messages with `(dry-run)` for planned work.
@@ -50,6 +52,6 @@ Load only the reference files needed for the current task:
 
 ## Review Behavior
 
-When reviewing Anvil tasks, prioritize runtime contract violations, missing dry-run guards, unsafe provider mutation behavior, invalid metadata handling, missing task discovery wiring, and validation gaps.
+When reviewing Anvil tasks, prioritize runtime contract violations, missing or weak `run()` docstrings for `--detail`, missing dry-run guards, unsafe provider mutation behavior, invalid metadata handling, missing task discovery wiring, and validation gaps.
 
 If no issues are found, say so directly and mention any commands that were not run.

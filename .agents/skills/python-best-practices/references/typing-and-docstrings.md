@@ -57,3 +57,8 @@ def load_config(path: str) -> dict[str, object]:
 ```
 
 Google-style docstrings improve readability, maintainability, and consistency across the codebase.
+
+For Anvil task modules, the `run()` docstring is also user-facing CLI help:
+`anvil list --tasks <task_name> --detail` displays it. Make task docstrings
+operator-focused by describing what the task checks or changes, required
+metadata keys, returned result shape, and expected `RuntimeError` failures.

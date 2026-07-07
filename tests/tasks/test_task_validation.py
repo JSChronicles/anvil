@@ -10,6 +10,8 @@ from anvil.providers.gcp.tasks.get_project_info import run as get_project_info
 
 def test_validate_tasks_accepts_valid_task():
     def run(*, account_id, account_alias, session, dry_run, metadata, actions=None):
+        """Run a valid legacy task."""
+
         pass
 
     task = ResolvedTask(name="valid", run=run, depends_on=[], optional=False)
@@ -19,6 +21,8 @@ def test_validate_tasks_accepts_valid_task():
 
 def test_validate_tasks_accepts_var_keyword_task():
     def run(**kwargs):
+        """Run a valid flexible task."""
+
         pass
 
     task = ResolvedTask(name="valid", run=run, depends_on=[], optional=False)
@@ -39,6 +43,8 @@ def test_validate_tasks_accepts_provider_neutral_task():
         metadata,
         actions,
     ):
+        """Run a valid provider-neutral task."""
+
         pass
 
     task = ResolvedTask(name="valid", run=run, depends_on=[], optional=False)
@@ -67,6 +73,8 @@ def test_validate_tasks_accepts_real_gcp_get_project_info_task():
 
 def test_validate_tasks_rejects_task_missing_actions():
     def run(*, account_id, account_alias, session, dry_run, metadata):
+        """Run an invalid task."""
+
         pass
 
     task = ResolvedTask(name="missing-actions", run=run, depends_on=[], optional=False)
@@ -77,6 +85,8 @@ def test_validate_tasks_rejects_task_missing_actions():
 
 def test_validate_tasks_rejects_bad_signature():
     def run(account_id):  # missing required kwargs
+        """Run an invalid task."""
+
         pass
 
     task = ResolvedTask(name="bad", run=run, depends_on=[], optional=False)
@@ -87,6 +97,8 @@ def test_validate_tasks_rejects_bad_signature():
 
 def test_validate_tasks_rejects_duplicate_names():
     def run(*, account_id, account_alias, session, dry_run, metadata, actions=None):
+        """Run a duplicate test task."""
+
         pass
 
     tasks = [
@@ -96,3 +108,14 @@ def test_validate_tasks_rejects_duplicate_names():
 
     with pytest.raises(TaskValidationError):
         validate_tasks(tasks)
+
+
+def test_validate_tasks_rejects_missing_detail_docstring():
+    def run(*, account_id, account_alias, session, dry_run, metadata, actions=None):
+        pass
+
+    run.__doc__ = None
+    task = ResolvedTask(name="missing-docstring", run=run, depends_on=[], optional=False)
+
+    with pytest.raises(TaskValidationError, match="detail documentation"):
+        validate_tasks([task])

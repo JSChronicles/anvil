@@ -7,7 +7,7 @@ It does not execute tasks or perform any AWS interactions.
 
 from __future__ import annotations
 
-from inspect import Parameter, signature
+from inspect import Parameter, getdoc, getmodule, signature
 
 # Required keyword arguments for all task run() functions
 REQUIRED_RUN_KWARGS: set[str] = {
@@ -63,6 +63,7 @@ def task_validation_errors(tasks: list) -> list[str]:
                 raise TaskValidationError(f"task '{task.name}'.run is not callable")
 
             _validate_task_run_signature(task)
+            _validate_task_detail_docstring(task)
 
         except TaskValidationError as exc:
             errors.append(str(exc))
@@ -100,3 +101,17 @@ def _validate_task_run_signature(task) -> None:
                 f"task '{task.name}' uses positional-only parameter "
                 f"'{param.name}', which is not supported"
             )
+
+
+def _validate_task_detail_docstring(task) -> None:
+    doc = getdoc(task.run)
+    if doc is None:
+        module = getmodule(task.run)
+        if module is not None:
+            doc = getdoc(module)
+
+    if doc is None:
+        raise TaskValidationError(
+            f"task '{task.name}' is missing detail documentation; add a "
+            "Google-style run() docstring for 'anvil list --tasks --detail'"
+        )

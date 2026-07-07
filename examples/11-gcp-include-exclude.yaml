@@ -1,11 +1,10 @@
 schema_version: 2
 targets:
-- name: gcp-explicit-projects
+- name: gcp-project-include
   provider:
     name: gcp
     mode: projects
     options:
-      credentials_path: /secure/path/to/credentials.json
       quota_project_id: anvil-billing-project
   regions:
   - us-central1
@@ -14,4 +13,4 @@ targets:
   - anvil-prod-project
   dry_run: true
   tasks:
-  - name: noop
+  - name: get_project_info

@@ -1,7 +1,6 @@
 schema_version: 2
 targets:
-
-- name: github-org-code-search
+- name: github-organization-include
   provider:
     name: github
     mode: organizations
@@ -11,6 +10,7 @@ targets:
   - global
   include:
   - octo-org
+  - octocat
   dry_run: true
   metadata:
     query: TODO
@@ -19,13 +19,12 @@ targets:
   tasks:
   - name: search_code
 
-- name: github-repo-code-search-enterprise
+- name: github-repository-include
   provider:
     name: github
     mode: repositories
     options:
-      token_env: GITHUB_ENTERPRISE_TOKEN
-      api_url: https://github.example.com/api/v3
+      token_env: GITHUB_TOKEN
   regions:
   - global
   include:
