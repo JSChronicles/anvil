@@ -10,8 +10,8 @@ def test_duplicate_org_names():
         pytest.skip(f"jsonschema package resources unavailable in test env: {error}")
 
     targets = [
-        TargetDescriptor(config_branch=ConfigBranch.ORGANIZATIONS, name="a"),
-        TargetDescriptor(config_branch=ConfigBranch.ORGANIZATIONS, name="a"),
+        TargetDescriptor(config_branch=ConfigBranch.TARGETS, name="a"),
+        TargetDescriptor(config_branch=ConfigBranch.TARGETS, name="a"),
     ]
 
     with pytest.raises(ValueError):
@@ -23,7 +23,7 @@ def test_accounts_direct_mode_requires_single_account():
         ValueError, match="without role_name must include exactly one account ID"
     ):
         TargetDescriptor(
-            config_branch=ConfigBranch.ACCOUNTS,
+            config_branch=ConfigBranch.TARGETS,
             name="direct-rollout",
             include=["111111111111", "222222222222"],
         )
@@ -31,7 +31,7 @@ def test_accounts_direct_mode_requires_single_account():
 
 def test_accounts_assume_role_mode_allows_multiple_accounts():
     descriptor = TargetDescriptor(
-        config_branch=ConfigBranch.ACCOUNTS,
+        config_branch=ConfigBranch.TARGETS,
         name="assume-role-rollout",
         role_name="OrganizationAccountAccessRole",
         include=["111111111111", "222222222222"],
@@ -42,7 +42,7 @@ def test_accounts_assume_role_mode_allows_multiple_accounts():
 
 def test_azure_subscription_mode_allows_multiple_target_ids():
     descriptor = TargetDescriptor(
-        config_branch=ConfigBranch.ACCOUNTS,
+        config_branch=ConfigBranch.TARGETS,
         name="azure-subscriptions",
         provider="azure",
         mode="subscriptions",
@@ -56,7 +56,7 @@ def test_azure_subscription_mode_allows_multiple_target_ids():
 
 def test_gcp_project_mode_allows_multiple_target_ids():
     descriptor = TargetDescriptor(
-        config_branch=ConfigBranch.ACCOUNTS,
+        config_branch=ConfigBranch.TARGETS,
         name="gcp-projects",
         provider="gcp",
         mode="projects",
@@ -113,7 +113,7 @@ def test_github_modes_require_include():
 def test_invalid_provider_is_rejected():
     with pytest.raises(ValueError, match="Unsupported provider"):
         TargetDescriptor(
-            config_branch=ConfigBranch.ACCOUNTS,
+            config_branch=ConfigBranch.TARGETS,
             name="unknown",
             provider="do",
             include=["target-a"],
@@ -123,7 +123,7 @@ def test_invalid_provider_is_rejected():
 def test_invalid_provider_mode_is_rejected():
     with pytest.raises(ValueError, match="Unsupported mode"):
         TargetDescriptor(
-            config_branch=ConfigBranch.ACCOUNTS,
+            config_branch=ConfigBranch.TARGETS,
             name="azure-subscriptions",
             provider="azure",
             mode="projects",
@@ -134,7 +134,7 @@ def test_invalid_provider_mode_is_rejected():
 def test_invalid_provider_options_are_rejected():
     with pytest.raises(ValueError, match="Unsupported provider.options"):
         TargetDescriptor(
-            config_branch=ConfigBranch.ACCOUNTS,
+            config_branch=ConfigBranch.TARGETS,
             name="gcp-projects",
             provider="gcp",
             mode="projects",
@@ -146,7 +146,7 @@ def test_invalid_provider_options_are_rejected():
 def test_provider_options_profile_conflict_is_rejected():
     with pytest.raises(ValueError, match="provider.options.profile"):
         TargetDescriptor(
-            config_branch=ConfigBranch.ACCOUNTS,
+            config_branch=ConfigBranch.TARGETS,
             name="aws-accounts",
             profile="dev",
             include=["111111111111"],
@@ -157,7 +157,7 @@ def test_provider_options_profile_conflict_is_rejected():
 def test_provider_options_role_name_conflict_is_rejected():
     with pytest.raises(ValueError, match="provider.options.role_name"):
         TargetDescriptor(
-            config_branch=ConfigBranch.ACCOUNTS,
+            config_branch=ConfigBranch.TARGETS,
             name="aws-accounts",
             role_name="AuditRole",
             include=["111111111111"],
@@ -167,7 +167,7 @@ def test_provider_options_role_name_conflict_is_rejected():
 
 def test_matching_top_level_and_provider_options_profile_is_accepted():
     descriptor = TargetDescriptor(
-        config_branch=ConfigBranch.ACCOUNTS,
+        config_branch=ConfigBranch.TARGETS,
         name="aws-accounts",
         profile="dev",
         include=["111111111111"],
@@ -179,7 +179,7 @@ def test_matching_top_level_and_provider_options_profile_is_accepted():
 
 def test_matching_top_level_and_provider_options_role_name_is_accepted():
     descriptor = TargetDescriptor(
-        config_branch=ConfigBranch.ACCOUNTS,
+        config_branch=ConfigBranch.TARGETS,
         name="aws-accounts",
         role_name="AuditRole",
         include=["111111111111", "222222222222"],
@@ -190,14 +190,14 @@ def test_matching_top_level_and_provider_options_role_name_is_accepted():
 
 
 def test_max_parallel_regions_defaults_to_one():
-    descriptor = TargetDescriptor(config_branch=ConfigBranch.ORGANIZATIONS, name="org")
+    descriptor = TargetDescriptor(config_branch=ConfigBranch.TARGETS, name="org")
 
     assert descriptor.max_parallel_regions == 1
 
 
 def test_max_parallel_regions_accepts_maximum_value():
     descriptor = TargetDescriptor(
-        config_branch=ConfigBranch.ORGANIZATIONS, name="org", max_parallel_regions=4
+        config_branch=ConfigBranch.TARGETS, name="org", max_parallel_regions=4
     )
 
     assert descriptor.max_parallel_regions == 4
@@ -205,7 +205,7 @@ def test_max_parallel_regions_accepts_maximum_value():
 
 def test_organization_regions_accepts_all_selector():
     descriptor = TargetDescriptor(
-        config_branch=ConfigBranch.ORGANIZATIONS, name="org", regions=["all"]
+        config_branch=ConfigBranch.TARGETS, name="org", regions=["all"]
     )
 
     assert descriptor.regions == ["all"]
@@ -213,7 +213,7 @@ def test_organization_regions_accepts_all_selector():
 
 def test_organization_regions_accepts_globs_and_explicit_regions():
     descriptor = TargetDescriptor(
-        config_branch=ConfigBranch.ORGANIZATIONS,
+        config_branch=ConfigBranch.TARGETS,
         name="org",
         regions=["us-*", "ca-central-1"],
     )
@@ -222,14 +222,14 @@ def test_organization_regions_accepts_globs_and_explicit_regions():
 
 
 def test_post_run_defaults_to_empty_list():
-    descriptor = TargetDescriptor(config_branch=ConfigBranch.ORGANIZATIONS, name="org")
+    descriptor = TargetDescriptor(config_branch=ConfigBranch.TARGETS, name="org")
 
     assert descriptor.post_run == []
 
 
 def test_post_run_normalizes_processor_and_metadata():
     descriptor = TargetDescriptor(
-        config_branch=ConfigBranch.ORGANIZATIONS,
+        config_branch=ConfigBranch.TARGETS,
         name="org",
         post_run=[
             {"processor": " summary_markdown ", "metadata": {"include_passed": False}}
@@ -243,7 +243,7 @@ def test_post_run_normalizes_processor_and_metadata():
 
 def test_post_run_normalizes_run_on_failure():
     descriptor = TargetDescriptor(
-        config_branch=ConfigBranch.ORGANIZATIONS,
+        config_branch=ConfigBranch.TARGETS,
         name="org",
         post_run=[{"processor": "html_report", "run_on_failure": True}],
     )
@@ -256,7 +256,7 @@ def test_post_run_normalizes_run_on_failure():
 def test_regions_rejects_all_mixed_with_other_regions():
     with pytest.raises(ValueError, match="'all' must be the only region value"):
         TargetDescriptor(
-            config_branch=ConfigBranch.ORGANIZATIONS,
+            config_branch=ConfigBranch.TARGETS,
             name="org",
             regions=["all", "us-east-1"],
         )
@@ -266,7 +266,7 @@ def test_regions_rejects_all_mixed_with_other_regions():
 def test_accounts_regions_reject_selectors(regions):
     with pytest.raises(ValueError, match="selectors are not allowed"):
         TargetDescriptor(
-            config_branch=ConfigBranch.ACCOUNTS,
+            config_branch=ConfigBranch.TARGETS,
             name="group",
             include=["111111111111"],
             regions=regions,
@@ -277,7 +277,7 @@ def test_accounts_regions_reject_selectors(regions):
 def test_max_parallel_regions_rejects_out_of_range_values(max_parallel_regions):
     with pytest.raises(ValueError, match="max_parallel_regions"):
         TargetDescriptor(
-            config_branch=ConfigBranch.ORGANIZATIONS,
+            config_branch=ConfigBranch.TARGETS,
             name="org",
             max_parallel_regions=max_parallel_regions,
         )
@@ -287,7 +287,7 @@ def test_fail_fast_warns_when_combined_concurrency_is_high(caplog):
     from anvil.validators import validate_target_descriptors
 
     target = TargetDescriptor(
-        config_branch=ConfigBranch.ORGANIZATIONS,
+        config_branch=ConfigBranch.TARGETS,
         name="org",
         max_workers=3,
         max_parallel_regions=4,
@@ -303,7 +303,7 @@ def test_fail_fast_does_not_warn_when_combined_concurrency_is_low(caplog):
     from anvil.validators import validate_target_descriptors
 
     target = TargetDescriptor(
-        config_branch=ConfigBranch.ORGANIZATIONS,
+        config_branch=ConfigBranch.TARGETS,
         name="org",
         max_workers=2,
         max_parallel_regions=4,
@@ -313,3 +313,5 @@ def test_fail_fast_does_not_warn_when_combined_concurrency_is_low(caplog):
     validate_target_descriptors(targets=[target])
 
     assert "combined account-region concurrency" not in caplog.text
+
+

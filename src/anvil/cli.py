@@ -26,7 +26,7 @@ from anvil.processor_loader import (
     ProcessorSpec,
     discover_processors,
     list_processors,
-    load_historical_run_context,
+    load_completed_run_context,
     resolve_processor_output_path,
     run_configured_post_processors,
     run_processors,
@@ -166,13 +166,9 @@ def _create_results_run_dir(*, config_file: Path) -> Path:
 
 
 def _target_results_dir_name(config_branch: ConfigBranch) -> str:
-    if config_branch is ConfigBranch.TARGETS:
-        return "targets"
-
-    if config_branch is ConfigBranch.ACCOUNTS:
-        return "account-groups"
-
-    return "organizations"
+    if config_branch is not ConfigBranch.TARGETS:
+        raise ValueError(f"Unsupported config branch: {config_branch}")
+    return "targets"
 
 
 def _safe_result_filename(name: str) -> str:
@@ -266,8 +262,8 @@ def _write_run_results(
 
 def _summary_has_queryable_failures(summary: dict[str, object]) -> bool:
     for key in (
-        "total_failed_accounts",
-        "total_interrupted_accounts",
+        "total_failed_entities",
+        "total_interrupted_entities",
         "total_failed_tasks",
     ):
         value = summary.get(key)
@@ -293,7 +289,7 @@ def _print_failure_followups(*, results_file: Path) -> None:
     print("View failures:")
     print(f"  anvil results --status failed --results-file {results_path}")
     print()
-    print("Rerun failed accounts:")
+    print("Rerun failed entities:")
     print(f"  anvil results --status failed --results-file {results_path} --rerun")
 
 
@@ -708,7 +704,7 @@ def _result_filters_from_args(args: argparse.Namespace) -> ResultFilters:
         record_type=args.type,
         status=args.status,
         target=args.target,
-        account=args.account,
+        entity=args.entity,
         region=args.region,
         task=args.task,
     )
@@ -776,7 +772,6 @@ def _validate_results_rerun_args(
         rejected_flags.append("--processor")
     if getattr(args, "output", None) is not None:
         rejected_flags.append("--output")
-
     if rejected_flags:
         rejected = ", ".join(rejected_flags)
         message = f"{rejected} cannot be used with --rerun"
@@ -799,8 +794,8 @@ def _validate_results_processor_args(
         rejected_flags.append("--status")
     if getattr(args, "target", None) is not None:
         rejected_flags.append("--target")
-    if getattr(args, "account", None) is not None:
-        rejected_flags.append("--account")
+    if getattr(args, "entity", None) is not None:
+        rejected_flags.append("--entity")
     if getattr(args, "region", None) is not None:
         rejected_flags.append("--region")
     if getattr(args, "task", None) is not None:
@@ -852,7 +847,7 @@ def _cmd_results(args: argparse.Namespace) -> int:
 
 
 def _cmd_results_processor(args: argparse.Namespace) -> int:
-    context = load_historical_run_context(results_dir=args.results_dir)
+    context = load_completed_run_context(results_dir=args.results_dir)
     output = (
         str(resolve_processor_output_path(run_dir=context.run_dir, output=args.output))
         if args.output is not None
@@ -928,10 +923,10 @@ def _add_results_query_args(parser: argparse.ArgumentParser) -> None:
         "--status", help="Filter by status: success, error, interrupted, or failed"
     )
     parser.add_argument(
-        "--type", choices=["account", "task"], help="Filter by result record type"
+        "--type", choices=["entity", "task"], help="Filter by result record type"
     )
     parser.add_argument("--target", help="Filter by target name")
-    parser.add_argument("--account", help="Filter by account ID or account alias")
+    parser.add_argument("--entity", help="Filter by entity ID or entity name")
     parser.add_argument("--region", help="Filter by AWS region")
     parser.add_argument("--task", help="Filter by task name")
     parser.add_argument(
@@ -1148,7 +1143,7 @@ def main() -> None:
     results_parser.add_argument(
         "--rerun",
         action="store_true",
-        help="Rerun failed targets narrowed to failed accounts, regions, and tasks",
+        help="Rerun failed targets narrowed to failed entities, regions, and tasks",
     )
     results_parser.add_argument(
         "--dry-run",
@@ -1168,10 +1163,10 @@ def main() -> None:
     results_parser.add_argument(
         "--results-dir",
         type=Path,
-        help="Historical results run directory to process with --processor",
+        help="Completed results run directory to process with --processor",
     )
     results_parser.add_argument(
-        "--processor", help="Run a processor against a historical results directory"
+        "--processor", help="Run a processor against a completed results directory"
     )
     results_parser.add_argument(
         "--output", help="Optional processor-owned output destination"
@@ -1232,3 +1227,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

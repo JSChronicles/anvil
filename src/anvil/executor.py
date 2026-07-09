@@ -8,7 +8,7 @@ from anvil.benchmark import BenchmarkRecorder
 from anvil.account import Account
 from anvil.descriptors import ConfigBranch
 from anvil.execution_context import ExecutionContext
-from anvil.results import AccountResult, TargetResult
+from anvil.results import EntityResult, TargetResult
 
 __LOGGER__ = logging.getLogger(__name__)
 
@@ -26,12 +26,12 @@ def execute_accounts(
     """
     Execute a resolved set of accounts using the shared concurrent account path.
     """
-    account_results: list[AccountResult] = []
+    entity_results: list[EntityResult] = []
     recorder = BenchmarkRecorder(enabled=benchmark_enabled)
 
     with recorder.phase("account_execution_seconds"):
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures: dict[Future[AccountResult], Account] = {
+            futures: dict[Future[EntityResult], Account] = {
                 executor.submit(account.execute): account for account in accounts
             }
             fail_fast_triggered = False
@@ -39,15 +39,15 @@ def execute_accounts(
             try:
                 for future in as_completed(futures):
                     try:
-                        account_result: AccountResult = future.result()
+                        entity_result: EntityResult = future.result()
                     except CancelledError:
                         continue
 
-                    account_results.append(account_result)
+                    entity_results.append(entity_result)
 
                     if (
                         context.fail_fast
-                        and account_result.status.is_unsuccessful
+                        and entity_result.status.is_unsuccessful
                         and not fail_fast_triggered
                     ):
                         __LOGGER__.critical(f"Fail-fast triggered in '{name}'")
@@ -67,24 +67,22 @@ def execute_accounts(
                 executor.shutdown(cancel_futures=True)
                 raise
 
-    account_results.sort(
-        key=lambda result: (result.account_alias.lower(), result.account_id)
-    )
+    entity_results.sort(key=lambda result: (result.name.lower(), result.id))
 
     if benchmark_enabled:
-        account_window_seconds = _account_window_seconds(account_results)
+        account_window_seconds = _account_window_seconds(entity_results)
         sum_account_duration_seconds = sum(
-            result.duration_seconds for result in account_results
+            result.duration_seconds for result in entity_results
         )
         recorder.update(
             {
                 "submitted_account_count": len(accounts),
-                "completed_account_count": len(account_results),
+                "completed_account_count": len(entity_results),
                 "max_workers": max_workers,
                 "account_execution_window_seconds": account_window_seconds,
                 "sum_account_duration_seconds": sum_account_duration_seconds,
                 "max_account_duration_seconds": max(
-                    (result.duration_seconds for result in account_results), default=0.0
+                    (result.duration_seconds for result in entity_results), default=0.0
                 ),
                 "worker_utilization": _worker_utilization(
                     sum_account_duration_seconds=sum_account_duration_seconds,
@@ -103,20 +101,20 @@ def execute_accounts(
         config_branch=config_branch,
         target_name=name,
         dry_run=context.dry_run,
-        account_results=account_results,
+        entities=entity_results,
         benchmark=target_benchmark,
     )
 
 
-def _account_window_seconds(account_results: list[AccountResult]) -> float:
-    if not account_results:
+def _account_window_seconds(entity_results: list[EntityResult]) -> float:
+    if not entity_results:
         return 0.0
 
     starts = [
-        datetime.datetime.fromisoformat(result.started_at) for result in account_results
+        datetime.datetime.fromisoformat(result.started_at) for result in entity_results
     ]
     ends = [
-        datetime.datetime.fromisoformat(result.ended_at) for result in account_results
+        datetime.datetime.fromisoformat(result.ended_at) for result in entity_results
     ]
     return (max(ends) - min(starts)).total_seconds()
 

@@ -268,10 +268,12 @@ class AzureProvider:
     def validate_target(self, target: TargetDescriptor) -> None:
         """Validate Azure support for tenant discovery and explicit subscriptions."""
 
-        if target.config_branch not in {ConfigBranch.ACCOUNTS, ConfigBranch.TARGETS}:
+        if target.config_branch is not ConfigBranch.TARGETS:
             raise ValueError(
                 "Azure provider supports targets config (schema_version: 2) only"
             )
+        if target.provider != self.metadata.name:
+            raise ValueError("Azure provider supports provider 'azure' targets only")
         if (
             target.provider_options.get("tenant_id") is not None
             and target.provider_options.get("client_secret") is None

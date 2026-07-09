@@ -31,9 +31,9 @@ def test_run_single_config_file_passes_run_controls(
 
     cli = _import_cli_or_skip()
 
-    target = TargetDescriptor(config_branch=ConfigBranch.ORGANIZATIONS, name="target-a")
+    target = TargetDescriptor(config_branch=ConfigBranch.TARGETS, name="target-a")
     loaded_config = SimpleNamespace(
-        branch=SimpleNamespace(value="organizations"),
+        branch=ConfigBranch.TARGETS,
         targets=[target],
         max_parallel_targets=4,
     )
@@ -70,7 +70,7 @@ def test_run_single_config_file_passes_run_controls(
     assert seen["kwargs"]["benchmark_enabled"] is expected_benchmark
 
 
-def test_validate_cli_overrides_rejects_v2_explicit_mode_exclude():
+def test_validate_cli_overrides_rejects_explicit_mode_exclude():
     from anvil.descriptors import ConfigBranch, LoadedConfig, TargetDescriptor
 
     cli = _import_cli_or_skip()
@@ -92,3 +92,5 @@ def test_validate_cli_overrides_rejects_v2_explicit_mode_exclude():
         cli._validate_cli_overrides(
             loaded_config=loaded_config, args=SimpleNamespace(exclude=["111111111111"])
         )
+
+

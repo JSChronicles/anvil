@@ -37,10 +37,10 @@ from anvil.providers.base import (
     ProviderExecutionRuntime,
 )
 from anvil.results import (
-    AccountResult,
     AuthResult,
     EngineResult,
     EngineState,
+    EntityResult,
     ExecutionStatus,
     TargetResult,
     TaskResult,
@@ -418,6 +418,11 @@ def _validate_effective_account_filters(
     if (
         target.config_branch is ConfigBranch.TARGETS
         and target.is_explicit_mode
+        and not (
+            target.provider == "gcp"
+            and target.mode == "projects"
+            and target.include is None
+        )
         and exclude is not None
     ):
         raise ValueError(
@@ -793,7 +798,7 @@ def _execute_provider_execution_target(
     target: TargetDescriptor,
     execution_target: ExecutionTarget,
     context: ExecutionContext,
-) -> AccountResult:
+) -> EntityResult:
     started_perf = time.perf_counter()
     started_at = datetime.datetime.now(datetime.UTC).isoformat()
     task_results: list[TaskResult] = []
@@ -841,9 +846,10 @@ def _execute_provider_execution_target(
             runtime.close()
 
     ended_at = datetime.datetime.now(datetime.UTC).isoformat()
-    return AccountResult(
-        account_id=execution_target.id,
-        account_alias=execution_target.name,
+    return EntityResult(
+        id=execution_target.id,
+        name=execution_target.name,
+        type=execution_target.type,
         status=status,
         started_at=started_at,
         ended_at=ended_at,
@@ -861,9 +867,9 @@ def _execute_provider_targets(
     execution_targets: list[ExecutionTarget],
     benchmark_data: dict[str, object] | None,
 ) -> TargetResult:
-    account_results: list[AccountResult] = []
+    entity_results: list[EntityResult] = []
     with ThreadPoolExecutor(max_workers=target.max_workers) as executor:
-        futures: dict[Future[AccountResult], ExecutionTarget] = {
+        futures: dict[Future[EntityResult], ExecutionTarget] = {
             executor.submit(
                 _execute_provider_execution_target,
                 provider=provider,
@@ -877,14 +883,14 @@ def _execute_provider_targets(
 
         for future in as_completed(futures):
             try:
-                account_result = future.result()
+                entity_result = future.result()
             except CancelledError:
                 continue
 
-            account_results.append(account_result)
+            entity_results.append(entity_result)
             if (
                 context.fail_fast
-                and account_result.status.is_unsuccessful
+                and entity_result.status.is_unsuccessful
                 and not fail_fast_triggered
             ):
                 context.cancel_event.set()
@@ -893,14 +899,12 @@ def _execute_provider_targets(
                     if not pending.done():
                         pending.cancel()
 
-    account_results.sort(
-        key=lambda result: (result.account_alias.lower(), result.account_id)
-    )
+    entity_results.sort(key=lambda result: (result.name.lower(), result.id))
     return TargetResult.create(
         config_branch=target.config_branch,
         target_name=target.name,
         dry_run=context.dry_run,
-        account_results=account_results,
+        entities=entity_results,
         benchmark=benchmark_data,
     )
 
@@ -975,7 +979,7 @@ def run_prepared_target(*, prepared_target: PreparedTarget) -> TargetExecutionOu
                 config_branch=target.config_branch,
                 target_name=target.name,
                 dry_run=context.dry_run,
-                account_results=[],
+                entities=[],
                 error=str(error),
             )
 
@@ -1015,9 +1019,9 @@ def run_prepared_target(*, prepared_target: PreparedTarget) -> TargetExecutionOu
             config_branch=target.config_branch,
             target_name=target.name,
             dry_run=context.dry_run,
-            account_results=[],
-            error=str(error),
-        )
+                entities=[],
+                error=str(error),
+            )
 
     return TargetExecutionOutcome(
         index=prepared_target.index,
@@ -1049,7 +1053,7 @@ def run_auth_checks(*, targets: list[TargetDescriptor]) -> EngineResult:
     Run authentication checks only. Does not resolve tasks or execute targets.
     """
     config_branch: ConfigBranch = (
-        targets[0].config_branch if targets else ConfigBranch.ORGANIZATIONS
+        targets[0].config_branch if targets else ConfigBranch.TARGETS
     )
     auth_results: list[AuthResult] = []
     auth_cache = AuthCheckCache()
@@ -1205,7 +1209,7 @@ def run_multiple_targets(
     benchmark_enabled: bool = False,
 ) -> EngineResult:
     config_branch: ConfigBranch = (
-        targets[0].config_branch if targets else ConfigBranch.ORGANIZATIONS
+        targets[0].config_branch if targets else ConfigBranch.TARGETS
     )
     recorder = BenchmarkRecorder(enabled=benchmark_enabled)
     with recorder.phase("run_multiple_targets_seconds"):

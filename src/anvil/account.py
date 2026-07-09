@@ -20,7 +20,7 @@ from boto3.session import Session
 
 from anvil.benchmark import BenchmarkRecorder
 from anvil.execution_context import ExecutionContext
-from anvil.results import AccountResult, ExecutionStatus, TaskResult
+from anvil.results import EntityResult, ExecutionStatus, TaskResult
 from anvil.session import AssumedRoleCredentials, SessionFactory
 from anvil.actions import ActionRecorder
 from anvil.task_context import TaskCallContext
@@ -95,7 +95,7 @@ class Account:
         self._regions: list[str] = regions
         self._session_factory: SessionFactory = session_factory
 
-    def execute(self) -> AccountResult:
+    def execute(self) -> EntityResult:
         """
         Execute the configured task graph for this account across all effective regions.
         """
@@ -170,9 +170,10 @@ class Account:
             ended_perf: int | float = time.perf_counter()
             ended_at: str = datetime.datetime.now(datetime.UTC).isoformat()
 
-            return AccountResult(
-                account_id=self.account_id,
-                account_alias=self.account_alias,
+            return EntityResult(
+                id=self.account_id,
+                name=self.account_alias,
+                type="account",
                 status=account_status,
                 started_at=started_at,
                 ended_at=ended_at,
@@ -185,9 +186,10 @@ class Account:
             ended_perf: int | float = time.perf_counter()
             ended_at: str = datetime.datetime.now(datetime.UTC).isoformat()
 
-            return AccountResult(
-                account_id=self.account_id,
-                account_alias=self.account_alias,
+            return EntityResult(
+                id=self.account_id,
+                name=self.account_alias,
+                type="account",
                 status=ExecutionStatus.ERROR,
                 started_at=started_at,
                 ended_at=ended_at,

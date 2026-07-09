@@ -21,7 +21,7 @@ def run(
 ) -> dict[str, object]:
     """Write a self-contained HTML report for Anvil result records.
 
-    The processor flattens completed Anvil target results into account and task
+    The processor flattens completed Anvil target results into entity and task
     records, then writes an interactive HTML report with summary cards, filters,
     and expandable error/result details.
 
@@ -120,34 +120,35 @@ def _records_from_target_dict(
     target_name = _string_value(target_result.get(target_type)) or _string_value(
         target_result.get("target")
     )
-    account_results = target_result.get("account_results", [])
-    if not isinstance(account_results, list):
+    entities = target_result.get("entities", [])
+    if not isinstance(entities, list):
         return []
 
     records: list[dict[str, object]] = []
-    for account_result in account_results:
-        if not isinstance(account_result, dict):
+    for entity_result in entities:
+        if not isinstance(entity_result, dict):
             continue
 
-        account_record = {
+        entity_record = {
             "target_type": target_type,
             target_type: target_name,
             "target": target_name,
             "generated_at": target_result.get("generated_at"),
             "dry_run": target_result.get("dry_run"),
-            "account_id": account_result.get("account_id"),
-            "account_alias": account_result.get("account_alias"),
+            "entity_id": entity_result.get("id"),
+            "entity_name": entity_result.get("name"),
+            "entity_type": entity_result.get("type"),
         }
         records.append(
             {
-                **account_record,
-                "record_type": "account",
-                **_timed_status_record(account_result),
-                "error": account_result.get("error"),
+                **entity_record,
+                "record_type": "entity",
+                **_timed_status_record(entity_result),
+                "error": entity_result.get("error"),
             }
         )
 
-        tasks = account_result.get("tasks", [])
+        tasks = entity_result.get("tasks", [])
         if not isinstance(tasks, list):
             continue
 
@@ -156,7 +157,7 @@ def _records_from_target_dict(
                 continue
             records.append(
                 {
-                    **account_record,
+                    **entity_record,
                     "record_type": "task",
                     "task": task_result.get("task"),
                     "region": task_result.get("region"),
@@ -170,13 +171,9 @@ def _records_from_target_dict(
 
 
 def _target_type(config_branch: ConfigBranch) -> str:
-    if config_branch is ConfigBranch.TARGETS:
-        return "target"
-
-    if config_branch is ConfigBranch.ACCOUNTS:
-        return "account_group"
-
-    return "organization"
+    if config_branch is not ConfigBranch.TARGETS:
+        raise ValueError(f"Unsupported config branch: {config_branch}")
+    return "target"
 
 
 def _timed_status_record(record: dict[str, object]) -> dict[str, object]:
@@ -428,7 +425,7 @@ def _build_html(
       <label>Status<select id="statusFilter"></select></label>
       <label>Type<select id="typeFilter"></select></label>
       <label>Target<select id="targetFilter"></select></label>
-      <label>Account<select id="accountFilter"></select></label>
+      <label>Entity<select id="entityFilter"></select></label>
       <label>Region<select id="regionFilter"></select></label>
       <label>Task<select id="taskFilter"></select></label>
       <label>Search<input id="searchFilter" type="search" placeholder="Filter visible fields"></label>
@@ -440,7 +437,7 @@ def _build_html(
             <th>Status</th>
             <th>Type</th>
             <th>Target</th>
-            <th>Account</th>
+            <th>Entity</th>
             <th>Region</th>
             <th>Task</th>
             <th>Duration</th>
@@ -461,16 +458,16 @@ def _build_html(
       status: document.getElementById("statusFilter"),
       record_type: document.getElementById("typeFilter"),
       target: document.getElementById("targetFilter"),
-      account: document.getElementById("accountFilter"),
+      entity: document.getElementById("entityFilter"),
       region: document.getElementById("regionFilter"),
       task: document.getElementById("taskFilter"),
       search: document.getElementById("searchFilter")
     }};
-    const fields = ["status", "record_type", "target", "account", "region", "task"];
+    const fields = ["status", "record_type", "target", "entity", "region", "task"];
 
     function value(record, field) {{
-      if (field === "account") {{
-        return record.account_alias || record.account_id || "";
+      if (field === "entity") {{
+        return record.entity_name || record.entity_id || "";
       }}
       return record[field] || "";
     }}
@@ -523,8 +520,9 @@ def _build_html(
         record.status,
         record.record_type,
         record.target,
-        record.account_id,
-        record.account_alias,
+        record.entity_id,
+        record.entity_name,
+        record.entity_type,
         record.region,
         record.task,
         record.error
@@ -577,7 +575,7 @@ def _build_html(
         cells[0].querySelector(".pill").textContent = record.status || "unknown";
         cells[1].textContent = record.record_type || "";
         cells[2].textContent = record.target || "";
-        cells[3].textContent = [record.account_alias, record.account_id].filter(Boolean).join(" ");
+        cells[3].textContent = [record.entity_name, record.entity_id].filter(Boolean).join(" ");
         cells[4].textContent = record.region || "";
         cells[5].textContent = record.task || "";
         cells[6].textContent = record.duration_seconds === undefined || record.duration_seconds === null
@@ -594,7 +592,7 @@ def _build_html(
     populateSelect(controls.status, sortedValues("status"), "statuses");
     populateSelect(controls.record_type, sortedValues("record_type"), "types");
     populateSelect(controls.target, sortedValues("target"), "targets");
-    populateSelect(controls.account, sortedValues("account"), "accounts");
+    populateSelect(controls.entity, sortedValues("entity"), "entities");
     populateSelect(controls.region, sortedValues("region"), "regions");
     populateSelect(controls.task, sortedValues("task"), "tasks");
     renderCards(data.cards);
@@ -611,10 +609,10 @@ def _summary_cards(records: list[dict[str, object]]) -> list[dict[str, object]]:
     error_count = _count_status(records=records, status="error")
     interrupted_count = _count_status(records=records, status="interrupted")
     unsuccessful_count = sum(1 for record in records if _is_unsuccessful(record))
-    failed_accounts = sum(
+    failed_entities = sum(
         1
         for record in records
-        if record.get("record_type") == "account" and _is_unsuccessful(record)
+        if record.get("record_type") == "entity" and _is_unsuccessful(record)
     )
     failed_tasks = sum(
         1
@@ -639,10 +637,10 @@ def _summary_cards(records: list[dict[str, object]]) -> list[dict[str, object]]:
             "mark": "INT",
         },
         {
-            "label": "Failed accounts",
-            "value": failed_accounts,
+            "label": "Failed entities",
+            "value": failed_entities,
             "tone": "error",
-            "mark": "ACCT",
+            "mark": "ENT",
         },
         {
             "label": "Failed tasks",

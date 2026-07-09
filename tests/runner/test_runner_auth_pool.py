@@ -8,13 +8,13 @@ from types import SimpleNamespace
 
 def _org_target(descriptors, *, name: str, profile: str):
     return descriptors.TargetDescriptor(
-        config_branch=descriptors.ConfigBranch.ORGANIZATIONS, name=name, profile=profile
+        config_branch=descriptors.ConfigBranch.TARGETS, name=name, profile=profile
     )
 
 
 def _accounts_target(descriptors, *, name: str, profile: str, include: list[str]):
     return descriptors.TargetDescriptor(
-        config_branch=descriptors.ConfigBranch.ACCOUNTS,
+        config_branch=descriptors.ConfigBranch.TARGETS,
         name=name,
         profile=profile,
         include=include,
@@ -391,7 +391,7 @@ def test_run_multiple_targets_executes_targets_in_parallel_and_preserves_input_o
                 config_branch=prepared_target.effective_target.config_branch,
                 target_name=prepared_target.effective_target.name,
                 dry_run=False,
-                account_results=[],
+                entities=[],
             ),
             cancelled=False,
         )
@@ -480,7 +480,7 @@ def test_run_multiple_targets_serializes_same_org_targets(monkeypatch):
                 config_branch=prepared_target.effective_target.config_branch,
                 target_name=prepared_target.effective_target.name,
                 dry_run=False,
-                account_results=[],
+                entities=[],
             ),
             cancelled=False,
         )
@@ -561,7 +561,7 @@ def test_run_multiple_targets_parallelizes_accounts_branch(monkeypatch):
                 config_branch=prepared_target.effective_target.config_branch,
                 target_name=prepared_target.effective_target.name,
                 dry_run=False,
-                account_results=[],
+                entities=[],
             ),
             cancelled=False,
         )
@@ -637,7 +637,7 @@ def test_run_multiple_targets_pipelines_preparation_into_execution(monkeypatch):
                 config_branch=prepared_target.effective_target.config_branch,
                 target_name=prepared_target.effective_target.name,
                 dry_run=False,
-                account_results=[],
+                entities=[],
             ),
             cancelled=False,
         )
@@ -660,3 +660,6 @@ def test_run_multiple_targets_pipelines_preparation_into_execution(monkeypatch):
         "org-b",
         "org-c",
     ]
+
+
+

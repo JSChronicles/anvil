@@ -49,8 +49,9 @@ def _context(*, regions: list[str] | None = None) -> ExecutionContext:
 
 def _target(**kwargs) -> TargetDescriptor:
     return TargetDescriptor(
-        config_branch=ConfigBranch.ORGANIZATIONS,
+        config_branch=ConfigBranch.TARGETS,
         name="org-a",
+        mode="organization",
         profile="profile-a",
         regions=kwargs.pop("regions", ["us-east-1"]),
         **kwargs,
@@ -346,3 +347,5 @@ def test_resolve_accounts_raises_when_selector_matches_only_disabled_regions(cap
         resolver.resolve_accounts()
 
     assert "configured unavailable regions: ap-south-1" in caplog.text
+
+

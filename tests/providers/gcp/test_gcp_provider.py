@@ -65,7 +65,7 @@ class FakeSessionFactory:
 
 def _target(**overrides) -> TargetDescriptor:
     values = {
-        "config_branch": ConfigBranch.ACCOUNTS,
+        "config_branch": ConfigBranch.TARGETS,
         "name": "gcp-projects",
         "provider": "gcp",
         "mode": "projects",
@@ -96,9 +96,9 @@ def test_gcp_provider_metadata_and_default_locations():
 
 def test_gcp_provider_rejects_organization_targets():
     provider = GcpProvider()
-    target = TargetDescriptor(config_branch=ConfigBranch.ORGANIZATIONS, name="folder")
+    target = TargetDescriptor(config_branch=ConfigBranch.TARGETS, name="folder")
 
-    with pytest.raises(ValueError, match="supports targets"):
+    with pytest.raises(ValueError, match="provider 'gcp'"):
         provider.validate_target(target)
 
 
@@ -422,3 +422,6 @@ def test_gcp_session_factory_uses_default_credentials_with_quota_project(monkeyp
             "quota_project_id": "billing-project",
         }
     ]
+
+
+

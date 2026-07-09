@@ -252,10 +252,12 @@ class GcpProvider:
     def validate_target(self, target: TargetDescriptor) -> None:
         """Validate GCP support for organization and explicit project targets."""
 
-        if target.config_branch not in {ConfigBranch.ACCOUNTS, ConfigBranch.TARGETS}:
+        if target.config_branch is not ConfigBranch.TARGETS:
             raise ValueError(
                 "GCP provider supports targets config (schema_version: 2) only"
             )
+        if target.provider != self.metadata.name:
+            raise ValueError("GCP provider supports provider 'gcp' targets only")
         if target.include is not None and target.exclude is not None:
             raise ValueError("GCP include and exclude filters are mutually exclusive")
 

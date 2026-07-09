@@ -49,3 +49,5 @@ def test_auth_check_maps_sso_token_retrieval_error(monkeypatch):
     assert result.status is ExecutionStatus.ERROR
     assert result.message == "AWS SSO session is invalid or expired."
     assert result.remediation == "aws sso login --profile chronicles"
+
+

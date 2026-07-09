@@ -44,8 +44,6 @@ SUPPORTED_PROVIDER_OPTIONS = {
 
 
 class ConfigBranch(StrEnum):
-    ORGANIZATIONS = "organizations"
-    ACCOUNTS = "accounts"
     TARGETS = "targets"
 
 
@@ -54,9 +52,7 @@ class TargetDescriptor:
     """
     Declarative description of one execution target group loaded from config.
 
-    Public v0.30 configs load from schema_version: 2 top-level targets.
-    Some branch enum values and normalized AWS fields remain for result and
-    execution compatibility.
+    Public configs load from schema_version: 2 top-level targets.
     """
 
     config_branch: ConfigBranch
@@ -162,69 +158,14 @@ class TargetDescriptor:
         object.__setattr__(self, "include", normalized_include)
         object.__setattr__(self, "exclude", normalized_exclude)
 
-        if self.config_branch is ConfigBranch.ORGANIZATIONS:
-            if self.provider != PROVIDER_AWS:
-                raise ValueError(
-                    "organizations config entries currently support provider 'aws' only"
-                )
-
-            if self.role_name is None:
-                object.__setattr__(self, "role_name", "OrganizationAccountAccessRole")
-
-            if self.include and self.exclude:
-                raise ValueError("include and exclude cannot both be set")
-            return
-
-        if self.config_branch is ConfigBranch.ACCOUNTS:
-            account_region_selectors = [
-                region for region in self.regions if is_region_selector(region)
-            ]
-            if account_region_selectors:
-                raise ValueError(
-                    "accounts config entries require explicit region names; "
-                    f"selectors are not allowed: {', '.join(account_region_selectors)}"
-                )
-
-            if self.provider == PROVIDER_AWS and not self.include:
-                raise ValueError("accounts config entries require include")
-
-            if self.provider == PROVIDER_AWS and self.exclude is not None:
-                raise ValueError("accounts config entries do not allow exclude")
-
-            if (
-                self.provider in {PROVIDER_AZURE, PROVIDER_GCP}
-                and self.include is not None
-                and self.exclude is not None
-            ):
-                raise ValueError(
-                    "accounts config entries cannot use include and exclude together"
-                )
-
-            if self.provider == PROVIDER_GITHUB and not self.include:
-                raise ValueError(
-                    f"provider '{self.provider}' mode '{self.mode}' requires include"
-                )
-
-            if self.provider == PROVIDER_GITHUB and self.exclude is not None:
-                raise ValueError("accounts config entries do not allow exclude")
-
-            if (
-                self.provider == PROVIDER_AWS
-                and self.role_name is None
-                and len(self.include) != 1
-            ):
-                raise ValueError(
-                    "accounts config entries without role_name must include exactly "
-                    "one account ID"
-                )
-
-            return
-
         if self.config_branch is ConfigBranch.TARGETS:
             if self.include is not None and self.exclude is not None:
                 raise ValueError("include and exclude cannot both be set")
 
-            if self.is_explicit_mode:
+            allows_provider_discovery = (
+                self.provider == PROVIDER_GCP and self.mode == MODE_GCP_PROJECTS
+            )
+            if self.is_explicit_mode and not allows_provider_discovery:
                 if not self.include:
                     raise ValueError(
                         f"provider '{self.provider}' mode '{self.mode}' requires include"
@@ -355,9 +296,9 @@ class TargetDescriptor:
         if mode is None:
             if self.provider == PROVIDER_AWS:
                 mode = (
-                    MODE_AWS_ORGANIZATION
-                    if self.config_branch is ConfigBranch.ORGANIZATIONS
-                    else MODE_AWS_ACCOUNTS
+                    MODE_AWS_ACCOUNTS
+                    if self.include is not None
+                    else MODE_AWS_ORGANIZATION
                 )
             elif self.provider == PROVIDER_AZURE:
                 mode = MODE_AZURE_SUBSCRIPTIONS
@@ -372,27 +313,6 @@ class TargetDescriptor:
                 f"Unsupported mode '{mode}' for provider '{self.provider}'. "
                 f"Supported modes: {supported}"
             )
-
-        if self.config_branch is ConfigBranch.ORGANIZATIONS and (
-            self.provider != PROVIDER_AWS or mode != MODE_AWS_ORGANIZATION
-        ):
-            raise ValueError(
-                "organizations config entries currently support provider 'aws' "
-                "with mode 'organization' only"
-            )
-
-        if self.config_branch is ConfigBranch.ACCOUNTS:
-            expected_mode = {
-                PROVIDER_AWS: MODE_AWS_ACCOUNTS,
-                PROVIDER_AZURE: MODE_AZURE_SUBSCRIPTIONS,
-                PROVIDER_GCP: MODE_GCP_PROJECTS,
-                PROVIDER_GITHUB: MODE_GITHUB_REPOSITORIES,
-            }[self.provider]
-            if mode != expected_mode:
-                raise ValueError(
-                    f"accounts config entries for provider '{self.provider}' "
-                    f"require mode '{expected_mode}'"
-                )
 
         object.__setattr__(self, "mode", mode)
 

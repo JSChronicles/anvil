@@ -1031,3 +1031,5 @@ def test_repository_discovery_cache_key_uses_resolved_token_value(monkeypatch):
     assert first_key != second_key
     assert "first-token" not in str(first_key)
     assert "second-token" not in str(second_key)
+
+

@@ -14,7 +14,7 @@ __LOGGER__ = logging.getLogger(__name__)
 
 TARGETS_SCHEMA_FILE = "targets.schema.v2.json"
 
-COMMON_SCHEMA_FILE = "common.schema.v1.json"
+COMMON_SCHEMA_FILE = "common.schema.v2.json"
 SCHEMA_BASE_URI = "https://anvil.local/schemas/"
 
 
@@ -36,12 +36,6 @@ def _detect_config_branch(config: dict) -> ConfigBranch:
 
     if "targets" not in config:
         raise ValueError("schema_version 2 configs must contain top-level 'targets'")
-
-    if "organizations" in config or "accounts" in config:
-        raise ValueError(
-            "Anvil v0.30 configs use top-level 'targets', not "
-            "'organizations' or 'accounts'."
-        )
 
     return ConfigBranch.TARGETS
 
@@ -74,11 +68,7 @@ def _format_schema_error_location(*, config: dict, error) -> str:
         if not isinstance(entry_name, str) or not entry_name.strip():
             return location
 
-        label = {
-            ConfigBranch.ACCOUNTS.value: "account_group",
-            ConfigBranch.ORGANIZATIONS.value: "organization",
-            ConfigBranch.TARGETS.value: "target",
-        }[branch_name]
+        label = {ConfigBranch.TARGETS.value: "target"}[branch_name]
         return f"{label} '{entry_name}' ({location})"
 
     return location
@@ -148,7 +138,7 @@ def load_config_descriptors(*, config: dict) -> LoadedConfig:
         if not isinstance(entry, dict):
             raise ValueError(f"{branch.value} entry #{index} must be a mapping")
 
-        normalized_entry = _normalize_v2_target_entry(entry=entry, index=index)
+        normalized_entry = _normalize_target_entry(entry=entry, index=index)
         targets.append(TargetDescriptor(config_branch=branch, **normalized_entry))
 
     validate_target_descriptors(targets=targets)
@@ -158,7 +148,7 @@ def load_config_descriptors(*, config: dict) -> LoadedConfig:
     )
 
 
-def _normalize_v2_target_entry(*, entry: dict, index: int) -> dict:
+def _normalize_target_entry(*, entry: dict, index: int) -> dict:
     provider = entry.get("provider")
     if not isinstance(provider, dict):
         raise ValueError(f"targets entry #{index} requires provider mapping")
@@ -203,3 +193,4 @@ def validate_target_descriptors(*, targets: list[TargetDescriptor]) -> None:
                 f"(max_workers={target.max_workers}, "
                 f"max_parallel_regions={target.max_parallel_regions})"
             )
+

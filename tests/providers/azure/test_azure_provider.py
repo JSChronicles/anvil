@@ -72,21 +72,24 @@ class FakeSessionFactory:
 
 def _target(**overrides) -> TargetDescriptor:
     values = {
-        "config_branch": ConfigBranch.ACCOUNTS,
+        "config_branch": ConfigBranch.TARGETS,
         "name": "azure-subscriptions",
         "provider": "azure",
         "mode": "subscriptions",
         "include": ["sub-a"],
     }
     values.update(overrides)
+    if values.get("include") is None:
+        values["mode"] = "tenant"
     return TargetDescriptor(**values)
 
 
 def _raw_target(**overrides):
     values = {
-        "config_branch": ConfigBranch.ACCOUNTS,
+        "config_branch": ConfigBranch.TARGETS,
         "include": ["sub-a"],
         "exclude": None,
+        "provider": "azure",
         "provider_options": {},
     }
     values.update(overrides)
@@ -112,9 +115,9 @@ def test_azure_provider_metadata_and_default_locations():
 
 def test_azure_provider_rejects_organization_targets():
     provider = AzureProvider()
-    target = TargetDescriptor(config_branch=ConfigBranch.ORGANIZATIONS, name="mgmt")
+    target = TargetDescriptor(config_branch=ConfigBranch.TARGETS, name="mgmt")
 
-    with pytest.raises(ValueError, match="supports targets"):
+    with pytest.raises(ValueError, match="provider 'azure'"):
         provider.validate_target(target)
 
 
@@ -427,3 +430,6 @@ def test_azure_client_secret_requires_tenant_and_client_id(monkeypatch):
         AzureSessionFactory().create_session(
             subscription_id="sub-a", location="eastus", client_secret="secret-a"
         )
+
+
+

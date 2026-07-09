@@ -36,3 +36,5 @@ def test_infer_auth_source_sso_session_profile(monkeypatch, tmp_path):
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
 
     assert infer_auth_source("chronicles") is AuthSource.SSO
+
+

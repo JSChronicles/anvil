@@ -254,3 +254,5 @@ def test_discover_tasks_includes_github_provider_list(monkeypatch):
     task_loader.discover_tasks()
 
     assert seen == ["aws", "azure", "gcp", "github"]
+
+

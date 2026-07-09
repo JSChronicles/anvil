@@ -10,7 +10,7 @@ def _import_validators_or_skip():
     return validators
 
 
-def _v2_target(*, provider_name: str, mode: str, **overrides):
+def _target(*, provider_name: str, mode: str, **overrides):
     target = {
         "name": f"{provider_name}-{mode}",
         "provider": {"name": provider_name, "mode": mode, "options": {}},
@@ -27,45 +27,7 @@ def _v2_target(*, provider_name: str, mode: str, **overrides):
     return target
 
 
-@pytest.mark.parametrize(
-    "config",
-    [
-        {"schema_version": 1, "organizations": [{"name": "org-a"}]},
-        {
-            "schema_version": 1,
-            "accounts": [{"name": "group-a", "include": ["111111111111"]}],
-        },
-        {"organizations": [{"name": "org-a"}]},
-        {"accounts": [{"name": "group-a", "include": ["111111111111"]}]},
-    ],
-)
-def test_v1_and_legacy_top_level_branches_are_unsupported(config):
-    validators = _import_validators_or_skip()
-
-    with pytest.raises(ValueError, match="schema_version: 2.*targets"):
-        validators.validate_config_schema(config=config)
-
-    with pytest.raises(ValueError, match="schema_version: 2.*targets"):
-        validators.load_config_descriptors(config=config)
-
-
-@pytest.mark.parametrize("legacy_branch", ["organizations", "accounts"])
-def test_v2_rejects_legacy_top_level_branches(legacy_branch):
-    validators = _import_validators_or_skip()
-
-    with pytest.raises(
-        ValueError, match="top-level 'targets'.*organizations.*accounts"
-    ):
-        validators.validate_config_schema(
-            config={
-                "schema_version": 2,
-                "targets": [_v2_target(provider_name="aws", mode="organization")],
-                legacy_branch: [{"name": "legacy"}],
-            }
-        )
-
-
-def test_load_config_descriptors_reads_v2_run_controls_and_post_run():
+def test_load_config_descriptors_reads_run_controls_and_post_run():
     validators = _import_validators_or_skip()
 
     loaded = validators.load_config_descriptors(
@@ -73,7 +35,7 @@ def test_load_config_descriptors_reads_v2_run_controls_and_post_run():
             "schema_version": 2,
             "max_parallel_targets": 3,
             "targets": [
-                _v2_target(
+                _target(
                     provider_name="aws",
                     mode="organization",
                     max_parallel_regions=4,
@@ -100,13 +62,13 @@ def test_load_config_descriptors_reads_v2_run_controls_and_post_run():
     ]
 
 
-def test_v2_schema_accepts_final_multicloud_target_shapes():
+def test_schema_accepts_multicloud_target_shapes():
     validators = _import_validators_or_skip()
 
     config = {
         "schema_version": 2,
         "targets": [
-            _v2_target(
+            _target(
                 provider_name="aws",
                 mode="organization",
                 name="aws-org",
@@ -121,7 +83,7 @@ def test_v2_schema_accepts_final_multicloud_target_shapes():
                 include=["111111111111"],
                 tasks=[{"name": "count_vpc"}],
             ),
-            _v2_target(
+            _target(
                 provider_name="aws",
                 mode="accounts",
                 name="aws-accounts",
@@ -133,7 +95,7 @@ def test_v2_schema_accepts_final_multicloud_target_shapes():
                 include=["111111111111"],
                 tasks=[{"name": "count_vpc"}],
             ),
-            _v2_target(
+            _target(
                 provider_name="azure",
                 mode="tenant",
                 name="azure-tenant",
@@ -149,14 +111,14 @@ def test_v2_schema_accepts_final_multicloud_target_shapes():
                 exclude=["00000000-0000-0000-0000-000000000000"],
                 tasks=[{"name": "count_resource_groups"}],
             ),
-            _v2_target(
+            _target(
                 provider_name="azure",
                 mode="subscriptions",
                 name="azure-subscriptions",
                 include=["00000000-0000-0000-0000-000000000000"],
                 tasks=[{"name": "count_resource_groups"}],
             ),
-            _v2_target(
+            _target(
                 provider_name="gcp",
                 mode="organization",
                 name="gcp-org",
@@ -171,7 +133,7 @@ def test_v2_schema_accepts_final_multicloud_target_shapes():
                 include=["my-project"],
                 tasks=[{"name": "get_project_info"}],
             ),
-            _v2_target(
+            _target(
                 provider_name="gcp",
                 mode="projects",
                 name="gcp-projects",
@@ -183,7 +145,7 @@ def test_v2_schema_accepts_final_multicloud_target_shapes():
                 include=["my-project"],
                 tasks=[{"name": "get_project_info"}],
             ),
-            _v2_target(
+            _target(
                 provider_name="github",
                 mode="organizations",
                 name="github-organizations",
@@ -198,7 +160,7 @@ def test_v2_schema_accepts_final_multicloud_target_shapes():
                 },
                 include=["octo-org"],
             ),
-            _v2_target(
+            _target(
                 provider_name="github",
                 mode="repositories",
                 name="github-repositories",
@@ -236,7 +198,7 @@ def test_v2_schema_accepts_final_multicloud_target_shapes():
 
 
 @pytest.mark.parametrize("provider", [{}, {"mode": "accounts"}, {"name": "aws"}])
-def test_v2_rejects_provider_missing_name_or_mode(provider):
+def test_schema_rejects_provider_missing_name_or_mode(provider):
     validators = _import_validators_or_skip()
 
     with pytest.raises(ValueError, match="provider"):
@@ -261,7 +223,7 @@ def test_v2_rejects_provider_missing_name_or_mode(provider):
         ("github", "repositories"),
     ],
 )
-def test_v2_rejects_include_and_exclude_together_for_all_modes(provider, mode):
+def test_schema_rejects_include_and_exclude_together_for_all_modes(provider, mode):
     validators = _import_validators_or_skip()
 
     with pytest.raises(ValueError, match="include|exclude"):
@@ -269,7 +231,7 @@ def test_v2_rejects_include_and_exclude_together_for_all_modes(provider, mode):
             config={
                 "schema_version": 2,
                 "targets": [
-                    _v2_target(
+                    _target(
                         provider_name=provider,
                         mode=mode,
                         include=["111111111111" if provider == "aws" else "target-a"],
@@ -284,12 +246,12 @@ def test_v2_rejects_include_and_exclude_together_for_all_modes(provider, mode):
     ("provider", "mode"),
     [("aws", "organization"), ("azure", "tenant"), ("gcp", "organization")],
 )
-def test_v2_discovery_modes_allow_omitted_include(provider, mode):
+def test_discovery_modes_allow_omitted_include(provider, mode):
     validators = _import_validators_or_skip()
 
     config = {
         "schema_version": 2,
-        "targets": [_v2_target(provider_name=provider, mode=mode)],
+        "targets": [_target(provider_name=provider, mode=mode)],
     }
 
     validators.validate_config_schema(config=config)
@@ -309,14 +271,14 @@ def test_v2_discovery_modes_allow_omitted_include(provider, mode):
         ("github", "repositories"),
     ],
 )
-def test_v2_explicit_modes_require_include_and_reject_exclude(provider, mode):
+def test_explicit_modes_require_include_and_reject_exclude(provider, mode):
     validators = _import_validators_or_skip()
 
     with pytest.raises(ValueError, match="include"):
         validators.validate_config_schema(
             config={
                 "schema_version": 2,
-                "targets": [_v2_target(provider_name=provider, mode=mode)],
+                "targets": [_target(provider_name=provider, mode=mode)],
             }
         )
 
@@ -325,7 +287,7 @@ def test_v2_explicit_modes_require_include_and_reject_exclude(provider, mode):
             config={
                 "schema_version": 2,
                 "targets": [
-                    _v2_target(
+                    _target(
                         provider_name=provider,
                         mode=mode,
                         include=["111111111111" if provider == "aws" else "target-a"],
@@ -340,7 +302,7 @@ def test_v2_explicit_modes_require_include_and_reject_exclude(provider, mode):
     ("mode", "include"),
     [("organizations", ["octo-org/example"]), ("repositories", ["example"])],
 )
-def test_v2_github_modes_validate_include_shape(mode, include):
+def test_github_modes_validate_include_shape(mode, include):
     validators = _import_validators_or_skip()
 
     with pytest.raises(ValueError, match="include"):
@@ -348,18 +310,18 @@ def test_v2_github_modes_validate_include_shape(mode, include):
             config={
                 "schema_version": 2,
                 "targets": [
-                    _v2_target(provider_name="github", mode=mode, include=include)
+                    _target(provider_name="github", mode=mode, include=include)
                 ],
             }
         )
 
 
 @pytest.mark.parametrize("field_name", ["provider_options", "profile", "role_name"])
-def test_v2_rejects_legacy_public_provider_fields(field_name):
+def test_schema_rejects_provider_fields_outside_provider_options(field_name):
     validators = _import_validators_or_skip()
-    target = _v2_target(provider_name="aws", mode="accounts", include=["111111111111"])
+    target = _target(provider_name="aws", mode="accounts", include=["111111111111"])
     target[field_name] = (
-        {"role_name": "AuditRole"} if field_name == "provider_options" else "legacy"
+        {"role_name": "AuditRole"} if field_name == "provider_options" else "invalid"
     )
 
     with pytest.raises(ValueError, match=field_name):
@@ -383,7 +345,7 @@ def test_validate_config_schema_reuses_cached_targets_schema(monkeypatch):
 
     config = {
         "schema_version": 2,
-        "targets": [_v2_target(provider_name="aws", mode="organization")],
+        "targets": [_target(provider_name="aws", mode="organization")],
     }
     validators.validate_config_schema(config=config)
     validators.validate_config_schema(config=config)
@@ -399,7 +361,7 @@ def test_validate_config_schema_rejects_invalid_max_parallel_targets():
             config={
                 "schema_version": 2,
                 "max_parallel_targets": 0,
-                "targets": [_v2_target(provider_name="aws", mode="organization")],
+                "targets": [_target(provider_name="aws", mode="organization")],
             }
         )
 
@@ -412,7 +374,7 @@ def test_validate_config_schema_rejects_invalid_post_run_output():
             config={
                 "schema_version": 2,
                 "targets": [
-                    _v2_target(
+                    _target(
                         provider_name="aws",
                         mode="organization",
                         post_run=[{"processor": "summary_json", "output": False}],
@@ -433,7 +395,7 @@ def test_validate_config_schema_rejects_invalid_max_parallel_regions(
             config={
                 "schema_version": 2,
                 "targets": [
-                    _v2_target(
+                    _target(
                         provider_name="aws",
                         mode="organization",
                         max_parallel_regions=max_parallel_regions,
@@ -441,3 +403,5 @@ def test_validate_config_schema_rejects_invalid_max_parallel_regions(
                 ],
             }
         )
+
+

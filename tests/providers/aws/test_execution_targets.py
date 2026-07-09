@@ -23,8 +23,9 @@ class FakeSessionFactory:
 def test_resolve_execution_targets_maps_explicit_assume_role_accounts():
     session_factory = FakeSessionFactory()
     target = TargetDescriptor(
-        config_branch=ConfigBranch.ACCOUNTS,
+        config_branch=ConfigBranch.TARGETS,
         name="selected",
+        mode="accounts",
         profile="tooling",
         role_name="SecurityAccessRole",
         include=["111111111111", "222222222222"],
@@ -59,8 +60,9 @@ def test_resolve_execution_targets_maps_explicit_assume_role_accounts():
 def test_resolve_execution_targets_maps_explicit_direct_profile_account():
     session_factory = FakeSessionFactory()
     target = TargetDescriptor(
-        config_branch=ConfigBranch.ACCOUNTS,
+        config_branch=ConfigBranch.TARGETS,
         name="current",
+        mode="accounts",
         profile="dev-admin",
         include=["111111111111"],
     )
@@ -79,7 +81,7 @@ def test_resolve_execution_targets_maps_explicit_direct_profile_account():
     assert plan.execution_targets[0].metadata["access_strategy"] == "direct_profile"
 
 
-def test_v2_resolve_execution_targets_maps_explicit_assume_role_accounts():
+def test_resolve_execution_targets_maps_explicit_assume_role_accounts_with_provider_options():
     session_factory = FakeSessionFactory()
     target = TargetDescriptor(
         config_branch=ConfigBranch.TARGETS,
@@ -112,8 +114,9 @@ def test_resolve_execution_targets_maps_organization_accounts_and_execution_key(
     session_factory = FakeSessionFactory()
     base_session = BaseSession(profile_name="shared")
     target = TargetDescriptor(
-        config_branch=ConfigBranch.ORGANIZATIONS,
+        config_branch=ConfigBranch.TARGETS,
         name="org-a",
+        mode="organization",
         profile="shared",
         include=["222222222222"],
     )
@@ -155,7 +158,7 @@ def test_resolve_execution_targets_maps_organization_accounts_and_execution_key(
     assert session_factory.base_session_calls == []
 
 
-def test_v2_resolve_execution_targets_maps_organization_accounts_and_execution_key():
+def test_resolve_execution_targets_maps_organization_accounts_with_provider_options():
     session_factory = FakeSessionFactory()
     base_session = BaseSession(profile_name="shared")
     target = TargetDescriptor(
@@ -199,7 +202,10 @@ def test_v2_resolve_execution_targets_maps_organization_accounts_and_execution_k
 
 def test_resolve_execution_targets_preserves_unknown_include_warning(caplog):
     target = TargetDescriptor(
-        config_branch=ConfigBranch.ORGANIZATIONS, name="org-a", include=["999999999999"]
+        config_branch=ConfigBranch.TARGETS,
+        name="org-a",
+        mode="organization",
+        include=["999999999999"],
     )
 
     plan = AwsProvider().resolve_execution_targets(
@@ -227,7 +233,10 @@ def test_resolve_execution_targets_preserves_unknown_include_warning(caplog):
 
 def test_resolve_execution_targets_preserves_unknown_exclude_warning(caplog):
     target = TargetDescriptor(
-        config_branch=ConfigBranch.ORGANIZATIONS, name="org-a", exclude=["999999999999"]
+        config_branch=ConfigBranch.TARGETS,
+        name="org-a",
+        mode="organization",
+        exclude=["999999999999"],
     )
 
     plan = AwsProvider().resolve_execution_targets(
@@ -253,3 +262,5 @@ def test_resolve_execution_targets_preserves_unknown_exclude_warning(caplog):
         "111111111111"
     ]
     assert "exclude list contains unknown account IDs: 999999999999" in caplog.text
+
+

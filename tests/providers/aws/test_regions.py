@@ -50,7 +50,7 @@ class FakeSession:
 
 
 def test_aws_provider_default_regions_preserves_descriptor_default():
-    target = TargetDescriptor(config_branch=ConfigBranch.ORGANIZATIONS, name="org-a")
+    target = TargetDescriptor(config_branch=ConfigBranch.TARGETS, name="org-a")
 
     assert AwsProvider().default_regions(target) == ["us-east-1"]
 
@@ -94,7 +94,7 @@ def test_aws_provider_discover_regions_adapts_availability(monkeypatch):
     )
 
     target = TargetDescriptor(
-        config_branch=ConfigBranch.ORGANIZATIONS, name="org-a", regions=["all"]
+        config_branch=ConfigBranch.TARGETS, name="org-a", regions=["all"]
     )
 
     regions = AwsProvider().discover_regions(target)
@@ -145,3 +145,5 @@ def test_aws_provider_rejects_selector_matching_no_known_regions():
             configured_regions=["moon-*"],
             region_statuses={"us-east-1": "ENABLED_BY_DEFAULT"},
         )
+
+

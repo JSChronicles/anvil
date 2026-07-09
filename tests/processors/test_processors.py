@@ -10,7 +10,7 @@ from anvil.processor_loader import (
     ProcessorDescriptor,
     ProcessorRunContext,
     ProcessorSpec,
-    load_historical_run_context,
+    load_completed_run_context,
     run_processors,
 )
 from anvil.processor_validation import ProcessorValidationError, validate_processors
@@ -19,7 +19,7 @@ from anvil.processors import html_report
 
 def _context(tmp_path: Path) -> ProcessorRunContext:
     return ProcessorRunContext(
-        config_branch=ConfigBranch.ORGANIZATIONS,
+        config_branch=ConfigBranch.TARGETS,
         run_dir=tmp_path,
         summary_path=tmp_path / "summary.json",
         summary={"state": "completed_success"},
@@ -85,9 +85,9 @@ def test_run_processors_executes_in_declaration_order(monkeypatch, tmp_path):
     assert seen == [("first", "one.md", {"include": True}), ("second", "two.md", {})]
 
 
-def test_load_historical_run_context_reads_complete_results_directory(tmp_path):
-    run_dir = tmp_path / "results" / "orgs" / "2026-06-02T120000Z"
-    target_dir = run_dir / "organizations"
+def test_load_completed_run_context_reads_current_results_directory(tmp_path):
+    run_dir = tmp_path / "results" / "smoke" / "2026-06-02T120000Z"
+    target_dir = run_dir / "targets"
     target_dir.mkdir(parents=True)
 
     summary_path = run_dir / "summary.json"
@@ -97,23 +97,36 @@ def test_load_historical_run_context_reads_complete_results_directory(tmp_path):
         json.dumps({"state": "completed_success"}), encoding="utf-8"
     )
     target_path.write_text(
-        json.dumps({"organization": "production", "account_results": []}),
-        encoding="utf-8",
+        json.dumps({"target": "production", "entities": []}), encoding="utf-8"
     )
 
-    context = load_historical_run_context(results_dir=run_dir)
+    context = load_completed_run_context(results_dir=run_dir)
 
-    assert context.config_branch is ConfigBranch.ORGANIZATIONS
+    assert context.config_branch is ConfigBranch.TARGETS
     assert context.summary == {"state": "completed_success"}
     assert context.target_result_paths == {"production": target_path}
-    assert context.target_results == [
-        {"organization": "production", "account_results": []}
-    ]
+    assert context.target_results == [{"target": "production", "entities": []}]
+
+
+def test_load_completed_run_context_allows_missing_summary(tmp_path):
+    run_dir = tmp_path / "results" / "smoke" / "2026-06-02T120000Z"
+    target_dir = run_dir / "targets"
+    target_dir.mkdir(parents=True)
+    target_path = target_dir / "production.json"
+    target_path.write_text(
+        json.dumps({"target": "production", "entities": []}), encoding="utf-8"
+    )
+
+    context = load_completed_run_context(results_dir=run_dir)
+
+    assert context.summary == {}
+    assert context.summary_path == run_dir / "summary.json"
+    assert context.target_result_paths == {"production": target_path}
 
 
 def test_html_report_load_records_scopes_to_context_target_name(tmp_path):
     context = ProcessorRunContext(
-        config_branch=ConfigBranch.ORGANIZATIONS,
+        config_branch=ConfigBranch.TARGETS,
         run_dir=tmp_path,
         summary_path=tmp_path / "summary.json",
         summary={"state": "completed_success"},
@@ -121,15 +134,27 @@ def test_html_report_load_records_scopes_to_context_target_name(tmp_path):
         target_name="production",
         target_results=[
             {
-                "organization": "production",
-                "account_results": [
-                    {"account_id": "111111111111", "status": "success", "tasks": []}
+                "target": "production",
+                "entities": [
+                    {
+                        "id": "111111111111",
+                        "name": "dev",
+                        "type": "account",
+                        "status": "success",
+                        "tasks": [],
+                    }
                 ],
             },
             {
-                "organization": "sandbox",
-                "account_results": [
-                    {"account_id": "222222222222", "status": "success", "tasks": []}
+                "target": "sandbox",
+                "entities": [
+                    {
+                        "id": "222222222222",
+                        "name": "prod",
+                        "type": "account",
+                        "status": "success",
+                        "tasks": [],
+                    }
                 ],
             },
         ],
@@ -137,27 +162,39 @@ def test_html_report_load_records_scopes_to_context_target_name(tmp_path):
 
     records = html_report._load_records(context=context)
 
-    assert [record["account_id"] for record in records] == ["111111111111"]
+    assert [record["entity_id"] for record in records] == ["111111111111"]
 
 
-def test_html_report_load_records_keeps_historical_whole_run_context(tmp_path):
+def test_html_report_load_records_keeps_whole_run_context(tmp_path):
     context = ProcessorRunContext(
-        config_branch=ConfigBranch.ORGANIZATIONS,
+        config_branch=ConfigBranch.TARGETS,
         run_dir=tmp_path,
         summary_path=tmp_path / "summary.json",
         summary={"state": "completed_success"},
         target_result_paths={},
         target_results=[
             {
-                "organization": "production",
-                "account_results": [
-                    {"account_id": "111111111111", "status": "success", "tasks": []}
+                "target": "production",
+                "entities": [
+                    {
+                        "id": "111111111111",
+                        "name": "dev",
+                        "type": "account",
+                        "status": "success",
+                        "tasks": [],
+                    }
                 ],
             },
             {
-                "organization": "sandbox",
-                "account_results": [
-                    {"account_id": "222222222222", "status": "success", "tasks": []}
+                "target": "sandbox",
+                "entities": [
+                    {
+                        "id": "222222222222",
+                        "name": "prod",
+                        "type": "account",
+                        "status": "success",
+                        "tasks": [],
+                    }
                 ],
             },
         ],
@@ -165,7 +202,10 @@ def test_html_report_load_records_keeps_historical_whole_run_context(tmp_path):
 
     records = html_report._load_records(context=context)
 
-    assert [record["account_id"] for record in records] == [
+    assert [record["entity_id"] for record in records] == [
         "111111111111",
         "222222222222",
     ]
+
+
+

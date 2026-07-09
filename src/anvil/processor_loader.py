@@ -353,37 +353,33 @@ def run_processors(
     return results
 
 
-def load_historical_run_context(*, results_dir: Path) -> ProcessorRunContext:
-    """Build a processor context from a historical results directory."""
+def load_completed_run_context(*, results_dir: Path) -> ProcessorRunContext:
+    """Build a processor context from a completed current-shape results directory."""
     summary_path = results_dir / "summary.json"
+    target_dir = results_dir / "targets"
 
-    if not summary_path.exists():
-        raise FileNotFoundError(f"summary.json not found in results dir: {results_dir}")
+    if not target_dir.exists():
+        raise FileNotFoundError(
+            f"targets directory not found in results dir: {results_dir}"
+        )
 
-    summary = _load_json_object(summary_path)
+    summary = _load_json_object(summary_path) if summary_path.exists() else {}
     target_results: list[dict[str, object]] = []
     target_result_paths: dict[str, Path] = {}
-    config_branch = ConfigBranch.ORGANIZATIONS
 
-    for branch, directory_name, target_key in (
-        (ConfigBranch.ORGANIZATIONS, "organizations", "organization"),
-        (ConfigBranch.ACCOUNTS, "account-groups", "account_group"),
-        (ConfigBranch.TARGETS, "targets", "target"),
-    ):
-        target_dir = results_dir / directory_name
-        if not target_dir.exists():
-            continue
+    for result_path in sorted(target_dir.glob("*.json")):
+        target_result = _load_json_object(result_path)
+        target_name = target_result.get("target")
+        if not isinstance(target_name, str) or not target_name:
+            raise ValueError(
+                f"Expected target result with string 'target' in {result_path}"
+            )
 
-        config_branch = branch
-        for result_path in sorted(target_dir.glob("*.json")):
-            target_result = _load_json_object(result_path)
-            target_results.append(target_result)
-            target_name = target_result.get(target_key)
-            if isinstance(target_name, str) and target_name:
-                target_result_paths[target_name] = result_path
+        target_results.append(target_result)
+        target_result_paths[target_name] = result_path
 
     return ProcessorRunContext(
-        config_branch=config_branch,
+        config_branch=ConfigBranch.TARGETS,
         run_dir=results_dir,
         summary_path=summary_path,
         summary=summary,
@@ -399,10 +395,7 @@ def _load_json_object(path: Path) -> dict[str, object]:
     if not isinstance(payload, dict):
         raise ValueError(f"Expected JSON object in {path}")
 
-    record: dict[str, object] = {}
-    for key, value in payload.items():
-        if not isinstance(key, str):
-            raise ValueError(f"Expected JSON object with string keys in {path}")
-        record[key] = value
+    return {key: value for key, value in payload.items() if isinstance(key, str)}
 
-    return record
+
+

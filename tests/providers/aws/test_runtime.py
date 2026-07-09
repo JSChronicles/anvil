@@ -86,7 +86,7 @@ class RecordingSessionFactory:
 
 def _target() -> TargetDescriptor:
     return TargetDescriptor(
-        config_branch=ConfigBranch.ACCOUNTS,
+        config_branch=ConfigBranch.TARGETS,
         name="selected",
         include=["123456789012"],
         role_name="TestRole",
@@ -245,3 +245,5 @@ def test_runtime_returns_cached_client_session_for_region():
     session = runtime.build_session(region="us-east-1")
 
     assert session.client("ec2") is session.client("ec2")
+
+

@@ -7,9 +7,9 @@ from anvil.descriptors import ConfigBranch
 from anvil.execution_context import ExecutionContext
 from anvil.executor import execute_accounts
 from anvil.results import (
-    AccountResult,
     EngineResult,
     EngineState,
+    EntityResult,
     ExecutionStatus,
     TargetResult,
 )
@@ -59,10 +59,11 @@ def _context(*, tasks: list[ResolvedTask], fail_fast: bool = False) -> Execution
     )
 
 
-def _account_result(*, account_id: str, status: ExecutionStatus) -> AccountResult:
-    return AccountResult(
-        account_id=account_id,
-        account_alias=f"acct-{account_id}",
+def _entity_result(*, entity_id: str, status: ExecutionStatus) -> EntityResult:
+    return EntityResult(
+        id=entity_id,
+        name=f"acct-{entity_id}",
+        type="account",
         status=status,
         started_at="2026-03-25T00:00:00+00:00",
         ended_at="2026-03-25T00:00:01+00:00",
@@ -144,53 +145,51 @@ def test_execute_accounts_fail_fast_sets_cancel_event():
     context = _context(tasks=[], fail_fast=True)
 
     class ErrorAccount:
-        def execute(self) -> AccountResult:
-            return _account_result(
-                account_id="111111111111", status=ExecutionStatus.ERROR
-            )
+        def execute(self) -> EntityResult:
+            return _entity_result(entity_id="111111111111", status=ExecutionStatus.ERROR)
 
     class WaitingAccount:
-        def execute(self) -> AccountResult:
+        def execute(self) -> EntityResult:
             while not context.cancel_event.is_set():
                 time.sleep(0.01)
-            return _account_result(
-                account_id="222222222222", status=ExecutionStatus.INTERRUPTED
+            return _entity_result(
+                entity_id="222222222222", status=ExecutionStatus.INTERRUPTED
             )
 
     result = execute_accounts(
         name="org-a",
-        config_branch=ConfigBranch.ORGANIZATIONS,
+        config_branch=ConfigBranch.TARGETS,
         max_workers=2,
         context=context,
         accounts=[ErrorAccount(), WaitingAccount()],
     )
 
     assert context.cancel_event.is_set()
-    assert len(result.account_results) >= 1
+    assert len(result.entities) >= 1
     assert any(
-        account_result.status is ExecutionStatus.ERROR
-        for account_result in result.account_results
+        entity_result.status is ExecutionStatus.ERROR
+        for entity_result in result.entities
     )
 
 
-def test_engine_summary_counts_interrupted_accounts():
-    successful = _account_result(
-        account_id="111111111111", status=ExecutionStatus.SUCCESS
+def test_engine_summary_counts_interrupted_entities():
+    successful = _entity_result(
+        entity_id="111111111111", status=ExecutionStatus.SUCCESS
     )
-    interrupted = _account_result(
-        account_id="222222222222", status=ExecutionStatus.INTERRUPTED
+    interrupted = _entity_result(
+        entity_id="222222222222", status=ExecutionStatus.INTERRUPTED
     )
-    failed = _account_result(account_id="333333333333", status=ExecutionStatus.ERROR)
+    failed = _entity_result(entity_id="333333333333", status=ExecutionStatus.ERROR)
 
     target_result = TargetResult.create(
-        config_branch=ConfigBranch.ORGANIZATIONS,
+        config_branch=ConfigBranch.TARGETS,
         target_name="org-a",
         dry_run=True,
-        account_results=[successful, interrupted, failed],
+        entities=[successful, interrupted, failed],
     )
 
     engine_result = EngineResult(
-        config_branch=ConfigBranch.ORGANIZATIONS,
+        config_branch=ConfigBranch.TARGETS,
         state=EngineState.CANCELLED,
         generated_at="2026-03-25T00:00:00+00:00",
         auth_results=[],
@@ -199,8 +198,10 @@ def test_engine_summary_counts_interrupted_accounts():
 
     summary = engine_result.build_summary()
 
-    assert summary["total_failed_accounts"] == 1
-    assert summary["total_interrupted_accounts"] == 1
-    assert summary["organizations"][0]["failed_accounts"] == 1
-    assert summary["organizations"][0]["interrupted_accounts"] == 1
-    assert summary["organizations"][0]["has_failures"] is True
+    assert summary["total_failed_entities"] == 1
+    assert summary["total_interrupted_entities"] == 1
+    assert summary["targets"][0]["failed_entities"] == 1
+    assert summary["targets"][0]["interrupted_entities"] == 1
+    assert summary["targets"][0]["has_failures"] is True
+
+

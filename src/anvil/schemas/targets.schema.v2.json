@@ -16,7 +16,7 @@
       "description": "Configuration schema version."
     },
     "max_parallel_targets": {
-      "$ref": "common.schema.v1.json#/$defs/max_parallel_targets"
+      "$ref": "common.schema.v2.json#/$defs/max_parallel_targets"
     },
     "targets": {
       "type": "array",
@@ -31,7 +31,7 @@
         "additionalProperties": false,
         "properties": {
           "name": {
-            "$ref": "common.schema.v1.json#/$defs/baseTargetProperties/name"
+            "$ref": "common.schema.v2.json#/$defs/baseTargetProperties/name"
           },
           "provider": {
             "type": "object",
@@ -70,34 +70,34 @@
             }
           },
           "regions": {
-            "$ref": "common.schema.v1.json#/$defs/baseTargetProperties/regions"
+            "$ref": "common.schema.v2.json#/$defs/baseTargetProperties/regions"
           },
           "tasks": {
-            "$ref": "common.schema.v1.json#/$defs/baseTargetProperties/tasks"
+            "$ref": "common.schema.v2.json#/$defs/baseTargetProperties/tasks"
           },
           "max_workers": {
-            "$ref": "common.schema.v1.json#/$defs/baseTargetProperties/max_workers"
+            "$ref": "common.schema.v2.json#/$defs/baseTargetProperties/max_workers"
           },
           "max_parallel_regions": {
-            "$ref": "common.schema.v1.json#/$defs/baseTargetProperties/max_parallel_regions"
+            "$ref": "common.schema.v2.json#/$defs/baseTargetProperties/max_parallel_regions"
           },
           "fail_fast": {
-            "$ref": "common.schema.v1.json#/$defs/baseTargetProperties/fail_fast"
+            "$ref": "common.schema.v2.json#/$defs/baseTargetProperties/fail_fast"
           },
           "dry_run": {
-            "$ref": "common.schema.v1.json#/$defs/baseTargetProperties/dry_run"
+            "$ref": "common.schema.v2.json#/$defs/baseTargetProperties/dry_run"
           },
           "metadata": {
-            "$ref": "common.schema.v1.json#/$defs/baseTargetProperties/metadata"
+            "$ref": "common.schema.v2.json#/$defs/baseTargetProperties/metadata"
           },
           "post_run": {
-            "$ref": "common.schema.v1.json#/$defs/baseTargetProperties/post_run"
+            "$ref": "common.schema.v2.json#/$defs/baseTargetProperties/post_run"
           },
           "include": {
-            "$ref": "common.schema.v1.json#/$defs/targetIdList"
+            "$ref": "common.schema.v2.json#/$defs/targetIdList"
           },
           "exclude": {
-            "$ref": "common.schema.v1.json#/$defs/targetIdList"
+            "$ref": "common.schema.v2.json#/$defs/targetIdList"
           }
         },
         "allOf": [
@@ -131,15 +131,15 @@
             "then": {
               "properties": {
                 "include": {
-                  "$ref": "common.schema.v1.json#/$defs/accountIdList"
+                  "$ref": "common.schema.v2.json#/$defs/accountIdList"
                 },
                 "exclude": {
-                  "$ref": "common.schema.v1.json#/$defs/accountIdList"
+                  "$ref": "common.schema.v2.json#/$defs/accountIdList"
                 },
                 "provider": {
                   "properties": {
                     "options": {
-                      "$ref": "common.schema.v1.json#/$defs/awsProviderOptions"
+                      "$ref": "common.schema.v2.json#/$defs/awsProviderOptions"
                     }
                   }
                 }
@@ -176,12 +176,12 @@
               },
               "properties": {
                 "include": {
-                  "$ref": "common.schema.v1.json#/$defs/accountIdList"
+                  "$ref": "common.schema.v2.json#/$defs/accountIdList"
                 },
                 "provider": {
                   "properties": {
                     "options": {
-                      "$ref": "common.schema.v1.json#/$defs/awsProviderOptions"
+                      "$ref": "common.schema.v2.json#/$defs/awsProviderOptions"
                     }
                   }
                 }
@@ -212,7 +212,7 @@
                 "provider": {
                   "properties": {
                     "options": {
-                      "$ref": "common.schema.v1.json#/$defs/azureProviderOptions"
+                      "$ref": "common.schema.v2.json#/$defs/azureProviderOptions"
                     }
                   }
                 }
@@ -251,7 +251,7 @@
                 "provider": {
                   "properties": {
                     "options": {
-                      "$ref": "common.schema.v1.json#/$defs/azureProviderOptions"
+                      "$ref": "common.schema.v2.json#/$defs/azureProviderOptions"
                     }
                   }
                 }
@@ -282,7 +282,7 @@
                 "provider": {
                   "properties": {
                     "options": {
-                      "$ref": "common.schema.v1.json#/$defs/gcpProviderOptions"
+                      "$ref": "common.schema.v2.json#/$defs/gcpProviderOptions"
                     }
                   }
                 }
@@ -321,7 +321,7 @@
                 "provider": {
                   "properties": {
                     "options": {
-                      "$ref": "common.schema.v1.json#/$defs/gcpProviderOptions"
+                      "$ref": "common.schema.v2.json#/$defs/gcpProviderOptions"
                     }
                   }
                 }
@@ -358,12 +358,12 @@
               },
               "properties": {
                 "include": {
-                  "$ref": "common.schema.v1.json#/$defs/githubOrganizationList"
+                  "$ref": "common.schema.v2.json#/$defs/githubOrganizationList"
                 },
                 "provider": {
                   "properties": {
                     "options": {
-                      "$ref": "common.schema.v1.json#/$defs/githubProviderOptions"
+                      "$ref": "common.schema.v2.json#/$defs/githubProviderOptions"
                     }
                   }
                 }
@@ -400,12 +400,12 @@
               },
               "properties": {
                 "include": {
-                  "$ref": "common.schema.v1.json#/$defs/githubRepositoryList"
+                  "$ref": "common.schema.v2.json#/$defs/githubRepositoryList"
                 },
                 "provider": {
                   "properties": {
                     "options": {
-                      "$ref": "common.schema.v1.json#/$defs/githubProviderOptions"
+                      "$ref": "common.schema.v2.json#/$defs/githubProviderOptions"
                     }
                   }
                 }

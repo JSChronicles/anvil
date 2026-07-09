@@ -36,7 +36,7 @@ def test_graph_and_run_paths_behave_the_same_with_cached_resolution(
     task_loader._resolve_tasks_cached.cache_clear()
 
     target = descriptors.TargetDescriptor(
-        config_branch=descriptors.ConfigBranch.ORGANIZATIONS,
+        config_branch=descriptors.ConfigBranch.TARGETS,
         name="demo-org",
         tasks=[{"name": "alpha"}, {"name": "beta", "depends_on": ["alpha"]}],
     )
@@ -94,7 +94,7 @@ def test_graph_and_run_paths_behave_the_same_with_cached_resolution(
             config_branch=config_branch,
             target_name=name,
             dry_run=context.dry_run,
-            account_results=[],
+            entities=[],
         )
 
     monkeypatch.setattr(runner, "OrganizationResolver", FakeResolver)
@@ -111,3 +111,6 @@ def test_graph_and_run_paths_behave_the_same_with_cached_resolution(
     assert observed_tasks == [["alpha", "beta"], ["alpha", "beta"]]
     assert engine_result.state is results.EngineState.COMPLETED_SUCCESS
     assert len(engine_result.target_results) == 2
+
+
+

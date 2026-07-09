@@ -58,7 +58,7 @@ targets:
         ("gcp", "projects", "get_project_info", "anvil-dev-project"),
     ],
 )
-def test_graph_resolves_v2_provider_specific_tasks(
+def test_graph_resolves_provider_specific_tasks(
     monkeypatch, tmp_path, capsys, provider, mode, task_name, include
 ):
     try:
@@ -97,3 +97,5 @@ targets:
     output = capsys.readouterr().out
     assert f'"target": "{provider}-target"' in output
     assert f'"name": "{task_name}"' in output
+
+

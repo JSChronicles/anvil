@@ -64,12 +64,9 @@ def _print_node_recursive(
 
 
 def _render_json(*, target_name: str, config_branch: ConfigBranch, execution) -> None:
-    if config_branch is ConfigBranch.TARGETS:
-        target_key = "target"
-    elif config_branch is ConfigBranch.ACCOUNTS:
-        target_key = "account_group"
-    else:
-        target_key = "organization"
+    if config_branch is not ConfigBranch.TARGETS:
+        raise ValueError(f"Unsupported config branch: {config_branch}")
+    target_key = "target"
 
     payload = {
         target_key: target_name,

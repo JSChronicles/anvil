@@ -491,3 +491,5 @@ def test_cmd_list_detail_reports_missing_docstring(monkeypatch):
 
     with pytest.raises(ValueError, match="No detail available for task"):
         cli._cmd_list(args)
+
+

@@ -8,7 +8,7 @@ from anvil.descriptors import ConfigBranch, TargetDescriptor
 from anvil.execution_context import ExecutionContext
 from anvil.providers.azure.provider import AzureSubscription
 from anvil.providers.gcp.provider import GcpProject
-from anvil.results import AccountResult, AuthResult, ExecutionStatus, TargetResult
+from anvil.results import EntityResult, AuthResult, ExecutionStatus, TargetResult
 from anvil.runner import (
     AuthCheckCache,
     OrganizationRunCache,
@@ -27,7 +27,7 @@ def _empty_resolved_execution(**kwargs):
     return ResolvedExecution(ordered=[], adjacency={})
 
 
-def _load_v2_targets(config: dict) -> list[TargetDescriptor]:
+def _load_targets(config: dict) -> list[TargetDescriptor]:
     validate_config_schema(config=config)
     return load_config_descriptors(config=config).targets
 
@@ -47,7 +47,7 @@ def test_runner_auth_failure_short_circuits(monkeypatch):
     )
 
     target = TargetDescriptor(
-        config_branch=ConfigBranch.ORGANIZATIONS,
+        config_branch=ConfigBranch.TARGETS,
         name="org",
         tasks=[],
         regions=["us-east-1"],
@@ -96,7 +96,7 @@ def test_run_dispatches_non_aws_provider_without_aws_auth_or_preflight(monkeypat
     monkeypatch.setattr("anvil.runner.resolve_tasks", fake_resolve_tasks)
 
     target = TargetDescriptor(
-        config_branch=ConfigBranch.ACCOUNTS,
+        config_branch=ConfigBranch.TARGETS,
         name="azure-subscriptions",
         provider="azure",
         mode="subscriptions",
@@ -115,7 +115,7 @@ def test_run_dispatches_non_aws_provider_without_aws_auth_or_preflight(monkeypat
     assert resolved_provider_names == ["azure"]
     assert engine_result.auth_results[0].status is ExecutionStatus.SUCCESS
     assert engine_result.auth_results[0].source == "deferred"
-    assert engine_result.target_results[0].account_results[0].account_id == (
+    assert engine_result.target_results[0].entities[0].id == (
         "11111111-2222-3333-4444-555555555555"
     )
 
@@ -127,7 +127,7 @@ def test_auth_check_dispatches_non_aws_provider_without_aws_auth(monkeypatch):
     monkeypatch.setattr("anvil.runner.auth_check", fail_auth_check)
 
     target = TargetDescriptor(
-        config_branch=ConfigBranch.ACCOUNTS,
+        config_branch=ConfigBranch.TARGETS,
         name="gcp-projects",
         provider="gcp",
         mode="projects",
@@ -156,7 +156,7 @@ def test_non_aws_provider_session_failure_is_reported_without_aws_paths(monkeypa
     )
 
     target = TargetDescriptor(
-        config_branch=ConfigBranch.ACCOUNTS,
+        config_branch=ConfigBranch.TARGETS,
         name="azure-subscriptions",
         provider="azure",
         mode="subscriptions",
@@ -172,9 +172,9 @@ def test_non_aws_provider_session_failure_is_reported_without_aws_paths(monkeypa
         cli_exclude=None,
     )
 
-    account_result = engine_result.target_results[0].account_results[0]
-    assert account_result.status is ExecutionStatus.ERROR
-    assert "azure-identity" in account_result.error
+    entity_result = engine_result.target_results[0].entities[0]
+    assert entity_result.status is ExecutionStatus.ERROR
+    assert "azure-identity" in entity_result.error
 
 
 def test_non_aws_provider_options_reach_runtime_session_factory(monkeypatch):
@@ -189,7 +189,7 @@ def test_non_aws_provider_options_reach_runtime_session_factory(monkeypatch):
     )
 
     target = TargetDescriptor(
-        config_branch=ConfigBranch.ACCOUNTS,
+        config_branch=ConfigBranch.TARGETS,
         name="azure-subscriptions",
         provider="azure",
         mode="subscriptions",
@@ -258,10 +258,10 @@ def test_azure_subscription_discovery_runs_without_aws_paths(monkeypatch):
     )
 
     target = TargetDescriptor(
-        config_branch=ConfigBranch.ACCOUNTS,
+        config_branch=ConfigBranch.TARGETS,
         name="azure-subscriptions",
         provider="azure",
-        mode="subscriptions",
+        mode="tenant",
         include=None,
         tasks=[],
     )
@@ -275,7 +275,7 @@ def test_azure_subscription_discovery_runs_without_aws_paths(monkeypatch):
     )
 
     assert [
-        result.account_id for result in engine_result.target_results[0].account_results
+        result.id for result in engine_result.target_results[0].entities
     ] == ["sub-a", "sub-b"]
     assert subscription_calls == [
         {"tenant_id": None, "client_id": None, "client_secret": None}
@@ -291,10 +291,10 @@ def test_azure_subscription_discovery_errors_are_target_failures(monkeypatch):
     )
 
     target = TargetDescriptor(
-        config_branch=ConfigBranch.ACCOUNTS,
+        config_branch=ConfigBranch.TARGETS,
         name="azure-subscriptions",
         provider="azure",
-        mode="subscriptions",
+        mode="tenant",
         include=None,
         provider_options={
             "tenant_id": "error-tenant",
@@ -316,7 +316,7 @@ def test_azure_subscription_discovery_errors_are_target_failures(monkeypatch):
     assert (
         target_result.error == "Azure provider could not discover subscriptions: denied"
     )
-    assert target_result.account_results == []
+    assert target_result.entities == []
 
 
 def test_azure_subscription_discovery_rejects_cli_include_and_exclude(monkeypatch):
@@ -335,10 +335,10 @@ def test_azure_subscription_discovery_rejects_cli_include_and_exclude(monkeypatc
     )
 
     target = TargetDescriptor(
-        config_branch=ConfigBranch.ACCOUNTS,
+        config_branch=ConfigBranch.TARGETS,
         name="azure-subscriptions",
         provider="azure",
-        mode="subscriptions",
+        mode="tenant",
         include=None,
         provider_options={
             "tenant_id": "cli-filter-tenant",
@@ -383,10 +383,10 @@ def test_azure_subscription_discovery_plan_is_cached_across_targets(monkeypatch)
 
     targets = [
         TargetDescriptor(
-            config_branch=ConfigBranch.ACCOUNTS,
+            config_branch=ConfigBranch.TARGETS,
             name="azure-subscriptions-a",
             provider="azure",
-            mode="subscriptions",
+            mode="tenant",
             include=None,
             provider_options={
                 "tenant_id": "cache-tenant",
@@ -396,10 +396,10 @@ def test_azure_subscription_discovery_plan_is_cached_across_targets(monkeypatch)
             tasks=[],
         ),
         TargetDescriptor(
-            config_branch=ConfigBranch.ACCOUNTS,
+            config_branch=ConfigBranch.TARGETS,
             name="azure-subscriptions-b",
             provider="azure",
-            mode="subscriptions",
+            mode="tenant",
             include=None,
             provider_options={
                 "tenant_id": "cache-tenant",
@@ -420,7 +420,7 @@ def test_azure_subscription_discovery_plan_is_cached_across_targets(monkeypatch)
 
     assert subscription_calls == 1
     assert [
-        result.account_results[0].account_id for result in engine_result.target_results
+        result.entities[0].id for result in engine_result.target_results
     ] == ["sub-a", "sub-a"]
 
 
@@ -436,7 +436,7 @@ def test_gcp_provider_options_reach_runtime_session_factory(monkeypatch):
     )
 
     target = TargetDescriptor(
-        config_branch=ConfigBranch.ACCOUNTS,
+        config_branch=ConfigBranch.TARGETS,
         name="gcp-projects",
         provider="gcp",
         mode="projects",
@@ -520,7 +520,7 @@ def test_non_aws_universal_task_can_use_provider_neutral_kwargs(monkeypatch):
     )
 
     target = TargetDescriptor(
-        config_branch=ConfigBranch.ACCOUNTS,
+        config_branch=ConfigBranch.TARGETS,
         name="gcp-projects",
         provider="gcp",
         mode="projects",
@@ -538,9 +538,9 @@ def test_non_aws_universal_task_can_use_provider_neutral_kwargs(monkeypatch):
         cli_exclude=None,
     )
 
-    account_result = engine_result.target_results[0].account_results[0]
-    assert account_result.status is ExecutionStatus.SUCCESS
-    assert account_result.tasks[0].result == {"provider": "gcp", "target": "project-a"}
+    entity_result = engine_result.target_results[0].entities[0]
+    assert entity_result.status is ExecutionStatus.SUCCESS
+    assert entity_result.tasks[0].result == {"provider": "gcp", "target": "project-a"}
     assert seen["provider"] == "gcp"
     assert seen["execution_target_id"] == "project-a"
     assert seen["execution_target_name"] == "project-a"
@@ -584,7 +584,7 @@ def test_gcp_project_discovery_runs_without_aws_paths(monkeypatch):
     )
 
     target = TargetDescriptor(
-        config_branch=ConfigBranch.ACCOUNTS,
+        config_branch=ConfigBranch.TARGETS,
         name="gcp-projects",
         provider="gcp",
         mode="projects",
@@ -601,7 +601,7 @@ def test_gcp_project_discovery_runs_without_aws_paths(monkeypatch):
     )
 
     assert [
-        result.account_id for result in engine_result.target_results[0].account_results
+        result.id for result in engine_result.target_results[0].entities
     ] == ["project-a", "project-b"]
     assert project_calls == [{"credentials_path": None, "quota_project_id": None}]
 
@@ -615,7 +615,7 @@ def test_gcp_project_discovery_errors_are_target_failures(monkeypatch):
     )
 
     target = TargetDescriptor(
-        config_branch=ConfigBranch.ACCOUNTS,
+        config_branch=ConfigBranch.TARGETS,
         name="gcp-projects",
         provider="gcp",
         mode="projects",
@@ -637,7 +637,7 @@ def test_gcp_project_discovery_errors_are_target_failures(monkeypatch):
 
     target_result = engine_result.target_results[0]
     assert target_result.error == "GCP provider could not discover projects: denied"
-    assert target_result.account_results == []
+    assert target_result.entities == []
 
 
 def test_gcp_project_discovery_rejects_cli_include_and_exclude(monkeypatch):
@@ -656,7 +656,7 @@ def test_gcp_project_discovery_rejects_cli_include_and_exclude(monkeypatch):
     )
 
     target = TargetDescriptor(
-        config_branch=ConfigBranch.ACCOUNTS,
+        config_branch=ConfigBranch.TARGETS,
         name="gcp-projects",
         provider="gcp",
         mode="projects",
@@ -699,7 +699,7 @@ def test_gcp_project_discovery_plan_is_cached_across_targets(monkeypatch):
 
     targets = [
         TargetDescriptor(
-            config_branch=ConfigBranch.ACCOUNTS,
+            config_branch=ConfigBranch.TARGETS,
             name="gcp-projects-a",
             provider="gcp",
             mode="projects",
@@ -711,7 +711,7 @@ def test_gcp_project_discovery_plan_is_cached_across_targets(monkeypatch):
             tasks=[],
         ),
         TargetDescriptor(
-            config_branch=ConfigBranch.ACCOUNTS,
+            config_branch=ConfigBranch.TARGETS,
             name="gcp-projects-b",
             provider="gcp",
             mode="projects",
@@ -734,7 +734,7 @@ def test_gcp_project_discovery_plan_is_cached_across_targets(monkeypatch):
 
     assert project_calls == 1
     assert [
-        result.account_results[0].account_id for result in engine_result.target_results
+        result.entities[0].id for result in engine_result.target_results
     ] == ["project-a", "project-a"]
 
 
@@ -747,9 +747,10 @@ def test_non_aws_fail_fast_cancels_pending_execution_targets(monkeypatch):
         calls.append(execution_target.id)
         if execution_target.id == "first":
             execution_started.set()
-            return AccountResult(
-                account_id="first",
-                account_alias="first",
+            return EntityResult(
+                id="first",
+                name="first",
+                type="account",
                 status=ExecutionStatus.ERROR,
                 started_at="start",
                 ended_at="end",
@@ -765,7 +766,7 @@ def test_non_aws_fail_fast_cancels_pending_execution_targets(monkeypatch):
     )
 
     target = TargetDescriptor(
-        config_branch=ConfigBranch.ACCOUNTS,
+        config_branch=ConfigBranch.TARGETS,
         name="azure-subscriptions",
         provider="azure",
         mode="subscriptions",
@@ -785,7 +786,7 @@ def test_non_aws_fail_fast_cancels_pending_execution_targets(monkeypatch):
 
     assert execution_started.is_set()
     assert calls == ["first"]
-    assert engine_result.target_results[0].account_results[0].status.is_error
+    assert engine_result.target_results[0].entities[0].status.is_error
 
 
 @pytest.mark.parametrize(
@@ -796,7 +797,7 @@ def test_non_aws_fail_fast_cancels_pending_execution_targets(monkeypatch):
         ("gcp", "projects", "project-a"),
     ],
 )
-def test_v2_explicit_modes_reject_cli_exclude_before_execution(
+def test_explicit_modes_reject_cli_exclude_before_execution(
     monkeypatch, provider, mode, include
 ):
     executed = False
@@ -829,7 +830,7 @@ def test_v2_explicit_modes_reject_cli_exclude_before_execution(
         fail_execute_provider_execution_target,
     )
 
-    target = _load_v2_targets(
+    target = _load_targets(
         {
             "schema_version": 2,
             "targets": [
@@ -863,7 +864,7 @@ def test_v2_explicit_modes_reject_cli_exclude_before_execution(
     assert "does not allow exclude" in (engine_result.auth_results[0].message or "")
 
 
-def test_v2_discovery_modes_reject_effective_include_and_exclude(monkeypatch):
+def test_discovery_modes_reject_effective_include_and_exclude(monkeypatch):
     monkeypatch.setattr(
         "anvil.runner._run_cached_auth_check_for_target",
         lambda target, auth_cache: AuthResult(
@@ -877,7 +878,7 @@ def test_v2_discovery_modes_reject_effective_include_and_exclude(monkeypatch):
         ),
     )
 
-    target = _load_v2_targets(
+    target = _load_targets(
         {
             "schema_version": 2,
             "targets": [
@@ -955,19 +956,19 @@ def test_run_multiple_targets_reuses_same_profile_auth_during_preparation(monkey
             config_branch=kwargs["config_branch"],
             target_name=kwargs["name"],
             dry_run=kwargs["context"].dry_run,
-            account_results=[],
+            entities=[],
         ),
     )
 
     targets = [
         TargetDescriptor(
-            config_branch=ConfigBranch.ORGANIZATIONS,
+            config_branch=ConfigBranch.TARGETS,
             name="org-a",
             profile="shared",
             tasks=[],
         ),
         TargetDescriptor(
-            config_branch=ConfigBranch.ORGANIZATIONS,
+            config_branch=ConfigBranch.TARGETS,
             name="org-b",
             profile="shared",
             tasks=[],
@@ -1044,14 +1045,14 @@ def test_prepare_target_reuses_same_org_discovery_cache(monkeypatch):
     organization_cache = OrganizationRunCache()
     auth_cache = AuthCheckCache()
     target_a = TargetDescriptor(
-        config_branch=ConfigBranch.ORGANIZATIONS,
+        config_branch=ConfigBranch.TARGETS,
         name="org-a",
         profile="shared",
         regions=["us-east-1"],
         tasks=[],
     )
     target_b = TargetDescriptor(
-        config_branch=ConfigBranch.ORGANIZATIONS,
+        config_branch=ConfigBranch.TARGETS,
         name="org-b",
         profile="shared",
         regions=["us-west-2"],
@@ -1086,7 +1087,7 @@ def test_prepare_target_reuses_same_org_discovery_cache(monkeypatch):
     assert prepared_b.region_statuses == region_statuses
 
 
-def test_v2_run_multiple_targets_reuses_same_org_discovery_cache(monkeypatch):
+def test_run_multiple_targets_reuses_same_org_discovery_cache(monkeypatch):
     discovered_accounts = {
         "111111111111": {"account_number": "111111111111", "account_alias": "acct-a"}
     }
@@ -1135,7 +1136,7 @@ def test_v2_run_multiple_targets_reuses_same_org_discovery_cache(monkeypatch):
             config_branch=kwargs["config_branch"],
             target_name=kwargs["name"],
             dry_run=kwargs["context"].dry_run,
-            account_results=[],
+            entities=[],
         )
 
     monkeypatch.setattr(
@@ -1148,7 +1149,7 @@ def test_v2_run_multiple_targets_reuses_same_org_discovery_cache(monkeypatch):
     )
     monkeypatch.setattr("anvil.runner.execute_accounts", fake_execute_accounts)
 
-    targets = _load_v2_targets(
+    targets = _load_targets(
         {
             "schema_version": 2,
             "max_parallel_targets": 2,
@@ -1192,7 +1193,7 @@ def test_v2_run_multiple_targets_reuses_same_org_discovery_cache(monkeypatch):
     ]
 
 
-def test_v2_run_multiple_targets_preserves_aws_account_access_strategies(monkeypatch):
+def test_run_multiple_targets_preserves_aws_account_access_strategies(monkeypatch):
     observed_accounts: dict[str, list[tuple[str, str]]] = {}
 
     monkeypatch.setattr(
@@ -1222,13 +1223,13 @@ def test_v2_run_multiple_targets_preserves_aws_account_access_strategies(monkeyp
             config_branch=kwargs["config_branch"],
             target_name=kwargs["name"],
             dry_run=kwargs["context"].dry_run,
-            account_results=[],
+            entities=[],
         )
 
     monkeypatch.setattr("anvil.runner.SessionFactory", FakeSessionFactory)
     monkeypatch.setattr("anvil.runner.execute_accounts", fake_execute_accounts)
 
-    targets = _load_v2_targets(
+    targets = _load_targets(
         {
             "schema_version": 2,
             "targets": [
@@ -1335,7 +1336,7 @@ def test_prepare_target_keeps_base_session_account_out_of_org_cache(monkeypatch)
     prepared_management = prepare_target(
         index=0,
         target=TargetDescriptor(
-            config_branch=ConfigBranch.ORGANIZATIONS,
+            config_branch=ConfigBranch.TARGETS,
             name="management-auth",
             profile="management-profile",
             tasks=[],
@@ -1349,7 +1350,7 @@ def test_prepare_target_keeps_base_session_account_out_of_org_cache(monkeypatch)
     prepared_delegated = prepare_target(
         index=1,
         target=TargetDescriptor(
-            config_branch=ConfigBranch.ORGANIZATIONS,
+            config_branch=ConfigBranch.TARGETS,
             name="delegated-auth",
             profile="delegated-profile",
             tasks=[],
@@ -1413,7 +1414,7 @@ def test_prepare_target_uses_bootstrap_region_for_region_selector(monkeypatch):
     prepare_target(
         index=0,
         target=TargetDescriptor(
-            config_branch=ConfigBranch.ORGANIZATIONS,
+            config_branch=ConfigBranch.TARGETS,
             name="org-a",
             profile="shared",
             regions=["all"],
@@ -1536,7 +1537,7 @@ def test_organization_run_cache_releases_waiters_after_discovery_error():
 
 def test_run_prepared_target_uses_cached_org_preflight(monkeypatch):
     target = TargetDescriptor(
-        config_branch=ConfigBranch.ORGANIZATIONS,
+        config_branch=ConfigBranch.TARGETS,
         name="org-a",
         profile="shared",
         regions=["us-east-1"],
@@ -1593,7 +1594,7 @@ def test_run_prepared_target_uses_cached_org_preflight(monkeypatch):
             config_branch=kwargs["config_branch"],
             target_name=kwargs["name"],
             dry_run=kwargs["context"].dry_run,
-            account_results=[],
+            entities=[],
         ),
     )
 
@@ -1627,7 +1628,7 @@ def test_run_prepared_target_uses_cached_org_preflight(monkeypatch):
 
 def test_run_prepared_target_converts_aws_value_error(monkeypatch):
     target = TargetDescriptor(
-        config_branch=ConfigBranch.ACCOUNTS, name="group-a", include=["111111111111"]
+        config_branch=ConfigBranch.TARGETS, name="group-a", include=["111111111111"]
     )
     context = ExecutionContext(
         regions=["us-east-1"], role_name=None, dry_run=False, tasks=[], metadata={}
@@ -1656,12 +1657,12 @@ def test_run_prepared_target_converts_aws_value_error(monkeypatch):
     outcome = run_prepared_target(prepared_target=prepared_target)
 
     assert outcome.target_result.error == "bad aws config"
-    assert outcome.target_result.account_results == []
+    assert outcome.target_result.entities == []
 
 
 def test_run_prepared_target_does_not_swallow_unexpected_aws_exception(monkeypatch):
     target = TargetDescriptor(
-        config_branch=ConfigBranch.ACCOUNTS, name="group-a", include=["111111111111"]
+        config_branch=ConfigBranch.TARGETS, name="group-a", include=["111111111111"]
     )
     context = ExecutionContext(
         regions=["us-east-1"], role_name=None, dry_run=False, tasks=[], metadata={}
@@ -1709,7 +1710,7 @@ def test_prepare_target_carries_max_parallel_regions_into_context(monkeypatch):
     monkeypatch.setattr("anvil.runner.resolve_tasks", _empty_resolved_execution)
 
     target = TargetDescriptor(
-        config_branch=ConfigBranch.ACCOUNTS,
+        config_branch=ConfigBranch.TARGETS,
         name="group-a",
         include=["111111111111"],
         max_parallel_regions=3,
@@ -1727,3 +1728,8 @@ def test_prepare_target_carries_max_parallel_regions_into_context(monkeypatch):
 
     assert prepared.context is not None
     assert prepared.context.max_parallel_regions == 3
+
+
+
+
+

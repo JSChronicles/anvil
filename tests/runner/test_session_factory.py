@@ -229,3 +229,5 @@ def test_cached_client_session_separates_services_and_kwargs():
         ("ec2", (), {"region_name": "us-west-2"}),
         ("s3", (), {}),
     ]
+
+

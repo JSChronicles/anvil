@@ -8,13 +8,9 @@ from anvil.descriptors import ConfigBranch
 
 
 def _result_labels(config_branch: ConfigBranch) -> tuple[str, str]:
-    if config_branch is ConfigBranch.TARGETS:
-        return "target", "targets"
-
-    if config_branch is ConfigBranch.ACCOUNTS:
-        return "account_group", "account_groups"
-
-    return "organization", "organizations"
+    if config_branch is not ConfigBranch.TARGETS:
+        raise ValueError(f"Unsupported config branch: {config_branch}")
+    return "target", "targets"
 
 
 class ExecutionStatus(str, Enum):
@@ -106,9 +102,10 @@ class AuthResult(TimedResult):
 
 
 @dataclass(frozen=True, slots=True)
-class AccountResult(TimedResult):
-    account_id: str
-    account_alias: str
+class EntityResult(TimedResult):
+    id: str
+    name: str
+    type: str
     status: ExecutionStatus
     tasks: list[TaskResult]
     error: str | None = None
@@ -116,8 +113,9 @@ class AccountResult(TimedResult):
 
     def to_dict(self) -> dict[str, object]:
         payload: dict[str, object] = {
-            "account_id": self.account_id,
-            "account_alias": self.account_alias,
+            "id": self.id,
+            "name": self.name,
+            "type": self.type,
             "status": self.status.value,
             "started_at": self.started_at,
             "ended_at": self.ended_at,
@@ -137,34 +135,30 @@ class TargetResult:
     target_name: str
     generated_at: str
     dry_run: bool
-    account_results: list[AccountResult]
+    entities: list[EntityResult]
     error: str | None = None
     benchmark: dict[str, object] | None = None
 
     @property
-    def total_accounts(self) -> int:
-        return len(self.account_results)
+    def total_entities(self) -> int:
+        return len(self.entities)
 
     @property
-    def failed_accounts(self) -> list[AccountResult]:
-        return [result for result in self.account_results if result.status.is_error]
+    def failed_entities(self) -> list[EntityResult]:
+        return [result for result in self.entities if result.status.is_error]
 
     @property
-    def interrupted_accounts(self) -> list[AccountResult]:
-        return [
-            result for result in self.account_results if result.status.is_interrupted
-        ]
+    def interrupted_entities(self) -> list[EntityResult]:
+        return [result for result in self.entities if result.status.is_interrupted]
 
     @property
-    def unsuccessful_accounts(self) -> list[AccountResult]:
-        return [
-            result for result in self.account_results if result.status.is_unsuccessful
-        ]
+    def unsuccessful_entities(self) -> list[EntityResult]:
+        return [result for result in self.entities if result.status.is_unsuccessful]
 
     @property
     def has_failures(self) -> bool:
         return self.error is not None or any(
-            result.status.is_unsuccessful for result in self.account_results
+            result.status.is_unsuccessful for result in self.entities
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -174,8 +168,8 @@ class TargetResult:
             singular_key: self.target_name,
             "generated_at": self.generated_at,
             "dry_run": self.dry_run,
-            "total_accounts": self.total_accounts,
-            "account_results": [result.to_dict() for result in self.account_results],
+            "total_entities": self.total_entities,
+            "entities": [result.to_dict() for result in self.entities],
             "error": self.error,
         }
         if self.benchmark is not None:
@@ -190,7 +184,7 @@ class TargetResult:
         config_branch: ConfigBranch,
         target_name: str,
         dry_run: bool,
-        account_results: list[AccountResult],
+        entities: list[EntityResult],
         error: str | None = None,
         benchmark: dict[str, object] | None = None,
     ) -> TargetResult:
@@ -199,7 +193,7 @@ class TargetResult:
             target_name=target_name,
             generated_at=datetime.datetime.now(datetime.UTC).isoformat(),
             dry_run=dry_run,
-            account_results=account_results,
+            entities=entities,
             error=error,
             benchmark=benchmark,
         )
@@ -227,15 +221,15 @@ class EngineResult:
         return any(target_result.has_failures for target_result in self.target_results)
 
     @property
-    def total_failed_accounts(self) -> int:
+    def total_failed_entities(self) -> int:
         return sum(
-            len(target_result.failed_accounts) for target_result in self.target_results
+            len(target_result.failed_entities) for target_result in self.target_results
         )
 
     @property
-    def total_interrupted_accounts(self) -> int:
+    def total_interrupted_entities(self) -> int:
         return sum(
-            len(target_result.interrupted_accounts)
+            len(target_result.interrupted_entities)
             for target_result in self.target_results
         )
 
@@ -288,41 +282,41 @@ class EngineResult:
             auth_result.to_dict(config_branch=self.config_branch)
             for auth_result in self.auth_results
         ]
-        total_failed_accounts = 0
-        total_interrupted_accounts = 0
+        total_failed_entities = 0
+        total_interrupted_entities = 0
         total_failed_tasks = 0
 
         for target_result in self.target_results:
-            account_results = target_result.account_results
+            entities = target_result.entities
 
-            failed_accounts = [
-                account_result
-                for account_result in account_results
-                if account_result.status.is_error
+            failed_entities = [
+                entity_result
+                for entity_result in entities
+                if entity_result.status.is_error
             ]
-            interrupted_accounts = [
-                account_result
-                for account_result in account_results
-                if account_result.status.is_interrupted
+            interrupted_entities = [
+                entity_result
+                for entity_result in entities
+                if entity_result.status.is_interrupted
             ]
 
             failed_tasks = sum(
                 1
-                for account_result in account_results
-                for task in account_result.tasks
+                for entity_result in entities
+                for task in entity_result.tasks
                 if task.status.is_error
             )
 
-            total_failed_accounts += len(failed_accounts)
-            total_interrupted_accounts += len(interrupted_accounts)
+            total_failed_entities += len(failed_entities)
+            total_interrupted_entities += len(interrupted_entities)
             total_failed_tasks += failed_tasks
 
             target_summaries.append(
                 {
                     singular_key: target_result.target_name,
-                    "total_accounts": target_result.total_accounts,
-                    "failed_accounts": len(failed_accounts),
-                    "interrupted_accounts": len(interrupted_accounts),
+                    "total_entities": target_result.total_entities,
+                    "failed_entities": len(failed_entities),
+                    "interrupted_entities": len(interrupted_entities),
                     "failed_tasks": failed_tasks,
                     "has_failures": target_result.has_failures,
                     "error": target_result.error,
@@ -339,8 +333,8 @@ class EngineResult:
             "generated_at": self.generated_at,
             "auth": auth_results,
             plural_key: target_summaries,
-            "total_failed_accounts": total_failed_accounts,
-            "total_interrupted_accounts": total_interrupted_accounts,
+            "total_failed_entities": total_failed_entities,
+            "total_interrupted_entities": total_interrupted_entities,
             "total_failed_tasks": total_failed_tasks,
         }
         if self.benchmark is not None:

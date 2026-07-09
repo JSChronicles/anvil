@@ -627,3 +627,5 @@ def test_parallel_account_cancelled_before_regions_start_is_interrupted():
 
     assert result.status is ExecutionStatus.INTERRUPTED
     assert result.tasks == []
+
+

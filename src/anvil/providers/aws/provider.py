@@ -86,12 +86,10 @@ class AwsProvider:
     def validate_target(self, target: TargetDescriptor) -> None:
         """Validate that the target is one of the existing AWS config branches."""
 
-        if target.config_branch not in {
-            ConfigBranch.ORGANIZATIONS,
-            ConfigBranch.ACCOUNTS,
-            ConfigBranch.TARGETS,
-        }:
+        if target.config_branch is not ConfigBranch.TARGETS:
             raise ValueError(f"Unsupported AWS target branch: {target.config_branch}")
+        if target.provider != self.metadata.name:
+            raise ValueError("AWS provider supports provider 'aws' targets only")
 
     def default_regions(self, target: TargetDescriptor) -> list[str]:
         """Return the target's configured AWS regions."""
