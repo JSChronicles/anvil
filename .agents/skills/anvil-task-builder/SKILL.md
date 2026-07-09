@@ -25,7 +25,8 @@ Use this skill to create Anvil tasks that satisfy the runtime contract, behave s
 - YAML task names must match task module filenames.
 - Plugin task packages must be exposed through provider-owned task entry-point groups:
   `anvil.providers.tasks`, `anvil.providers.aws.tasks`,
-  `anvil.providers.azure.tasks`, or `anvil.providers.gcp.tasks`.
+  `anvil.providers.azure.tasks`, `anvil.providers.gcp.tasks`, or
+  `anvil.providers.github.tasks`.
 - Every task module must define a callable keyword-only `run()` function.
 - Every task `run()` function must have a useful Google-style docstring. Include a short summary plus `Args:`, `Returns:`, and `Raises:` sections when applicable; document required `metadata` keys explicitly.
 - The provided `session` is already scoped to the provider target and region/location.
@@ -47,6 +48,7 @@ Load only the reference files needed for the current task:
 - For dry-run behavior, action recording, logging, and result shape, read `references/dry-run-and-actions.md`.
 - For task granularity, inventory task boundaries, performance, and region concurrency, read `references/task-granularity.md`.
 - For AWS read-only and mutating task implementation patterns, read `references/aws-task-patterns.md`.
+- For GitHub REST task helpers, repository target rules, and metadata helpers, read `references/github-task-patterns.md`.
 - For SARIF-compatible `detect_` tasks and `sarif_findings` output, read `references/sarif-detection-tasks.md`.
 - For YAML examples, dependencies, optional tasks, and validation commands, read `references/yaml-and-validation.md`.
 

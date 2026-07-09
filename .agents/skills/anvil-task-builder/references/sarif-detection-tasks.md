@@ -102,10 +102,11 @@ finding is security-related.
    - Third-party, plugin, or project-local tasks live in the plugin task package
      and must be exposed through the matching provider-owned task entry-point
      group: `anvil.providers.tasks`, `anvil.providers.aws.tasks`,
-     `anvil.providers.azure.tasks`, or `anvil.providers.gcp.tasks`.
+     `anvil.providers.azure.tasks`, `anvil.providers.gcp.tasks`, or
+     `anvil.providers.github.tasks`.
 2. Implement the normal Anvil keyword-only `run()` contract.
-3. Validate metadata before AWS calls.
-4. Use paginators for AWS list APIs.
+3. Validate metadata before provider API calls.
+4. Use provider SDK or REST pagination helpers for list APIs.
 5. Build `sarif_findings` only for actionable findings.
 6. Return `checked_count`, `finding_count`, and `sarif_findings`.
 7. Validate task and processor discovery after implementation.

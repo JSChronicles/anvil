@@ -6,6 +6,7 @@ import pytest
 from anvil.auth import AuthSource
 from anvil.descriptors import ConfigBranch, TargetDescriptor
 from anvil.execution_context import ExecutionContext
+from anvil.providers.base import ProviderRegion
 from anvil.providers.azure.provider import AzureSubscription
 from anvil.providers.gcp.provider import GcpProject
 from anvil.results import EntityResult, AuthResult, ExecutionStatus, TargetResult
@@ -554,6 +555,66 @@ def test_non_aws_universal_task_can_use_provider_neutral_kwargs(monkeypatch):
     assert seen["dry_run"] is False
     assert seen["metadata"] == {"source": "neutral"}
     assert seen["actions"].actions == ["neutral task ran"]
+
+
+def test_non_aws_execution_uses_provider_resolved_target_locations(monkeypatch):
+    seen: list[tuple[str, str]] = []
+
+    def neutral_task(*, execution_target_id, region, **kwargs):
+        seen.append((execution_target_id, region))
+        return {"target": execution_target_id, "region": region}
+
+    monkeypatch.setattr(
+        "anvil.runner.resolve_tasks",
+        lambda **kwargs: ResolvedExecution(
+            ordered=[
+                ResolvedTask("neutral", neutral_task, depends_on=[], optional=False)
+            ],
+            adjacency={},
+        ),
+    )
+    monkeypatch.setattr(
+        "anvil.providers.gcp.provider.GcpSessionFactory.create_session",
+        lambda self, **kwargs: type(
+            "_GcpSession", (), {"region_name": kwargs["location"]}
+        )(),
+    )
+    monkeypatch.setattr(
+        "anvil.providers.gcp.provider.GcpSessionFactory.list_regions",
+        lambda self, *, project_id, **kwargs: (
+            [
+                ProviderRegion(name="us-east1", status="UP"),
+                ProviderRegion(name="us-west1", status="UP"),
+            ]
+            if project_id == "project-a"
+            else [ProviderRegion(name="europe-west1", status="UP")]
+        ),
+    )
+
+    target = TargetDescriptor(
+        config_branch=ConfigBranch.TARGETS,
+        name="gcp-projects",
+        provider="gcp",
+        mode="projects",
+        regions=["all"],
+        include=["project-a", "project-b"],
+        tasks=[{"name": "neutral"}],
+    )
+
+    engine_result = run_multiple_targets(
+        targets=[target],
+        max_parallel_targets=1,
+        cli_dry_run=None,
+        cli_include=None,
+        cli_exclude=None,
+    )
+
+    assert not engine_result.target_results[0].has_failures
+    assert sorted(seen) == [
+        ("project-a", "us-east1"),
+        ("project-a", "us-west1"),
+        ("project-b", "europe-west1"),
+    ]
 
 
 def test_gcp_project_discovery_runs_without_aws_paths(monkeypatch):

@@ -30,8 +30,7 @@ Use `depends_on` when task order matters. Use `optional: true` only when failure
 
 ## Region Selection
 
-Use explicit region names for explicit provider modes such as `aws/accounts`,
-`azure/subscriptions`, and `gcp/projects`:
+Use explicit region or location names when the user wants exact coverage:
 
 ```yaml
 regions:
@@ -39,18 +38,26 @@ regions:
   - us-west-2
 ```
 
-For AWS `organization` targets, prefer selectors when the user wants broad
-multi-region coverage. Use `all` when they want every enabled region discovered
-for each account. `all` must be lowercase and must be the only region value:
+GitHub targets use the provider-neutral global location:
+
+```yaml
+regions:
+  - global
+```
+
+For AWS `organization`, Azure `tenant`/`subscriptions`, and GCP `projects`
+targets, prefer selectors when the user wants broad multi-region coverage. Use
+`all` when they want every available provider location discovered for each
+execution target. `all` must be lowercase and must be the only region value:
 
 ```yaml
 regions:
   - all
 ```
 
-Use region globs when the user wants multiple similar AWS regions without
-listing each one. Organization region globs can be used alone, combined with
-other globs, or mixed with explicit regions:
+Use region/location globs when the user wants multiple similar provider
+locations without listing each one. Globs can be used alone, combined with other
+globs, or mixed with explicit regions:
 
 ```yaml
 regions:
@@ -74,9 +81,12 @@ regions:
   - ca-central-1
 ```
 
-Region selectors are resolved against discovered AWS regions. Anvil executes only
-enabled matches, warns for matched disabled regions, rejects glob selectors that
-match no known region, and fails when no enabled region remains.
+Region selectors are resolved against provider-discovered locations. AWS
+executes only `ENABLED` or `ENABLED_BY_DEFAULT` regions. Azure executes
+locations returned for the subscription. GCP executes Compute regions with
+status `UP`. Anvil warns for matched unavailable locations, rejects glob
+selectors that match no known location, and fails when no available location
+remains.
 
 ## Validation
 
@@ -86,7 +96,7 @@ After creating or editing a task, run:
 uv run anvil validate --tasks
 ```
 
-This validates task discovery and the required `run()` signature without executing AWS logic.
+This validates task discovery and the required `run()` signature without executing provider API logic.
 
 If `uv run` cannot build or install the project in the current environment, and dependencies are already available, use this fallback:
 

@@ -269,6 +269,39 @@ def test_accounts_regions_reject_selectors(regions):
         )
 
 
+@pytest.mark.parametrize(
+    ("provider", "mode", "include"),
+    [
+        ("azure", "subscriptions", ["sub-a"]),
+        ("azure", "tenant", None),
+        ("gcp", "projects", ["project-a"]),
+    ],
+)
+def test_provider_location_discovery_modes_accept_selectors(provider, mode, include):
+    descriptor = TargetDescriptor(
+        config_branch=ConfigBranch.TARGETS,
+        name="target",
+        provider=provider,
+        mode=mode,
+        include=include,
+        regions=["us-*"],
+    )
+
+    assert descriptor.regions == ["us-*"]
+
+
+def test_github_repository_regions_reject_selectors():
+    with pytest.raises(ValueError, match="selectors are not allowed"):
+        TargetDescriptor(
+            config_branch=ConfigBranch.TARGETS,
+            name="github-repos",
+            provider="github",
+            mode="repositories",
+            include=["octo-org/example"],
+            regions=["all"],
+        )
+
+
 @pytest.mark.parametrize("max_parallel_regions", [0, 5])
 def test_max_parallel_regions_rejects_out_of_range_values(max_parallel_regions):
     with pytest.raises(ValueError, match="max_parallel_regions"):

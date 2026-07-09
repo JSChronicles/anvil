@@ -40,6 +40,7 @@ azure = [
   "azure-mgmt-monitor",
   "azure-mgmt-network",
   "azure-mgmt-resource",
+  "azure-mgmt-resource-subscriptions",
   "azure-mgmt-resourcegraph",
   "azure-mgmt-storage",
   "azure-mgmt-subscription",

@@ -14,9 +14,12 @@ from anvil.providers.base import (
     ProviderMetadata,
     ProviderRegion,
 )
+from anvil.regions import is_region_selector, resolve_location_selectors
 from anvil.results import ExecutionStatus
 
 DEFAULT_AZURE_LOCATIONS = ["eastus"]
+AZURE_AVAILABLE_LOCATION_STATUS = "available"
+AZURE_AVAILABLE_LOCATION_STATUSES = {AZURE_AVAILABLE_LOCATION_STATUS}
 
 
 @dataclass(frozen=True, slots=True)
@@ -227,6 +230,52 @@ class AzureSessionFactory:
                 f"Azure provider could not discover subscriptions: {error}"
             ) from error
 
+    def list_locations(
+        self,
+        *,
+        subscription_id: str,
+        tenant_id: str | None = None,
+        client_id: str | None = None,
+        client_secret: str | None = None,
+    ) -> list[ProviderRegion]:
+        """List Azure locations available to one subscription."""
+
+        credential = self._build_credential(
+            tenant_id=tenant_id, client_id=client_id, client_secret=client_secret
+        )
+        try:
+            try:
+                from azure.mgmt.resource.subscriptions import SubscriptionClient
+            except ImportError:
+                from azure.mgmt.subscription import SubscriptionClient
+        except ImportError as error:
+            raise RuntimeError(
+                "Azure location discovery requires optional dependency "
+                "'azure-mgmt-resource-subscriptions'. Install with 'anvil[azure]'."
+            ) from error
+
+        try:
+            client = SubscriptionClient(credential)
+            locations = []
+            for location in client.subscriptions.list_locations(subscription_id):
+                location_name = getattr(location, "name", None)
+                if isinstance(location_name, str) and location_name.strip():
+                    locations.append(
+                        ProviderRegion(
+                            name=location_name.strip(),
+                            available=True,
+                            status=AZURE_AVAILABLE_LOCATION_STATUS,
+                        )
+                    )
+            return sorted(locations, key=lambda item: item.name)
+        except RuntimeError:
+            raise
+        except Exception as error:
+            raise RuntimeError(
+                f"Azure provider could not discover locations for subscription "
+                f"'{subscription_id}': {error}"
+            ) from error
+
 
 class AzureExecutionRuntime:
     """Azure runtime adapter for one explicit subscription target."""
@@ -352,7 +401,9 @@ class AzureProvider:
         execution_targets = [
             self._execution_target(
                 subscription_id=subscription_id,
-                locations=regions,
+                locations=self._resolve_locations(
+                    target=target, subscription_id=subscription_id, regions=regions
+                ),
                 provider_options=target.provider_options,
             )
             for subscription_id in subscription_ids
@@ -411,6 +462,34 @@ class AzureProvider:
             provider=self.metadata.name,
             metadata={"subscription_id": subscription_id},
             provider_data=data,
+        )
+
+    def _resolve_locations(
+        self, *, target: TargetDescriptor, subscription_id: str, regions: list[str]
+    ) -> list[str]:
+        if not any(is_region_selector(region) for region in regions):
+            return list(regions)
+
+        locations = self._session_factory.list_locations(
+            subscription_id=subscription_id,
+            tenant_id=self._string_option(
+                provider_options=target.provider_options, option_name="tenant_id"
+            ),
+            client_id=self._string_option(
+                provider_options=target.provider_options, option_name="client_id"
+            ),
+            client_secret=self._string_option(
+                provider_options=target.provider_options, option_name="client_secret"
+            ),
+        )
+        return resolve_location_selectors(
+            target_name=target.name,
+            configured_locations=regions,
+            location_statuses={
+                location.name: location.status or "unknown" for location in locations
+            },
+            available_statuses=AZURE_AVAILABLE_LOCATION_STATUSES,
+            label="location",
         )
 
     def _discover_subscriptions(

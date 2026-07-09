@@ -33,6 +33,9 @@ project-azure = "tasks.azure"
 
 [project.entry-points."anvil.providers.gcp.tasks"]
 project-gcp = "tasks.gcp"
+
+[project.entry-points."anvil.providers.github.tasks"]
+project-github = "tasks.github"
 ```
 
 Anvil discovers modules inside packages registered in provider-owned task entry point groups. Directories named `tasks/` are conventional only; they are not automatically scanned unless registered.

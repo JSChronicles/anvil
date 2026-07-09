@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import builtins
+import sys
 from dataclasses import dataclass
+from types import ModuleType
 from types import SimpleNamespace
 
 import pytest
@@ -14,6 +16,7 @@ from anvil.providers.azure.provider import (
     AzureSubscription,
     AzureSessionFactory,
 )
+from anvil.providers.base import ProviderRegion
 
 
 @dataclass(frozen=True)
@@ -26,6 +29,7 @@ class FakeSessionFactory:
     def __init__(self, *, subscriptions: list[AzureSubscription] | None = None) -> None:
         self.calls: list[dict[str, str | None]] = []
         self.list_calls: list[dict[str, str | None]] = []
+        self.location_calls: list[dict[str, str | None]] = []
         self.subscriptions = subscriptions or [
             AzureSubscription(subscription_id="sub-a"),
             AzureSubscription(subscription_id="sub-b"),
@@ -68,6 +72,29 @@ class FakeSessionFactory:
             }
         )
         return list(self.subscriptions)
+
+    def list_locations(
+        self,
+        *,
+        subscription_id: str,
+        tenant_id: str | None = None,
+        client_id: str | None = None,
+        client_secret: str | None = None,
+    ) -> list[ProviderRegion]:
+        self.location_calls.append(
+            {
+                "subscription_id": subscription_id,
+                "tenant_id": tenant_id,
+                "client_id": client_id,
+                "client_secret": client_secret,
+            }
+        )
+        return [
+            ProviderRegion(name="centralus", status="available"),
+            ProviderRegion(name="eastus", status="available"),
+            ProviderRegion(name="eastus2", status="available"),
+            ProviderRegion(name="westus2", status="available"),
+        ]
 
 
 def _target(**overrides) -> TargetDescriptor:
@@ -171,6 +198,66 @@ def test_azure_resolves_explicit_subscription_targets_deterministically():
         for execution_target in plan.execution_targets
     )
     assert session_factory.list_calls == []
+    assert session_factory.location_calls == []
+
+
+def test_azure_resolves_location_selectors_per_subscription():
+    session_factory = FakeSessionFactory()
+    provider = AzureProvider(session_factory=session_factory)
+    target = _target(
+        include=["sub-a"],
+        regions=["east*", "centralus"],
+        provider_options={
+            "tenant_id": "tenant-a",
+            "client_id": "client-a",
+            "client_secret": "secret-a",
+        },
+    )
+
+    plan = provider.resolve_execution_targets(
+        target=target, regions=target.regions, include=target.include, exclude=None
+    )
+
+    assert plan.execution_targets[0].provider_data.locations == [
+        "eastus",
+        "eastus2",
+        "centralus",
+    ]
+    assert session_factory.location_calls == [
+        {
+            "subscription_id": "sub-a",
+            "tenant_id": "tenant-a",
+            "client_id": "client-a",
+            "client_secret": "secret-a",
+        }
+    ]
+
+
+def test_azure_resolves_all_locations_per_subscription():
+    session_factory = FakeSessionFactory()
+    provider = AzureProvider(session_factory=session_factory)
+    target = _target(include=["sub-a"], regions=["all"])
+
+    plan = provider.resolve_execution_targets(
+        target=target, regions=target.regions, include=target.include, exclude=None
+    )
+
+    assert plan.execution_targets[0].provider_data.locations == [
+        "centralus",
+        "eastus",
+        "eastus2",
+        "westus2",
+    ]
+
+
+def test_azure_rejects_unknown_location_selector():
+    provider = AzureProvider(session_factory=FakeSessionFactory())
+    target = _target(include=["sub-a"], regions=["moon*"])
+
+    with pytest.raises(ValueError, match="matched no known locations"):
+        provider.resolve_execution_targets(
+            target=target, regions=target.regions, include=target.include, exclude=None
+        )
 
 
 def test_azure_subscription_discovery_resolves_listed_subscriptions():
@@ -401,6 +488,56 @@ def test_azure_session_factory_uses_managed_identity_client_id(monkeypatch):
     )
 
     assert session.credential.kwargs == {"managed_identity_client_id": "client-a"}
+
+
+def test_azure_session_factory_list_locations_uses_subscription_sdk(monkeypatch):
+    credential = object()
+    credential_calls: list[dict[str, str]] = []
+    client_credentials: list[object] = []
+
+    class FakeDefaultAzureCredential:
+        def __init__(self, **kwargs):
+            credential_calls.append(kwargs)
+
+    class FakeSubscriptionOperations:
+        def list_locations(self, subscription_id):
+            assert subscription_id == "sub-a"
+            return [
+                SimpleNamespace(name="eastus", display_name="East US"),
+                SimpleNamespace(name="westus2", display_name="West US 2"),
+            ]
+
+    class FakeSubscriptionClient:
+        def __init__(self, credential):
+            client_credentials.append(credential)
+            self.subscriptions = FakeSubscriptionOperations()
+
+    identity_module = ModuleType("azure.identity")
+    identity_module.ClientSecretCredential = lambda **kwargs: (_ for _ in ()).throw(
+        AssertionError("ClientSecretCredential should not be used")
+    )
+    identity_module.DefaultAzureCredential = lambda **kwargs: credential
+    subscriptions_module = ModuleType("azure.mgmt.resource.subscriptions")
+    subscriptions_module.SubscriptionClient = FakeSubscriptionClient
+    azure_module = ModuleType("azure")
+    mgmt_module = ModuleType("azure.mgmt")
+    resource_module = ModuleType("azure.mgmt.resource")
+
+    monkeypatch.setitem(sys.modules, "azure", azure_module)
+    monkeypatch.setitem(sys.modules, "azure.identity", identity_module)
+    monkeypatch.setitem(sys.modules, "azure.mgmt", mgmt_module)
+    monkeypatch.setitem(sys.modules, "azure.mgmt.resource", resource_module)
+    monkeypatch.setitem(
+        sys.modules, "azure.mgmt.resource.subscriptions", subscriptions_module
+    )
+
+    locations = AzureSessionFactory().list_locations(subscription_id="sub-a")
+
+    assert [location.name for location in locations] == ["eastus", "westus2"]
+    assert all(location.available for location in locations)
+    assert [location.status for location in locations] == ["available", "available"]
+    assert client_credentials == [credential]
+    assert credential_calls == []
 
 
 def test_azure_client_secret_requires_tenant_and_client_id(monkeypatch):

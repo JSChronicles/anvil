@@ -110,6 +110,19 @@ class TargetDescriptor:
     def is_explicit_mode(self) -> bool:
         return not self.is_discovery_mode
 
+    @property
+    def allows_region_selectors(self) -> bool:
+        """Return whether this target can expand region/location selectors."""
+
+        return (
+            self.provider == PROVIDER_AWS
+            and self.mode == MODE_AWS_ORGANIZATION
+            or self.provider == PROVIDER_AZURE
+            and self.mode in {MODE_AZURE_TENANT, MODE_AZURE_SUBSCRIPTIONS}
+            or self.provider == PROVIDER_GCP
+            and self.mode == MODE_GCP_PROJECTS
+        )
+
     def __post_init__(self) -> None:
         if not isinstance(self.provider, str):
             raise ValueError("provider must be a string")
@@ -186,7 +199,7 @@ class TargetDescriptor:
                     "one account ID"
                 )
 
-            if self.is_explicit_mode:
+            if not self.allows_region_selectors:
                 target_region_selectors = [
                     region for region in self.regions if is_region_selector(region)
                 ]

@@ -671,6 +671,19 @@ def _task_order(context: ExecutionContext) -> dict[str, int]:
     return {task.name: index for index, task in enumerate(context.tasks)}
 
 
+def _execution_target_regions(
+    *, execution_target: ExecutionTarget, context: ExecutionContext
+) -> list[str]:
+    provider_data = execution_target.provider_data
+    locations = getattr(provider_data, "locations", None)
+    if isinstance(locations, list) and all(
+        isinstance(location, str) for location in locations
+    ):
+        return list(locations)
+
+    return list(context.regions)
+
+
 def _execute_provider_region(
     *,
     execution_target: ExecutionTarget,
@@ -807,6 +820,9 @@ def _execute_provider_execution_target(
         runtime = provider.prepare_execution_runtime(
             target=target, execution_target=execution_target, context=context
         )
+        regions = _execution_target_regions(
+            execution_target=execution_target, context=context
+        )
         region_outcomes = [
             _execute_provider_region(
                 execution_target=execution_target,
@@ -814,12 +830,12 @@ def _execute_provider_execution_target(
                 context=context,
                 region=region,
             )
-            for region in context.regions
+            for region in regions
         ]
         for outcome in region_outcomes:
             task_results.extend(outcome.task_results)
 
-        region_order = {region: index for index, region in enumerate(context.regions)}
+        region_order = {region: index for index, region in enumerate(regions)}
         task_order = _task_order(context)
         task_results.sort(
             key=lambda result: (

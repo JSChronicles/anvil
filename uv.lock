@@ -26,6 +26,7 @@ azure = [
     { name = "azure-mgmt-monitor" },
     { name = "azure-mgmt-network" },
     { name = "azure-mgmt-resource" },
+    { name = "azure-mgmt-resource-subscriptions" },
     { name = "azure-mgmt-resourcegraph" },
     { name = "azure-mgmt-storage" },
     { name = "azure-mgmt-subscription" },
@@ -65,6 +66,7 @@ requires-dist = [
     { name = "azure-mgmt-monitor", marker = "extra == 'azure'" },
     { name = "azure-mgmt-network", marker = "extra == 'azure'" },
     { name = "azure-mgmt-resource", marker = "extra == 'azure'" },
+    { name = "azure-mgmt-resource-subscriptions", marker = "extra == 'azure'" },
     { name = "azure-mgmt-resourcegraph", marker = "extra == 'azure'" },
     { name = "azure-mgmt-storage", marker = "extra == 'azure'" },
     { name = "azure-mgmt-subscription", marker = "extra == 'azure'" },
@@ -250,6 +252,20 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/d7/7e/b3f9d544a94782be9c5ab8123d2fa7fb20cbdf3f5a16b883f308865e1406/azure_mgmt_resource-25.0.0.tar.gz", hash = "sha256:dc123a9f6509c37299d7716c9090cff0a9d73309b228cc094ea950ce3cca3603", size = 92837, upload-time = "2026-02-06T06:00:39.699Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/92/41/ce12546aa2a20c4f37d061bfa7df3bf8fa72ff01e7557ec330929c72ec7d/azure_mgmt_resource-25.0.0-py3-none-any.whl", hash = "sha256:f6f17b2305abe9bf6ec6c92a9410af21a2b0d805cc98e94d80c07220924a045b", size = 83670, upload-time = "2026-02-06T06:00:41.317Z" },
+]
+
+[[package]]
+name = "azure-mgmt-resource-subscriptions"
+version = "1.0.0b2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "azure-mgmt-core" },
+    { name = "isodate" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/1c/d2/1d42399ff4db0b3aa1c86ffde853199e7d34ca8416967a38418a883251dd/azure_mgmt_resource_subscriptions-1.0.0b2.tar.gz", hash = "sha256:9da8a9532469d738f4a24950565994f3627272edf63d0798c9ef523435e0f4a4", size = 57164, upload-time = "2026-05-22T08:33:50.352Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a2/c1/a16f83c1fcde7e3c5f4e85768afdd55975e6cfa4d04b83ef9d613a3757c8/azure_mgmt_resource_subscriptions-1.0.0b2-py3-none-any.whl", hash = "sha256:bbd458f54a5f273674a1b0fe746aceee5dd5b582b28e34ddf22acc82f1e5c7a7", size = 64649, upload-time = "2026-05-22T08:33:51.646Z" },
 ]
 
 [[package]]

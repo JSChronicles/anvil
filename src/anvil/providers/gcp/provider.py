@@ -14,9 +14,12 @@ from anvil.providers.base import (
     ProviderMetadata,
     ProviderRegion,
 )
+from anvil.regions import is_region_selector, resolve_location_selectors
 from anvil.results import ExecutionStatus
 
 DEFAULT_GCP_LOCATIONS = ["us-central1"]
+GCP_AVAILABLE_REGION_STATUS = "UP"
+GCP_AVAILABLE_REGION_STATUSES = {GCP_AVAILABLE_REGION_STATUS}
 
 
 @dataclass(frozen=True, slots=True)
@@ -213,6 +216,49 @@ class GcpSessionFactory:
                 f"GCP provider could not discover projects: {error}"
             ) from error
 
+    def list_regions(
+        self,
+        *,
+        project_id: str,
+        credentials_path: str | None = None,
+        quota_project_id: str | None = None,
+    ) -> list[ProviderRegion]:
+        """List Compute Engine regions available to one project."""
+
+        credentials = self._build_credentials(
+            credentials_path=credentials_path, quota_project_id=quota_project_id
+        )
+        try:
+            from google.cloud import compute_v1
+        except ImportError as error:
+            raise RuntimeError(
+                "GCP region discovery requires optional dependency "
+                "'google-cloud-compute'. Install with 'anvil[gcp]'."
+            ) from error
+
+        try:
+            client = compute_v1.RegionsClient(credentials=credentials)
+            regions = []
+            for region in client.list(project=project_id):
+                region_name = getattr(region, "name", None)
+                status = getattr(region, "status", None)
+                if isinstance(region_name, str) and region_name.strip():
+                    regions.append(
+                        ProviderRegion(
+                            name=region_name.strip(),
+                            available=status == GCP_AVAILABLE_REGION_STATUS,
+                            status=status if isinstance(status, str) else "unknown",
+                        )
+                    )
+            return sorted(regions, key=lambda item: item.name)
+        except RuntimeError:
+            raise
+        except Exception as error:
+            raise RuntimeError(
+                f"GCP provider could not discover regions for project "
+                f"'{project_id}': {error}"
+            ) from error
+
 
 class GcpExecutionRuntime:
     """GCP runtime adapter for one explicit project target."""
@@ -320,7 +366,9 @@ class GcpProvider:
         execution_targets = [
             self._execution_target(
                 project_id=project_id,
-                locations=regions,
+                locations=self._resolve_locations(
+                    target=target, project_id=project_id, regions=regions
+                ),
                 provider_options=target.provider_options,
             )
             for project_id in project_ids
@@ -371,6 +419,31 @@ class GcpProvider:
             provider=self.metadata.name,
             metadata={"project_id": project_id},
             provider_data=data,
+        )
+
+    def _resolve_locations(
+        self, *, target: TargetDescriptor, project_id: str, regions: list[str]
+    ) -> list[str]:
+        if not any(is_region_selector(region) for region in regions):
+            return list(regions)
+
+        discovered_regions = self._session_factory.list_regions(
+            project_id=project_id,
+            credentials_path=self._string_option(
+                provider_options=target.provider_options, option_name="credentials_path"
+            ),
+            quota_project_id=self._string_option(
+                provider_options=target.provider_options, option_name="quota_project_id"
+            ),
+        )
+        return resolve_location_selectors(
+            target_name=target.name,
+            configured_locations=regions,
+            location_statuses={
+                region.name: region.status or "unknown" for region in discovered_regions
+            },
+            available_statuses=GCP_AVAILABLE_REGION_STATUSES,
+            label="region",
         )
 
     def _discover_projects(

@@ -16,6 +16,7 @@ from anvil.providers.gcp.provider import (
     GcpProvider,
     GcpSessionFactory,
 )
+from anvil.providers.base import ProviderRegion
 
 
 @dataclass(frozen=True)
@@ -28,6 +29,7 @@ class FakeSessionFactory:
     def __init__(self, *, projects: list[GcpProject] | None = None) -> None:
         self.calls: list[dict[str, str | None]] = []
         self.list_calls: list[dict[str, str | None]] = []
+        self.region_calls: list[dict[str, str | None]] = []
         self.projects = projects or [
             GcpProject(project_id="project-a"),
             GcpProject(project_id="project-b"),
@@ -61,6 +63,27 @@ class FakeSessionFactory:
             {"credentials_path": credentials_path, "quota_project_id": quota_project_id}
         )
         return list(self.projects)
+
+    def list_regions(
+        self,
+        *,
+        project_id: str,
+        credentials_path: str | None = None,
+        quota_project_id: str | None = None,
+    ) -> list[ProviderRegion]:
+        self.region_calls.append(
+            {
+                "project_id": project_id,
+                "credentials_path": credentials_path,
+                "quota_project_id": quota_project_id,
+            }
+        )
+        return [
+            ProviderRegion(name="europe-west1", available=True, status="UP"),
+            ProviderRegion(name="us-central1", available=True, status="UP"),
+            ProviderRegion(name="us-east1", available=True, status="UP"),
+            ProviderRegion(name="us-west1", available=False, status="DOWN"),
+        ]
 
 
 def _target(**overrides) -> TargetDescriptor:
@@ -128,6 +151,65 @@ def test_gcp_resolves_explicit_project_targets_deterministically():
         for execution_target in plan.execution_targets
     )
     assert session_factory.list_calls == []
+    assert session_factory.region_calls == []
+
+
+def test_gcp_resolves_region_selectors_per_project(caplog):
+    session_factory = FakeSessionFactory()
+    provider = GcpProvider(session_factory=session_factory)
+    target = _target(
+        include=["project-a"],
+        regions=["us-*", "europe-west1"],
+        provider_options={
+            "credentials_path": "credentials.json",
+            "quota_project_id": "billing-project",
+        },
+    )
+
+    plan = provider.resolve_execution_targets(
+        target=target, regions=target.regions, include=target.include, exclude=None
+    )
+
+    assert plan.execution_targets[0].provider_data.locations == [
+        "us-central1",
+        "us-east1",
+        "europe-west1",
+    ]
+    assert "configured unavailable regions: us-west1" in caplog.text
+    assert session_factory.region_calls == [
+        {
+            "project_id": "project-a",
+            "credentials_path": "credentials.json",
+            "quota_project_id": "billing-project",
+        }
+    ]
+
+
+def test_gcp_resolves_all_regions_per_project(caplog):
+    session_factory = FakeSessionFactory()
+    provider = GcpProvider(session_factory=session_factory)
+    target = _target(include=["project-a"], regions=["all"])
+
+    plan = provider.resolve_execution_targets(
+        target=target, regions=target.regions, include=target.include, exclude=None
+    )
+
+    assert plan.execution_targets[0].provider_data.locations == [
+        "europe-west1",
+        "us-central1",
+        "us-east1",
+    ]
+    assert "configured unavailable regions: us-west1" in caplog.text
+
+
+def test_gcp_rejects_unknown_region_selector():
+    provider = GcpProvider(session_factory=FakeSessionFactory())
+    target = _target(include=["project-a"], regions=["moon*"])
+
+    with pytest.raises(ValueError, match="matched no known regions"):
+        provider.resolve_execution_targets(
+            target=target, regions=target.regions, include=target.include, exclude=None
+        )
 
 
 def test_gcp_project_discovery_resolves_listed_projects():
@@ -359,6 +441,69 @@ def test_gcp_session_factory_list_projects_uses_credentials_options(monkeypatch)
 
     assert [project.project_id for project in projects] == ["project-a", "project-b"]
     assert [project.display_name for project in projects] == ["Project A", "Project B"]
+    assert client_credentials == [credential]
+    assert credential_calls == [
+        {
+            "credentials_path": "credentials.json",
+            "scopes": ["https://www.googleapis.com/auth/cloud-platform"],
+            "quota_project_id": "billing-project",
+        }
+    ]
+
+
+def test_gcp_session_factory_list_regions_uses_compute_sdk(monkeypatch):
+    credential = object()
+    credential_calls: list[dict[str, object]] = []
+    client_credentials: list[object] = []
+
+    def fake_load_credentials_from_file(credentials_path, *, scopes, quota_project_id):
+        credential_calls.append(
+            {
+                "credentials_path": credentials_path,
+                "scopes": scopes,
+                "quota_project_id": quota_project_id,
+            }
+        )
+        return credential, "loaded-project"
+
+    class FakeRegionsClient:
+        def __init__(self, *, credentials):
+            client_credentials.append(credentials)
+
+        def list(self, *, project):
+            assert project == "project-a"
+            return [
+                SimpleNamespace(name="us-east1", status="UP"),
+                SimpleNamespace(name="us-west1", status="DOWN"),
+            ]
+
+    google_module = ModuleType("google")
+    auth_module = ModuleType("google.auth")
+    auth_module.load_credentials_from_file = fake_load_credentials_from_file
+    auth_module.default = lambda **kwargs: (_ for _ in ()).throw(
+        AssertionError("google.auth.default should not be used")
+    )
+    cloud_module = ModuleType("google.cloud")
+    compute_module = ModuleType("google.cloud.compute_v1")
+    compute_module.RegionsClient = FakeRegionsClient
+    google_module.auth = auth_module
+    google_module.cloud = cloud_module
+    cloud_module.compute_v1 = compute_module
+    monkeypatch.setitem(sys.modules, "google", google_module)
+    monkeypatch.setitem(sys.modules, "google.auth", auth_module)
+    monkeypatch.setitem(sys.modules, "google.cloud", cloud_module)
+    monkeypatch.setitem(sys.modules, "google.cloud.compute_v1", compute_module)
+
+    regions = GcpSessionFactory().list_regions(
+        project_id="project-a",
+        credentials_path="credentials.json",
+        quota_project_id="billing-project",
+    )
+
+    assert [(region.name, region.available, region.status) for region in regions] == [
+        ("us-east1", True, "UP"),
+        ("us-west1", False, "DOWN"),
+    ]
     assert client_credentials == [credential]
     assert credential_calls == [
         {
