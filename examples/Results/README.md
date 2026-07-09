@@ -193,7 +193,7 @@ The returned value appears in the task result:
 Returned data is also available in the flattened JSONL query artifact:
 
 ```console
-anvil results --type task --task function_returned_results --fields target,account_id,region,status,result --json
+anvil results --type task --task function_returned_results --fields target,entity_id,region,status,result --json
 ```
 
 ## Recorded Actions
