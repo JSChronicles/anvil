@@ -206,6 +206,3 @@ def test_html_report_load_records_keeps_whole_run_context(tmp_path):
         "111111111111",
         "222222222222",
     ]
-
-
-

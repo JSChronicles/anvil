@@ -38,5 +38,3 @@ def patch_boto3_failure(monkeypatch):
             raise NoCredentialsError()
 
     monkeypatch.setattr(boto3, "Session", FailingSession)
-
-

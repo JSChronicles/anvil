@@ -225,11 +225,7 @@ def test_build_rerun_targets_includes_interrupted_task_dependencies():
 
 
 def test_parse_fields_validates_known_fields():
-    assert parse_fields("entity_id, region,task") == [
-        "entity_id",
-        "region",
-        "task",
-    ]
+    assert parse_fields("entity_id, region,task") == ["entity_id", "region", "task"]
 
 
 def test_parse_fields_rejects_unknown_fields():
@@ -379,5 +375,3 @@ def test_query_result_records_applies_limit_after_filters_and_stops_reading(tmp_
     )
 
     assert [record["entity_id"] for record in records] == ["match-1", "match-2"]
-
-

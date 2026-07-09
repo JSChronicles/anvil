@@ -121,5 +121,3 @@ def test_validate_tasks_rejects_missing_detail_docstring():
 
     with pytest.raises(TaskValidationError, match="detail documentation"):
         validate_tasks([task])
-
-

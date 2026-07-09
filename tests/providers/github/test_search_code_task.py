@@ -303,5 +303,3 @@ def test_search_code_maps_pygithub_errors(error: Exception, match: str) -> None:
 def test_search_code_module_does_not_import_pygithub() -> None:
     assert "github" not in search_code.__dict__
     assert callable(search_code.run)
-
-

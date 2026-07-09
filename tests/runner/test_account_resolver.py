@@ -56,5 +56,3 @@ def test_resolve_accounts_uses_direct_profile_strategy_without_role_name():
 
     assert [account.account_id for account in accounts] == ["111111111111"]
     assert accounts[0].access_strategy is AccountAccessStrategy.DIRECT_PROFILE
-
-

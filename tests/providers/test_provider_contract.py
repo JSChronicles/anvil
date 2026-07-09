@@ -106,5 +106,3 @@ def test_provider_contract_rejects_missing_contract_parameter():
 
     with pytest.raises(TypeError, match="resolve_execution_targets.*exclude"):
         validate_provider_contract(BrokenProvider())
-
-

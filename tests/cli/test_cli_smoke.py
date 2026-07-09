@@ -245,10 +245,10 @@ def test_build_rerun_targets_narrows_entities_regions_and_task_dependencies():
         branch=ConfigBranch.TARGETS,
         targets=[
             TargetDescriptor(
-                    config_branch=ConfigBranch.TARGETS,
-                    name="org-a",
-                    mode="organization",
-                    regions=["us-east-1", "us-west-2"],
+                config_branch=ConfigBranch.TARGETS,
+                name="org-a",
+                mode="organization",
+                regions=["us-east-1", "us-west-2"],
                 include=["111111111111", "222222222222"],
                 tasks=[
                     {"name": "inventory"},
@@ -257,10 +257,10 @@ def test_build_rerun_targets_narrows_entities_regions_and_task_dependencies():
                 ],
             ),
             TargetDescriptor(
-                    config_branch=ConfigBranch.TARGETS,
-                    name="org-b",
-                    mode="organization",
-                    regions=["us-east-1"],
+                config_branch=ConfigBranch.TARGETS,
+                name="org-b",
+                mode="organization",
+                regions=["us-east-1"],
                 tasks=[{"name": "inventory"}],
             ),
         ],
@@ -520,9 +520,7 @@ def test_run_configured_post_processors_runs_successful_targets(monkeypatch):
         run_dir=Path("results/orgs/run"),
         summary_path=Path("results/orgs/run/summary.json"),
         summary={"state": "completed_success"},
-        target_result_paths={
-            "org-a": Path("results/orgs/run/targets/org-a.json")
-        },
+        target_result_paths={"org-a": Path("results/orgs/run/targets/org-a.json")},
     )
 
     def fake_run_processors(*, specs, context):
@@ -616,9 +614,7 @@ def test_run_configured_post_processors_runs_failure_opt_in(monkeypatch):
         run_dir=Path("results/orgs/run"),
         summary_path=Path("results/orgs/run/summary.json"),
         summary={"state": "completed_with_failures"},
-        target_result_paths={
-            "org-a": Path("results/orgs/run/targets/org-a.json")
-        },
+        target_result_paths={"org-a": Path("results/orgs/run/targets/org-a.json")},
     )
 
     def fake_run_processors(*, specs, context):
@@ -687,5 +683,3 @@ def test_cmd_results_processor_runs_completed_results_context(monkeypatch):
     assert seen["specs"][0].output == str(
         Path("results/smoke/run/reports/summary.json")
     )
-
-

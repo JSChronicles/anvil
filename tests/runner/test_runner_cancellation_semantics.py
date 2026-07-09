@@ -146,7 +146,9 @@ def test_execute_accounts_fail_fast_sets_cancel_event():
 
     class ErrorAccount:
         def execute(self) -> EntityResult:
-            return _entity_result(entity_id="111111111111", status=ExecutionStatus.ERROR)
+            return _entity_result(
+                entity_id="111111111111", status=ExecutionStatus.ERROR
+            )
 
     class WaitingAccount:
         def execute(self) -> EntityResult:
@@ -203,5 +205,3 @@ def test_engine_summary_counts_interrupted_entities():
     assert summary["targets"][0]["failed_entities"] == 1
     assert summary["targets"][0]["interrupted_entities"] == 1
     assert summary["targets"][0]["has_failures"] is True
-
-

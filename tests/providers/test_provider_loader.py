@@ -102,5 +102,3 @@ def test_plugin_provider_load_error_is_actionable():
 
     with pytest.raises(TypeError, match="create_provider"):
         descriptor.load()
-
-

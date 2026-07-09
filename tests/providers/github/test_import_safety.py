@@ -45,5 +45,3 @@ def test_offline_github_paths_do_not_import_pygithub(monkeypatch):
     task_loader.discover_tasks()
 
     assert "github" not in sys.modules
-
-

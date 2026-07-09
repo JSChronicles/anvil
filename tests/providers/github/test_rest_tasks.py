@@ -241,5 +241,3 @@ def test_repository_audit_tasks_require_repository_targets(task) -> None:
             execution_target_name="octo-org",
             execution_target_type="organization",
         )
-
-

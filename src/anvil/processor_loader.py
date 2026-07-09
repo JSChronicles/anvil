@@ -396,6 +396,3 @@ def _load_json_object(path: Path) -> dict[str, object]:
         raise ValueError(f"Expected JSON object in {path}")
 
     return {key: value for key, value in payload.items() if isinstance(key, str)}
-
-
-

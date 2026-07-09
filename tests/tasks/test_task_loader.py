@@ -128,5 +128,3 @@ def test_discover_tasks_includes_provider_tasks():
     noop = next(task for task in tasks if task.name == "noop")
     assert noop.source == "universal"
     assert callable(noop.load)
-
-

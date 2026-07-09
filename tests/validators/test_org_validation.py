@@ -213,9 +213,7 @@ def test_organization_regions_accepts_all_selector():
 
 def test_organization_regions_accepts_globs_and_explicit_regions():
     descriptor = TargetDescriptor(
-        config_branch=ConfigBranch.TARGETS,
-        name="org",
-        regions=["us-*", "ca-central-1"],
+        config_branch=ConfigBranch.TARGETS, name="org", regions=["us-*", "ca-central-1"]
     )
 
     assert descriptor.regions == ["us-*", "ca-central-1"]
@@ -256,9 +254,7 @@ def test_post_run_normalizes_run_on_failure():
 def test_regions_rejects_all_mixed_with_other_regions():
     with pytest.raises(ValueError, match="'all' must be the only region value"):
         TargetDescriptor(
-            config_branch=ConfigBranch.TARGETS,
-            name="org",
-            regions=["all", "us-east-1"],
+            config_branch=ConfigBranch.TARGETS, name="org", regions=["all", "us-east-1"]
         )
 
 
@@ -313,5 +309,3 @@ def test_fail_fast_does_not_warn_when_combined_concurrency_is_low(caplog):
     validate_target_descriptors(targets=[target])
 
     assert "combined account-region concurrency" not in caplog.text
-
-

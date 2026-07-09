@@ -170,5 +170,3 @@ def test_count_resource_groups_requires_azure_subscription_target(
             metadata={},
             actions=ActionRecorder(actions=[]),
         )
-
-

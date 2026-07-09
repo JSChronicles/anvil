@@ -347,5 +347,3 @@ def test_resolve_accounts_raises_when_selector_matches_only_disabled_regions(cap
         resolver.resolve_accounts()
 
     assert "configured unavailable regions: ap-south-1" in caplog.text
-
-

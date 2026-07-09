@@ -262,5 +262,3 @@ def test_resolve_execution_targets_preserves_unknown_exclude_warning(caplog):
         "111111111111"
     ]
     assert "exclude list contains unknown account IDs: 999999999999" in caplog.text
-
-

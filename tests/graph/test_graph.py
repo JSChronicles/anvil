@@ -97,5 +97,3 @@ targets:
     output = capsys.readouterr().out
     assert f'"target": "{provider}-target"' in output
     assert f'"name": "{task_name}"' in output
-
-

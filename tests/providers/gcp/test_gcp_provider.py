@@ -422,6 +422,3 @@ def test_gcp_session_factory_uses_default_credentials_with_quota_project(monkeyp
             "quota_project_id": "billing-project",
         }
     ]
-
-
-

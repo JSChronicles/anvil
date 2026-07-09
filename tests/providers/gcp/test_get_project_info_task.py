@@ -201,5 +201,3 @@ def test_get_project_info_requires_session_credentials(fake_gcp_resource_manager
 
     with pytest.raises(RuntimeError, match="GCP session credentials"):
         _run_task(session=session)
-
-

@@ -14,5 +14,3 @@ def test_example_configs_load(config_path: Path) -> None:
 
     loaded_config = _load_targets_from_config_file(config_path)
     assert loaded_config.targets
-
-

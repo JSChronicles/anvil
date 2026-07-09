@@ -33,9 +33,7 @@ def test_run_single_config_file_passes_run_controls(
 
     target = TargetDescriptor(config_branch=ConfigBranch.TARGETS, name="target-a")
     loaded_config = SimpleNamespace(
-        branch=ConfigBranch.TARGETS,
-        targets=[target],
-        max_parallel_targets=4,
+        branch=ConfigBranch.TARGETS, targets=[target], max_parallel_targets=4
     )
     seen = {}
 
@@ -92,5 +90,3 @@ def test_validate_cli_overrides_rejects_explicit_mode_exclude():
         cli._validate_cli_overrides(
             loaded_config=loaded_config, args=SimpleNamespace(exclude=["111111111111"])
         )
-
-

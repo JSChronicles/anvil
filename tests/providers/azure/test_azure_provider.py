@@ -430,6 +430,3 @@ def test_azure_client_secret_requires_tenant_and_client_id(monkeypatch):
         AzureSessionFactory().create_session(
             subscription_id="sub-a", location="eastus", client_secret="secret-a"
         )
-
-
-

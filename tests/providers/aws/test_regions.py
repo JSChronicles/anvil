@@ -145,5 +145,3 @@ def test_aws_provider_rejects_selector_matching_no_known_regions():
             configured_regions=["moon-*"],
             region_statuses={"us-east-1": "ENABLED_BY_DEFAULT"},
         )
-
-

@@ -111,6 +111,3 @@ def test_graph_and_run_paths_behave_the_same_with_cached_resolution(
     assert observed_tasks == [["alpha", "beta"], ["alpha", "beta"]]
     assert engine_result.state is results.EngineState.COMPLETED_SUCCESS
     assert len(engine_result.target_results) == 2
-
-
-

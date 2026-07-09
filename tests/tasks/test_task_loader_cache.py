@@ -89,5 +89,3 @@ def test_returned_values_do_not_expose_shared_mutable_cached_state(monkeypatch):
     assert second.adjacency["alpha"] == ["beta"]
     assert second.adjacency.get("beta", []) == []
     assert "extra" not in second.adjacency["alpha"]
-
-

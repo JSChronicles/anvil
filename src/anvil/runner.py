@@ -1019,9 +1019,9 @@ def run_prepared_target(*, prepared_target: PreparedTarget) -> TargetExecutionOu
             config_branch=target.config_branch,
             target_name=target.name,
             dry_run=context.dry_run,
-                entities=[],
-                error=str(error),
-            )
+            entities=[],
+            error=str(error),
+        )
 
     return TargetExecutionOutcome(
         index=prepared_target.index,

@@ -660,6 +660,3 @@ def test_run_multiple_targets_pipelines_preparation_into_execution(monkeypatch):
         "org-b",
         "org-c",
     ]
-
-
-

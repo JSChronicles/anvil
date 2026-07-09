@@ -274,9 +274,10 @@ def test_azure_subscription_discovery_runs_without_aws_paths(monkeypatch):
         cli_exclude=None,
     )
 
-    assert [
-        result.id for result in engine_result.target_results[0].entities
-    ] == ["sub-a", "sub-b"]
+    assert [result.id for result in engine_result.target_results[0].entities] == [
+        "sub-a",
+        "sub-b",
+    ]
     assert subscription_calls == [
         {"tenant_id": None, "client_id": None, "client_secret": None}
     ]
@@ -419,9 +420,10 @@ def test_azure_subscription_discovery_plan_is_cached_across_targets(monkeypatch)
     )
 
     assert subscription_calls == 1
-    assert [
-        result.entities[0].id for result in engine_result.target_results
-    ] == ["sub-a", "sub-a"]
+    assert [result.entities[0].id for result in engine_result.target_results] == [
+        "sub-a",
+        "sub-a",
+    ]
 
 
 def test_gcp_provider_options_reach_runtime_session_factory(monkeypatch):
@@ -600,9 +602,10 @@ def test_gcp_project_discovery_runs_without_aws_paths(monkeypatch):
         cli_exclude=None,
     )
 
-    assert [
-        result.id for result in engine_result.target_results[0].entities
-    ] == ["project-a", "project-b"]
+    assert [result.id for result in engine_result.target_results[0].entities] == [
+        "project-a",
+        "project-b",
+    ]
     assert project_calls == [{"credentials_path": None, "quota_project_id": None}]
 
 
@@ -733,9 +736,10 @@ def test_gcp_project_discovery_plan_is_cached_across_targets(monkeypatch):
     )
 
     assert project_calls == 1
-    assert [
-        result.entities[0].id for result in engine_result.target_results
-    ] == ["project-a", "project-a"]
+    assert [result.entities[0].id for result in engine_result.target_results] == [
+        "project-a",
+        "project-a",
+    ]
 
 
 def test_non_aws_fail_fast_cancels_pending_execution_targets(monkeypatch):
@@ -962,16 +966,10 @@ def test_run_multiple_targets_reuses_same_profile_auth_during_preparation(monkey
 
     targets = [
         TargetDescriptor(
-            config_branch=ConfigBranch.TARGETS,
-            name="org-a",
-            profile="shared",
-            tasks=[],
+            config_branch=ConfigBranch.TARGETS, name="org-a", profile="shared", tasks=[]
         ),
         TargetDescriptor(
-            config_branch=ConfigBranch.TARGETS,
-            name="org-b",
-            profile="shared",
-            tasks=[],
+            config_branch=ConfigBranch.TARGETS, name="org-b", profile="shared", tasks=[]
         ),
     ]
 
@@ -1728,8 +1726,3 @@ def test_prepare_target_carries_max_parallel_regions_into_context(monkeypatch):
 
     assert prepared.context is not None
     assert prepared.context.max_parallel_regions == 3
-
-
-
-
-

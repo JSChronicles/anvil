@@ -403,5 +403,3 @@ def test_validate_config_schema_rejects_invalid_max_parallel_regions(
                 ],
             }
         )
-
-

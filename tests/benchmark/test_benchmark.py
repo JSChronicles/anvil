@@ -29,5 +29,3 @@ def test_enabled_benchmark_recorder_records_into_live_data():
     assert recorder.data["existing"] is True
     assert recorder.pop("value") == 1
     assert "value" not in recorder.data
-
-

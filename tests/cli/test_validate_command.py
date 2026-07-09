@@ -849,5 +849,3 @@ def test_validate_returns_success_when_all_categories_pass(monkeypatch, capsys):
 
     assert cli._cmd_validate(args) == 0
     assert "Result:" not in capsys.readouterr().out
-
-

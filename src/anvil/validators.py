@@ -193,4 +193,3 @@ def validate_target_descriptors(*, targets: list[TargetDescriptor]) -> None:
                 f"(max_workers={target.max_workers}, "
                 f"max_parallel_regions={target.max_parallel_regions})"
             )
-
