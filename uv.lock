@@ -3,7 +3,7 @@ revision = 3
 requires-python = "==3.14.*"
 
 [options]
-exclude-newer = "2026-06-23T13:45:04.8891494Z"
+exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for backwards compatibility when using relative exclude-newer values.
 exclude-newer-span = "P1W"
 
 [[package]]
@@ -68,7 +68,7 @@ requires-dist = [
     { name = "azure-mgmt-resourcegraph", marker = "extra == 'azure'" },
     { name = "azure-mgmt-storage", marker = "extra == 'azure'" },
     { name = "azure-mgmt-subscription", marker = "extra == 'azure'" },
-    { name = "boto3", specifier = ">=1.43.14,<1.50.0" },
+    { name = "boto3", specifier = ">=1.43.36,<1.50.0" },
     { name = "google-auth", marker = "extra == 'gcp'" },
     { name = "google-cloud-asset", marker = "extra == 'gcp'" },
     { name = "google-cloud-compute", marker = "extra == 'gcp'" },
@@ -78,7 +78,6 @@ requires-dist = [
     { name = "google-cloud-monitoring", marker = "extra == 'gcp'" },
     { name = "google-cloud-resource-manager", marker = "extra == 'gcp'" },
     { name = "google-cloud-storage", marker = "extra == 'gcp'" },
-    { name = "boto3", specifier = ">=1.43.36,<1.50.0" },
     { name = "jsonschema", specifier = ">=4.26.0,<4.30.0" },
     { name = "pygithub", marker = "extra == 'github'", specifier = ">=2.9.1,<3.0.0" },
     { name = "pyyaml", specifier = ">=6.0.3,<7.0.0" },

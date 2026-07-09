@@ -63,7 +63,7 @@ github = [
 Homepage = "https://github.com/JSChronicles/anvil"
 Repository = "https://github.com/JSChronicles/anvil"
 Issues = "https://github.com/JSChronicles/anvil/issues"
-Documentation = "https://github.com/JSChronicles/anvil#readme"
+Documentation = "https://opsfoundry.dev/anvil/"
 
 [project.scripts]
 anvil = "anvil.cli:main"
