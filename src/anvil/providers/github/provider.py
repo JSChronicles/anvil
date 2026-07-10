@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import inspect
+import logging
 import netrc
 import os
 import re
@@ -32,8 +33,13 @@ from anvil.providers.base import (
 )
 from anvil.results import ExecutionStatus
 
+__LOGGER__ = logging.getLogger(__name__)
+
 DEFAULT_GITHUB_REGIONS = ["global"]
 DEFAULT_GITHUB_API_VERSION = "2022-11-28"
+DEFAULT_GITHUB_PER_PAGE = 100
+DEFAULT_GITHUB_SECONDARY_RATE_WAIT_SECONDS = 10
+DEFAULT_GITHUB_RETRY_TOTAL = 1
 GITHUB_CONFIG_ENV = "ANVIL_GITHUB_CONFIG"
 GITHUB_CONFIG_PATH = Path(".github") / "config"
 GITHUB_FALLBACK_TOKEN_ENVS = ("GITHUB_TOKEN", "GH_TOKEN")
@@ -401,11 +407,21 @@ class GitHubSessionFactory:
 
             repositories: list[GithubRepository] = []
             for owner_login in owner_logins:
+                __LOGGER__.info(
+                    "Discovering GitHub repositories visible under owner "
+                    f"'{owner_login}'"
+                )
                 repositories.extend(client.list_owner_repositories(owner_login))
+                __LOGGER__.info(
+                    f"Discovered {len(repositories)} GitHub repository target(s) so far"
+                )
             return sorted(repositories, key=lambda item: item.full_name.lower())
 
         repositories = []
         for owner_login in owner_logins:
+            __LOGGER__.info(
+                f"Discovering GitHub repositories visible under owner '{owner_login}'"
+            )
             client = self._build_session_client(
                 github_module=github_module,
                 settings=settings,
@@ -413,6 +429,9 @@ class GitHubSessionFactory:
                 target_type="organization",
             )
             repositories.extend(client.list_owner_repositories(owner_login))
+            __LOGGER__.info(
+                f"Discovered {len(repositories)} GitHub repository target(s) so far"
+            )
         return sorted(repositories, key=lambda item: item.full_name.lower())
 
     def resolve_auth_settings(
@@ -593,7 +612,11 @@ class GitHubSessionFactory:
         if github_client is None:
             raise RuntimeError("PyGithub module does not expose github.Github")
 
-        kwargs: dict[str, object] = {"auth": auth}
+        kwargs: dict[str, object] = {
+            "auth": auth,
+            "per_page": DEFAULT_GITHUB_PER_PAGE,
+            "retry": self._build_retry(github_module=github_module),
+        }
         if api_url is not None:
             kwargs["base_url"] = api_url
         if self._supports_keyword(callable_object=github_client, keyword="api_version"):
@@ -605,6 +628,16 @@ class GitHubSessionFactory:
             raise RuntimeError(
                 f"GitHub provider could not build a runtime session: {error}"
             ) from error
+
+    @staticmethod
+    def _build_retry(*, github_module: ModuleType) -> object:
+        retry_cls = getattr(github_module, "GithubRetry", None)
+        if not callable(retry_cls):
+            raise RuntimeError("PyGithub module does not expose github.GithubRetry")
+        return retry_cls(
+            total=DEFAULT_GITHUB_RETRY_TOTAL,
+            secondary_rate_wait=DEFAULT_GITHUB_SECONDARY_RATE_WAIT_SECONDS,
+        )
 
     def _resolve_auth_settings(
         self, *, provider_options: dict[str, object]
@@ -1120,12 +1153,17 @@ class GithubProvider:
             raise ValueError(f"GitHub mode '{target.mode}' does not allow exclude")
 
         if target.mode == MODE_GITHUB_ORGANIZATIONS:
-            repositories = self._discover_repositories(
-                owner_logins=include or target.include or [],
-                provider_options=target.provider_options,
-            )
-            target_ids = [repository.full_name for repository in repositories]
-            target_type = "repository"
+            owner_logins = include or target.include or []
+            if _uses_owner_scoped_github_targets(target=target):
+                target_ids = owner_logins
+                target_type = "organization"
+            else:
+                repositories = self._discover_repositories(
+                    owner_logins=owner_logins,
+                    provider_options=target.provider_options,
+                )
+                target_ids = [repository.full_name for repository in repositories]
+                target_type = "repository"
         else:
             target_ids = include or target.include or []
             target_type = "repository"
@@ -1285,6 +1323,17 @@ def _installation_cache_owner(*, target_id: str, target_type: str) -> str:
     if target_type == "repository" and separator == "/" and owner and repository:
         return owner
     return target_id
+
+
+def _uses_owner_scoped_github_targets(*, target: TargetDescriptor) -> bool:
+    """Return whether all configured tasks can run once per GitHub owner."""
+
+    task_names = {
+        task.get("name")
+        for task in target.tasks
+        if isinstance(task.get("name"), str) and task.get("name")
+    }
+    return task_names == {"search_code"}
 
 
 def _installation_id_from_response(*, data: object, target_id: str) -> int:

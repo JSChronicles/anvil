@@ -113,6 +113,11 @@ class FakeAuth:
         pass
 
 
+class FakeGithubRetry:
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+
+
 class FakeRequester:
     def __init__(self, client):
         self.client = client
@@ -222,6 +227,7 @@ def _install_fake_pygithub(monkeypatch) -> ModuleType:
     github_module = ModuleType("github")
     github_module.Auth = FakeAuth
     github_module.Github = FakeGithubClient
+    github_module.GithubRetry = FakeGithubRetry
     monkeypatch.setitem(sys.modules, "github", github_module)
     return github_module
 
@@ -302,6 +308,53 @@ def test_github_provider_discovers_repository_targets_from_owner_logins():
     assert isinstance(
         plan.execution_targets[0].provider_data, GithubExecutionTargetData
     )
+
+
+def test_github_provider_uses_owner_targets_for_organization_code_search():
+    session_factory = FakeSessionFactory()
+    provider = GithubProvider(session_factory=session_factory)
+    target = _target(
+        name="github-organization-search",
+        mode="organizations",
+        include=["octo-org", "another-org"],
+        tasks=[{"name": "search_code"}],
+    )
+
+    plan = provider.resolve_execution_targets(
+        target=target, regions=["global"], include=target.include, exclude=None
+    )
+
+    assert [(item.id, item.type) for item in plan.execution_targets] == [
+        ("octo-org", "organization"),
+        ("another-org", "organization"),
+    ]
+    assert session_factory.calls == []
+
+
+def test_github_provider_discovers_repository_targets_for_mixed_org_tasks():
+    session_factory = FakeSessionFactory()
+    session_factory.repositories = {
+        "octo-org": ["octo-org/example", "octo-org/other"],
+    }
+    provider = GithubProvider(session_factory=session_factory)
+    target = _target(
+        name="github-organization-mixed",
+        mode="organizations",
+        include=["octo-org"],
+        tasks=[{"name": "search_code"}, {"name": "audit_branch_protection"}],
+    )
+
+    plan = provider.resolve_execution_targets(
+        target=target, regions=["global"], include=target.include, exclude=None
+    )
+
+    assert [(item.id, item.type) for item in plan.execution_targets] == [
+        ("octo-org/example", "repository"),
+        ("octo-org/other", "repository"),
+    ]
+    assert session_factory.calls == [
+        {"owner_logins": ["octo-org"], "provider_options": {"token_env": "GITHUB_TOKEN"}}
+    ]
 
 
 def test_github_provider_resolves_repository_targets_offline():
@@ -491,6 +544,12 @@ def test_github_session_factory_uses_token_env_api_url_and_default_version(monke
         "auth": FakeGithubClient.instances[0].kwargs["auth"],
         "base_url": "https://github.example/api/v3",
         "api_version": DEFAULT_GITHUB_API_VERSION,
+        "per_page": 100,
+        "retry": FakeGithubClient.instances[0].kwargs["retry"],
+    }
+    assert FakeGithubClient.instances[0].kwargs["retry"].kwargs == {
+        "total": 1,
+        "secondary_rate_wait": 10,
     }
     assert FakeGithubClient.instances[0].kwargs["auth"].token == "secret-token"
 
