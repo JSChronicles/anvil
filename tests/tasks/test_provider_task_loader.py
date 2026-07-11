@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import inspect
 
 import pytest
 
@@ -38,6 +39,34 @@ def test_real_aws_descriptor_index_includes_moved_aws_tasks():
 
     assert "count_vpc" in index
     assert [descriptor.source for descriptor in index["count_vpc"]] == ["aws"]
+
+
+def test_real_aws_tasks_use_provider_neutral_signature():
+    task_loader = importlib.import_module("anvil.task_loader")
+    _clear_task_loader_caches(task_loader)
+
+    index = task_loader.provider_task_descriptor_index(provider_name="aws")
+    required_parameters = {
+        "provider",
+        "execution_target_id",
+        "execution_target_name",
+        "execution_target_type",
+        "region",
+        "session",
+        "dry_run",
+        "metadata",
+        "actions",
+    }
+
+    for descriptors in index.values():
+        for descriptor in descriptors:
+            if descriptor.source != "aws":
+                continue
+
+            parameters = set(inspect.signature(descriptor.load()).parameters)
+            assert required_parameters <= parameters
+            assert "account_id" not in parameters
+            assert "account_alias" not in parameters
 
 
 def test_real_non_aws_descriptor_index_excludes_aws_only_tasks():

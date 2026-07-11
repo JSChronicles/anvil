@@ -140,8 +140,11 @@ def _validate_groups(
 
 def run(
     *,
-    account_id: str,
-    account_alias: str,
+    provider: str,
+    execution_target_id: str,
+    execution_target_name: str,
+    execution_target_type: str,
+    region: str,
     session: boto3.Session,
     dry_run: bool,
     metadata: dict[str, object],
@@ -160,8 +163,11 @@ def run(
             Identity Store clients. Defaults to the current session region.
 
     Args:
-        account_id: Target AWS account ID.
-        account_alias: Friendly name for the target account.
+        provider: Provider name for the current execution target.
+        execution_target_id: Target AWS account ID.
+        execution_target_name: Friendly name for the target account.
+        execution_target_type: Provider target type.
+        region: Current AWS region.
         session: Boto3 session scoped to the current region.
         dry_run: Whether execution is running in dry-run mode.
         metadata: Task metadata containing optional Identity Center region.
@@ -178,9 +184,10 @@ def run(
     """
 
     raw_region = metadata.get("identity_center_region")
+    account_id = execution_target_id
 
     if raw_region is None:
-        identity_center_region = session.region_name
+        identity_center_region = region
 
     elif isinstance(raw_region, str):
         identity_center_region = raw_region

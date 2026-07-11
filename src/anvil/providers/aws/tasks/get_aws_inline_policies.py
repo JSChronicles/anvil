@@ -191,8 +191,11 @@ def _list_sso_policies(session: boto3.Session) -> list[dict[str, Any]]:
 
 def run(
     *,
-    account_id: str,
-    account_alias: str,
+    provider: str,
+    execution_target_id: str,
+    execution_target_name: str,
+    execution_target_type: str,
+    region: str,
     session: boto3.Session,
     dry_run: bool,
     metadata: dict[str, object],
@@ -210,8 +213,11 @@ def run(
             are `user`, `role`, `group`, and `sso`. Defaults to all categories.
 
     Args:
-        account_id: Target AWS account ID.
-        account_alias: Friendly name for the target account.
+        provider: Provider name for the current execution target.
+        execution_target_id: Target AWS account ID.
+        execution_target_name: Friendly name for the target account.
+        execution_target_type: Provider target type.
+        region: Current AWS region.
         session: Boto3 session scoped to the current region.
         dry_run: Whether execution is running in dry-run mode.
         metadata: Task metadata containing optional policy type filters.
@@ -224,6 +230,8 @@ def run(
     Raises:
         ValueError: If metadata.types is not a list of supported strings.
     """
+    account_id = execution_target_id
+    account_alias = execution_target_name
 
     raw_types = metadata.get("types")
 

@@ -186,8 +186,11 @@ def cleanup_user_resources(
 
 def run(
     *,
-    account_id: str,
-    account_alias: str,
+    provider: str,
+    execution_target_id: str,
+    execution_target_name: str,
+    execution_target_type: str,
+    region: str,
     session,
     dry_run: bool,
     metadata: dict[str, object],
@@ -206,8 +209,11 @@ def run(
             removed.
 
     Args:
-        account_id: Target AWS account ID.
-        account_alias: Friendly name for the target account.
+        provider: Provider name for the current execution target.
+        execution_target_id: Target AWS account ID.
+        execution_target_name: Friendly name for the target account.
+        execution_target_type: Provider target type.
+        region: Current AWS region.
         session: Boto3 session scoped to the current region.
         dry_run: Whether execution is running in dry-run mode.
         metadata: Task metadata containing the IAM user name.
@@ -224,7 +230,8 @@ def run(
 
     if not dry_run:
         __LOGGER__.info(
-            f"Cleaning IAM user '{user_name}' in account {account_alias} ({account_id})"
+            f"Cleaning IAM user '{user_name}' in account "
+            f"{execution_target_name} ({execution_target_id})"
         )
 
     iam_client = session.client("iam")

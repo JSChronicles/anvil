@@ -40,7 +40,7 @@ project-github = "tasks.github"
 
 Anvil discovers modules inside packages registered in provider-owned task entry point groups. Directories named `tasks/` are conventional only; they are not automatically scanned unless registered.
 
-Every task module must define a callable keyword-only `run()` function. Use the provider-neutral signature unless nearby code has a stronger local convention:
+Every task module must define a callable keyword-only `run()` function. Use the provider-neutral signature:
 
 ```python
 from anvil.actions import ActionRecorder
@@ -131,6 +131,4 @@ def run(
     return {"checked": True}
 ```
 
-AWS-only legacy tasks may continue to accept `account_id`, `account_alias`, and
-the scoped boto3 `session`; new provider-aware tasks should prefer the
-provider-neutral signature above.
+First-party provider tasks should use the provider-neutral signature above.

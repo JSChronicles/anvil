@@ -11,8 +11,11 @@ __LOGGER__ = logging.getLogger(__name__)
 
 def run(
     *,
-    account_id: str,
-    account_alias: str,
+    provider: str,
+    execution_target_id: str,
+    execution_target_name: str,
+    execution_target_type: str,
+    region: str,
     session,
     dry_run: bool,
     metadata: dict[str, object],
@@ -24,8 +27,11 @@ def run(
     ignores task metadata.
 
     Args:
-        account_id: Target AWS account ID.
-        account_alias: Friendly name for the target account.
+        provider: Provider name for the current execution target.
+        execution_target_id: Target AWS account ID.
+        execution_target_name: Friendly name for the target account.
+        execution_target_type: Provider target type.
+        region: Current AWS region.
         session: Boto3 session scoped to the current region.
         dry_run: Whether execution is running in dry-run mode.
         metadata: Arbitrary config metadata for the task.
@@ -34,7 +40,9 @@ def run(
     Returns:
         A payload with the AWS region, total VPC count, and discovered VPC IDs.
     """
-    region_name = session.region_name
+    account_id = execution_target_id
+    account_alias = execution_target_name
+    region_name = region
     ec2_client = session.client("ec2")
 
     paginator = ec2_client.get_paginator("describe_vpcs")

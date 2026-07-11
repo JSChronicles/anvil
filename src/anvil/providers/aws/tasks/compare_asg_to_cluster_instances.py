@@ -29,8 +29,11 @@ def _validate_clusters(value: object) -> list[str]:
 
 def run(
     *,
-    account_id: str,
-    account_alias: str,
+    provider: str,
+    execution_target_id: str,
+    execution_target_name: str,
+    execution_target_type: str,
+    region: str,
     session: boto3.Session,
     dry_run: bool,
     metadata: dict[str, object],
@@ -49,8 +52,11 @@ def run(
             Defaults to the current session region.
 
     Args:
-        account_id: Target AWS account ID.
-        account_alias: Friendly name for the target account.
+        provider: Provider name for the current execution target.
+        execution_target_id: Target AWS account ID.
+        execution_target_name: Friendly name for the target account.
+        execution_target_type: Provider target type.
+        region: Current AWS region.
         session: Boto3 session scoped to the current region.
         dry_run: Whether execution is running in dry-run mode.
         metadata: Task metadata containing cluster configuration.
@@ -70,16 +76,16 @@ def run(
     raw_region = metadata.get("ecs_region")
 
     if raw_region is None:
-        region = session.region_name
+        ecs_region = region
     elif isinstance(raw_region, str):
-        region = raw_region
+        ecs_region = raw_region
     else:
         raise ValueError("metadata.ecs_region must be a string")
 
-    __LOGGER__.debug(f"Creating AWS clients in region '{region}'")
+    __LOGGER__.debug(f"Creating AWS clients in region '{ecs_region}'")
 
-    autoscaling_client = session.client("autoscaling", region_name=region)
-    ecs_client = session.client("ecs", region_name=region)
+    autoscaling_client = session.client("autoscaling", region_name=ecs_region)
+    ecs_client = session.client("ecs", region_name=ecs_region)
 
     for cluster in cluster_names:
         __LOGGER__.debug(

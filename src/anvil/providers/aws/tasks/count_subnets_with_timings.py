@@ -62,8 +62,11 @@ def _get_subnet_details(ec2_client) -> tuple[list[dict[str, object]], int]:
 
 def run(
     *,
-    account_id: str,
-    account_alias: str,
+    provider: str,
+    execution_target_id: str,
+    execution_target_name: str,
+    execution_target_type: str,
+    region: str,
     session,
     dry_run: bool,
     metadata: dict[str, object],
@@ -75,8 +78,11 @@ def run(
     records API retry counts from response metadata, and ignores task metadata.
 
     Args:
-        account_id: Target AWS account ID.
-        account_alias: Friendly name for the target account.
+        provider: Provider name for the current execution target.
+        execution_target_id: Target AWS account ID.
+        execution_target_name: Friendly name for the target account.
+        execution_target_type: Provider target type.
+        region: Current AWS region.
         session: Boto3 session scoped to the current region.
         dry_run: Whether execution is running in dry-run mode.
         metadata: Arbitrary config metadata for the task.
@@ -86,7 +92,9 @@ def run(
         A payload containing subnet summaries, aggregate counts, and timing data.
     """
     run_start = time.perf_counter()
-    region_name = session.region_name
+    account_id = execution_target_id
+    account_alias = execution_target_name
+    region_name = region
 
     client_start = time.perf_counter()
     ec2_client = session.client("ec2")

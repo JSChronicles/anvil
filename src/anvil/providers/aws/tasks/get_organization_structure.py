@@ -90,8 +90,11 @@ def _list_enabled_controls_for_ou(
 
 def run(
     *,
-    account_id: str,
-    account_alias: str,
+    provider: str,
+    execution_target_id: str,
+    execution_target_name: str,
+    execution_target_type: str,
+    region: str,
     session: boto3.Session,
     dry_run: bool,
     metadata: dict[str, object],
@@ -105,8 +108,11 @@ def run(
     collected from the management account.
 
     Args:
-        account_id: Target AWS account ID.
-        account_alias: Friendly name for the target account.
+        provider: Provider name for the current execution target.
+        execution_target_id: Target AWS account ID.
+        execution_target_name: Friendly name for the target account.
+        execution_target_type: Provider target type.
+        region: Current AWS region.
         session: Boto3 session scoped to the current region.
         dry_run: Whether execution is running in dry-run mode.
         metadata: Arbitrary config metadata for the task.
@@ -120,6 +126,7 @@ def run(
         TypeError: If AWS Organizations returns malformed account or OU IDs.
         botocore.exceptions.ClientError: If an unexpected AWS API error occurs.
     """
+    account_id = execution_target_id
 
     org_client: BaseClient = session.client("organizations")
     control_tower_client: BaseClient = session.client("controltower")

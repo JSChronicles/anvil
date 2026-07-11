@@ -134,8 +134,11 @@ def _detect_deprecated_runtimes(
 
 def run(
     *,
-    account_id: str,
-    account_alias: str,
+    provider: str,
+    execution_target_id: str,
+    execution_target_name: str,
+    execution_target_type: str,
+    region: str,
     session,
     dry_run: bool,
     metadata: dict[str, object],
@@ -152,8 +155,11 @@ def run(
             strings to match, such as `python3.8` or `nodejs14.x`.
 
     Args:
-        account_id: Target AWS account ID.
-        account_alias: Friendly name for the target account.
+        provider: Provider name for the current execution target.
+        execution_target_id: Target AWS account ID.
+        execution_target_name: Friendly name for the target account.
+        execution_target_type: Provider target type.
+        region: Current AWS region.
         session: Boto3 session scoped to the current region.
         dry_run: Whether execution is running in dry-run mode.
         metadata: Task metadata containing deprecated runtime filters.
@@ -166,7 +172,9 @@ def run(
     Raises:
         RuntimeError: If metadata.runtimes is missing or invalid.
     """
-    region_name = session.region_name
+    account_id = execution_target_id
+    account_alias = execution_target_name
+    region_name = region
     deprecated_runtimes = set(_validate_runtimes(metadata))
     lambda_client = session.client("lambda")
 
