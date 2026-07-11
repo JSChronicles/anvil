@@ -414,18 +414,7 @@ class Account:
                     metadata=self._context.metadata,
                     actions=actions,
                 )
-                result = invoke_task(
-                    task.run,
-                    context=task_context,
-                    legacy_kwargs={
-                        "account_id": self.account_id,
-                        "account_alias": self.account_alias,
-                        "session": session,
-                        "dry_run": self._context.dry_run,
-                        "metadata": self._context.metadata,
-                        "actions": actions,
-                    },
-                )
+                result = invoke_task(task.run, context=task_context)
 
                 task_ended_perf: int | float = time.perf_counter()
                 task_ended_at: str = datetime.datetime.now(datetime.UTC).isoformat()

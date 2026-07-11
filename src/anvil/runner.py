@@ -740,18 +740,7 @@ def _execute_provider_region(
                 metadata=context.metadata,
                 actions=actions,
             )
-            result = invoke_task(
-                task.run,
-                context=task_context,
-                legacy_kwargs={
-                    "account_id": execution_target.id,
-                    "account_alias": execution_target.name,
-                    "session": session,
-                    "dry_run": context.dry_run,
-                    "metadata": context.metadata,
-                    "actions": actions,
-                },
-            )
+            result = invoke_task(task.run, context=task_context)
         except Exception as error:
             task_ended_perf = time.perf_counter()
             task_ended_at = datetime.datetime.now(datetime.UTC).isoformat()

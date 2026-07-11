@@ -19,7 +19,7 @@ tasks:
   - name: count_vpc
 ```
 
-For project-local or plugin tasks, expose the task package through the provider-owned entry point group that matches task compatibility:
+For project-local or plugin tasks, expose the task package through the provider-owned entry point group that matches task scope:
 
 ```toml
 [project.entry-points."anvil.providers.tasks"]
@@ -77,7 +77,7 @@ Runtime facts:
 - Operator-provided task inputs come from `metadata`.
 - `actions` is an `ActionRecorder` for audit-level actions.
 - Returned values are included in Anvil result JSON.
-- The engine already includes execution context such as target identity, `region`, and `dry_run` in normal results. Result fields currently retain `account_id` and `account_alias` compatibility names for all providers.
+- The engine already includes execution context such as target identity, `region`, and `dry_run` in normal results.
 
 ## Skeleton
 

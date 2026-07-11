@@ -6,12 +6,10 @@ from inspect import Parameter, signature
 from anvil.task_context import TaskCallContext
 
 
-def invoke_task(
-    task_run: Callable, *, context: TaskCallContext, legacy_kwargs: dict[str, object]
-) -> object:
-    """Invoke a task with compatible legacy and provider-neutral kwargs."""
+def invoke_task(task_run: Callable, *, context: TaskCallContext) -> object:
+    """Invoke a task with provider-neutral kwargs."""
 
-    candidate_kwargs = {**context.to_kwargs(), **legacy_kwargs}
+    candidate_kwargs = context.to_kwargs()
     try:
         run_signature = signature(task_run)
     except TypeError, ValueError:

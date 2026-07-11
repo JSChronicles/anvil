@@ -9,16 +9,8 @@ from __future__ import annotations
 
 from inspect import Parameter, getdoc, getmodule, signature
 
-# Required keyword arguments for all task run() functions
+# Required keyword arguments for all task run() functions.
 REQUIRED_RUN_KWARGS: set[str] = {
-    "account_id",
-    "account_alias",
-    "session",
-    "dry_run",
-    "metadata",
-    "actions",
-}
-PROVIDER_NEUTRAL_RUN_KWARGS: set[str] = {
     "provider",
     "execution_target_id",
     "execution_target_name",
@@ -85,15 +77,12 @@ def _validate_task_run_signature(task) -> None:
         param.kind is Parameter.VAR_KEYWORD for param in parameters.values()
     )
     parameter_names = set(parameters)
-    missing_legacy = REQUIRED_RUN_KWARGS - parameter_names
-    missing_provider_neutral = PROVIDER_NEUTRAL_RUN_KWARGS - parameter_names
-    if missing_legacy and missing_provider_neutral:
-        if not accepts_extra_kwargs:
-            raise TaskValidationError(
-                f"task '{task.name}' is missing required run() parameters: "
-                f"{sorted(missing_legacy)} or provider-neutral parameters: "
-                f"{sorted(missing_provider_neutral)}"
-            )
+    missing = REQUIRED_RUN_KWARGS - parameter_names
+    if missing and not accepts_extra_kwargs:
+        raise TaskValidationError(
+            f"task '{task.name}' is missing required run() parameters: "
+            f"{sorted(missing)}"
+        )
 
     for param in parameters.values():
         if param.kind is Parameter.POSITIONAL_ONLY:

@@ -245,36 +245,6 @@ def test_direct_account_validation_runs_once_across_regions():
     assert factory.caller_identity_calls == ["123456789012"]
 
 
-def test_aws_task_invocation_preserves_legacy_kwargs():
-    seen: dict[str, object] = {}
-
-    def legacy_task(*, account_id, account_alias, session, dry_run, metadata, actions):
-        seen.update(
-            {
-                "account_id": account_id,
-                "account_alias": account_alias,
-                "region": session.region_name,
-                "dry_run": dry_run,
-                "metadata": metadata,
-                "actions": actions,
-            }
-        )
-        return {"ok": True}
-
-    account = _account(
-        tasks=[ResolvedTask("legacy", legacy_task, depends_on=[], optional=False)]
-    )
-
-    result = account.execute()
-
-    assert result.status is ExecutionStatus.SUCCESS
-    assert seen["account_id"] == "123456789012"
-    assert seen["account_alias"] == "test-account"
-    assert seen["region"] == "us-east-1"
-    assert seen["dry_run"] is True
-    assert seen["metadata"] == {"source": "test"}
-
-
 def test_aws_task_invocation_provides_provider_neutral_kwargs():
     seen: dict[str, object] = {}
 

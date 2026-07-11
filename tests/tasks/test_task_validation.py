@@ -9,19 +9,19 @@ from anvil.providers.gcp.tasks.get_project_info import run as get_project_info
 
 
 def test_validate_tasks_accepts_valid_task():
-    def run(*, account_id, account_alias, session, dry_run, metadata, actions=None):
-        """Run a valid legacy task."""
-
-        pass
-
-    task = ResolvedTask(name="valid", run=run, depends_on=[], optional=False)
-
-    validate_tasks([task])
-
-
-def test_validate_tasks_accepts_var_keyword_task():
-    def run(**kwargs):
-        """Run a valid flexible task."""
+    def run(
+        *,
+        provider,
+        execution_target_id,
+        execution_target_name,
+        execution_target_type,
+        region,
+        session,
+        dry_run,
+        metadata,
+        actions,
+    ):
+        """Run a valid provider-neutral task."""
 
         pass
 
@@ -72,7 +72,17 @@ def test_validate_tasks_accepts_real_gcp_get_project_info_task():
 
 
 def test_validate_tasks_rejects_task_missing_actions():
-    def run(*, account_id, account_alias, session, dry_run, metadata):
+    def run(
+        *,
+        provider,
+        execution_target_id,
+        execution_target_name,
+        execution_target_type,
+        region,
+        session,
+        dry_run,
+        metadata,
+    ):
         """Run an invalid task."""
 
         pass
@@ -83,8 +93,20 @@ def test_validate_tasks_rejects_task_missing_actions():
         validate_tasks([task])
 
 
+def test_validate_tasks_rejects_legacy_task_signature():
+    def run(*, account_id, account_alias, session, dry_run, metadata, actions):
+        """Run an invalid legacy task."""
+
+        pass
+
+    task = ResolvedTask(name="legacy", run=run, depends_on=[], optional=False)
+
+    with pytest.raises(TaskValidationError, match="provider"):
+        validate_tasks([task])
+
+
 def test_validate_tasks_rejects_bad_signature():
-    def run(account_id):  # missing required kwargs
+    def run(account_id):  # missing required kwargs and positional-only shape
         """Run an invalid task."""
 
         pass
@@ -96,7 +118,18 @@ def test_validate_tasks_rejects_bad_signature():
 
 
 def test_validate_tasks_rejects_duplicate_names():
-    def run(*, account_id, account_alias, session, dry_run, metadata, actions=None):
+    def run(
+        *,
+        provider,
+        execution_target_id,
+        execution_target_name,
+        execution_target_type,
+        region,
+        session,
+        dry_run,
+        metadata,
+        actions,
+    ):
         """Run a duplicate test task."""
 
         pass
@@ -111,7 +144,18 @@ def test_validate_tasks_rejects_duplicate_names():
 
 
 def test_validate_tasks_rejects_missing_detail_docstring():
-    def run(*, account_id, account_alias, session, dry_run, metadata, actions=None):
+    def run(
+        *,
+        provider,
+        execution_target_id,
+        execution_target_name,
+        execution_target_type,
+        region,
+        session,
+        dry_run,
+        metadata,
+        actions,
+    ):
         pass
 
     run.__doc__ = None

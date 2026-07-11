@@ -17,8 +17,11 @@ __LOGGER__ = logging.getLogger(__name__)
 
 def run(
     *,
-    account_id: str,
-    account_alias: str,
+    provider: str,
+    execution_target_id: str,
+    execution_target_name: str,
+    execution_target_type: str,
+    region: str,
     session,
     dry_run: bool,
     metadata: dict[str, object],
@@ -29,9 +32,12 @@ def run(
     The task performs no provider API mutations and always raises before returning.
 
     Args:
-        account_id: Target account or execution target ID.
-        account_alias: Friendly name for the target account.
-        session: Provider session scoped to the current region or location.
+        provider: Provider name for the current execution target.
+        execution_target_id: Provider-specific target ID.
+        execution_target_name: Display name for the current target.
+        execution_target_type: Provider-specific target type.
+        region: Current execution region.
+        session: Provider session scoped to the current region.
         dry_run: Whether execution is running in dry-run mode.
         metadata: Arbitrary config metadata for the task.
         actions: Action recorder provided by the engine.
@@ -44,8 +50,13 @@ def run(
     """
     raise RuntimeError("Intentional noop failure for testing")
     __LOGGER__.info(
-        f"Noop_fail task executed for account {account_alias} ({account_id}), "
-        f"region={session.region_name}, dry_run={dry_run}"
+        f"Noop_fail task executed for {provider} {execution_target_type} "
+        f"{execution_target_name} ({execution_target_id}), "
+        f"region={region}, dry_run={dry_run}"
     )
 
-    return {"message": "noop", "account_id": account_id, "dry_run": dry_run}
+    return {
+        "message": "noop",
+        "execution_target_id": execution_target_id,
+        "dry_run": dry_run,
+    }

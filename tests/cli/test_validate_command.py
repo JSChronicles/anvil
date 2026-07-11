@@ -146,7 +146,7 @@ def test_validate_selected_tasks_validates_all_when_no_names(monkeypatch):
     seen = {}
 
     def fake_load_task_callable(task_name):
-        def run(*, account_id, account_alias, session, dry_run, metadata, actions):
+        def run(**kwargs):
             return None
 
         seen.setdefault("loaded", []).append(task_name)
@@ -189,7 +189,7 @@ def test_validate_selected_tasks_validates_selected_names(monkeypatch):
     seen = {}
 
     def fake_load_task_callable(task_name):
-        def run(*, account_id, account_alias, session, dry_run, metadata, actions):
+        def run(**kwargs):
             return None
 
         seen.setdefault("loaded", []).append(task_name)
@@ -230,7 +230,7 @@ def test_validate_selected_tasks_validates_selected_names(monkeypatch):
 def test_validate_all_tasks_reports_duplicate_provider_task_names(monkeypatch):
     cli = _import_cli_or_skip()
 
-    def valid_run(*, account_id, account_alias, session, dry_run, metadata, actions):
+    def valid_run(**kwargs):
         return None
 
     monkeypatch.setattr(
@@ -254,7 +254,7 @@ def test_validate_all_tasks_reports_duplicate_provider_task_names(monkeypatch):
 def test_validate_selected_tasks_reports_duplicate_provider_task_names(monkeypatch):
     cli = _import_cli_or_skip()
 
-    def valid_run(*, account_id, account_alias, session, dry_run, metadata, actions):
+    def valid_run(**kwargs):
         return None
 
     monkeypatch.setattr(

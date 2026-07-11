@@ -9,7 +9,7 @@
 - Do not log generic account-processing start messages; the engine already logs which account is being processed.
 - Task logs should describe task-specific work or task-specific outcomes.
 - Return task-specific data only.
-- Do not duplicate execution context already included by the engine, such as target identity, `region`, or `dry_run`, unless the task needs a renamed or transformed value for its own result schema. Result fields currently retain `account_id` and `account_alias` compatibility names for all providers.
+- Do not duplicate execution context already included by the engine, such as target identity, `region`, or `dry_run`, unless the task needs a renamed or transformed value for its own result schema.
 
 ## Python And Provider Hygiene
 
@@ -35,12 +35,18 @@ Prefer explicit type checks over assuming YAML input shape. Validate lists, bool
 
 ```python
 if dry_run:
-    __LOGGER__.info(f"(dry-run) Would delete IAM user {user_name} in account {account_id}")
-    actions.record(f"(dry-run) Would delete IAM user {user_name} in account {account_id}")
+    __LOGGER__.info(
+        f"(dry-run) Would delete IAM user {user_name} in target "
+        f"{execution_target_id}"
+    )
+    actions.record(
+        f"(dry-run) Would delete IAM user {user_name} in target "
+        f"{execution_target_id}"
+    )
     return {"planned": True, "deleted": False, "user_name": user_name}
 
 iam.delete_user(UserName=user_name)
-__LOGGER__.info(f"Deleted IAM user {user_name} in account {account_id}")
-actions.record(f"Deleted IAM user {user_name} in account {account_id}")
+__LOGGER__.info(f"Deleted IAM user {user_name} in target {execution_target_id}")
+actions.record(f"Deleted IAM user {user_name} in target {execution_target_id}")
 return {"planned": False, "deleted": True, "user_name": user_name}
 ```
