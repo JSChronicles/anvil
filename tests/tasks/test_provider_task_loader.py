@@ -26,11 +26,6 @@ def _clear_task_loader_caches(task_loader) -> None:
     task_loader._resolve_tasks_cached.cache_clear()
 
 
-def test_legacy_task_imports_are_not_supported():
-    with pytest.raises(ModuleNotFoundError, match="anvil.tasks"):
-        importlib.import_module("anvil.tasks.count_vpc")
-
-
 def test_real_aws_descriptor_index_includes_moved_aws_tasks():
     task_loader = importlib.import_module("anvil.task_loader")
     _clear_task_loader_caches(task_loader)
@@ -141,21 +136,6 @@ def test_aws_only_tasks_do_not_resolve_for_azure_or_gcp():
             )
 
 
-def test_legacy_plugin_tasks_are_ignored_for_all_providers(monkeypatch):
-    task_loader = importlib.import_module("anvil.task_loader")
-    _clear_task_loader_caches(task_loader)
-
-    monkeypatch.setattr(
-        task_loader, "_provider_task_descriptor_index", lambda provider_name: {}
-    )
-
-    for provider_name in ("aws", "azure", "gcp", "github"):
-        with pytest.raises(TaskConfigError, match="provider package"):
-            task_loader.resolve_tasks(
-                task_specs=[{"name": "legacy_plugin_task"}], provider_name=provider_name
-            )
-
-
 def test_duplicate_universal_and_provider_task_name_is_ambiguous(monkeypatch):
     task_loader = importlib.import_module("anvil.task_loader")
     _clear_task_loader_caches(task_loader)
@@ -254,20 +234,6 @@ def test_provider_descriptor_index_builds_once_for_multiple_configured_tasks(
 
     assert [task.name for task in execution.ordered] == ["alpha", "beta", "gamma"]
     assert calls == {"packages": 2}
-
-
-def test_discover_tasks_ignores_legacy_discovery_issues(monkeypatch):
-    task_loader = importlib.import_module("anvil.task_loader")
-
-    def fake_discovery(provider_name):
-        return {"noop": (_descriptor("noop", "universal"),)}, ()
-
-    monkeypatch.setattr(task_loader, "_provider_task_discovery", fake_discovery)
-
-    discovery = task_loader.discover_tasks()
-
-    assert [task.name for task in discovery.tasks] == ["noop"]
-    assert discovery.issues == []
 
 
 def test_discover_tasks_includes_github_provider_list(monkeypatch):

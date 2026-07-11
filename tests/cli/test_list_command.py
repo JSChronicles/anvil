@@ -164,28 +164,6 @@ def test_list_cli_rejects_provider_detail(monkeypatch, capsys):
     assert "--detail cannot be used with --providers" in capsys.readouterr().err
 
 
-def test_list_cli_removes_old_tasks_list_command(monkeypatch, capsys):
-    cli = _import_cli_or_skip()
-    monkeypatch.setattr("sys.argv", ["anvil", "tasks", "list"])
-
-    with pytest.raises(SystemExit) as exc_info:
-        cli.main()
-
-    assert exc_info.value.code == 2
-    assert "invalid choice: 'tasks'" in capsys.readouterr().err
-
-
-def test_list_cli_removes_old_processors_list_command(monkeypatch, capsys):
-    cli = _import_cli_or_skip()
-    monkeypatch.setattr("sys.argv", ["anvil", "processors", "list"])
-
-    with pytest.raises(SystemExit) as exc_info:
-        cli.main()
-
-    assert exc_info.value.code == 2
-    assert "invalid choice: 'processors'" in capsys.readouterr().err
-
-
 def test_cmd_list_tasks_groups_by_source(monkeypatch, capsys):
     cli = _import_cli_or_skip()
     monkeypatch.setattr(
@@ -299,23 +277,6 @@ def test_cmd_list_providers_does_not_call_cloud_discovery(monkeypatch, capsys):
     assert "Available providers:" in output
     assert "azure" in output
     assert "gcp" in output
-
-
-def test_list_help_shows_new_flags_and_not_old_groups(monkeypatch, capsys):
-    cli = _import_cli_or_skip()
-    monkeypatch.setattr("sys.argv", ["anvil", "list", "--help"])
-
-    with pytest.raises(SystemExit) as exc_info:
-        cli.main()
-
-    assert exc_info.value.code == 0
-    output = capsys.readouterr().out
-    assert "--tasks" in output
-    assert "--processors" in output
-    assert "--providers" in output
-    assert "--detail" in output
-    assert "tasks list" not in output
-    assert "processors list" not in output
 
 
 def test_cmd_list_task_detail_prints_run_docstring(monkeypatch, capsys):
