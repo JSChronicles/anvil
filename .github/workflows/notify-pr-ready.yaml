@@ -1,11 +1,14 @@
-name: Notify Slack When PR Is Ready to Merge
+name: pr-notify
 
 on:
-
-  pull_request:
-    types: [opened, reopened]
-    branches:
-      - main
+  workflow_run:
+    workflows:
+      - Dependabot auto-update
+      - Python Tests
+      - Ruff
+      - Validate YAML Schema
+      - CodeQL Advanced
+    types: [completed]
 
   workflow_dispatch:
     inputs:
@@ -14,97 +17,178 @@ on:
         required: false
 
 concurrency:
-  group: pr-merge-${{ github.event.pull_request.number || github.ref || github.run_id }}
+  group: pr-notify-${{ github.event.workflow_run.head_sha || github.event.inputs.sha || github.run_id }}
   cancel-in-progress: true
 
 permissions:
+  actions: read
   contents: read
+  issues: write
+  pull-requests: read
 
 jobs:
-  wait-for-checks-and-notify:
+  pr-notify:
+    name: pr-notify
     runs-on: ubuntu-latest
 
     steps:
-      - name: Determine target SHA
-        id: sha
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            echo "sha=${{ github.event.pull_request.head.sha }}" >> $GITHUB_OUTPUT
-          elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.sha }}" != "" ]; then
-            echo "sha=${{ github.event.inputs.sha }}" >> $GITHUB_OUTPUT
-          elif [ "${{ github.event_name }}" = "push" ]; then
-            echo "sha=${{ github.sha }}" >> $GITHUB_OUTPUT
-          else
-            echo "No valid SHA found from pull_request, workflow_dispatch, or push"
-            exit 1
-          fi
-
-      - name: Wait for all required checks (checks + statuses)
-        if: github.event.pull_request.user.login != 'dependabot[bot]'
-        id: checks
+      - name: Evaluate PR notification state
+        id: notify
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const sha = "${{ steps.sha.outputs.sha }}";
-            const jobName = "wait-for-checks-and-notify"; // <-- update as needed
-            const maxAttempts = 30;
-            const intervalMs = 10000;
+            const label = "slack-notified";
+            const sha =
+              context.eventName === "workflow_run"
+                ? context.payload.workflow_run.head_sha
+                : "${{ github.event.inputs.sha }}";
 
-            async function waitUntilReady() {
-              for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-                const [checksResp, statusesResp] = await Promise.all([
-                  github.rest.checks.listForRef({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    ref: sha
-                  }),
-                  github.rest.repos.getCombinedStatusForRef({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    ref: sha
-                  })
-                ]);
-
-                // Filter out *this* job by name (it will never complete itself)
-                const checkRuns = checksResp.data.check_runs.filter(
-                  run => run.name !== jobName
-                );
-
-                const completedChecks = checkRuns.filter(c => c.status === 'completed');
-                const passedChecks = completedChecks.filter(c => c.conclusion === 'success');
-
-                const statusContexts = statusesResp.data.statuses;
-                const completedStatuses = statusContexts.filter(s => s.state !== 'pending');
-                const passedStatuses = completedStatuses.filter(s => s.state === 'success');
-
-                const totalChecks = checkRuns.length + statusContexts.length;
-                const totalCompleted = completedChecks.length + completedStatuses.length;
-                const totalPassed = passedChecks.length + passedStatuses.length;
-
-                console.log(
-                  `Attempt ${attempt}/${maxAttempts}: ${totalCompleted}/${totalChecks} checks completed, ${totalPassed} passed`
-                );
-
-                if (totalCompleted === totalChecks) {
-                  return { passed: totalPassed, total: totalChecks };
-                }
-
-                await new Promise(r => setTimeout(r, intervalMs));
-              }
-
-              throw new Error("Timed out waiting for checks to complete.");
+            if (!sha) {
+              core.setFailed("No SHA was provided.");
+              return;
             }
 
-            const result = await waitUntilReady();
-            const { passed, total } = result;
+            const prs = await github.paginate(
+              github.rest.repos.listPullRequestsAssociatedWithCommit,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                commit_sha: sha,
+                per_page: 100
+              }
+            );
+            const pr = prs.find((candidate) => candidate.state === "open");
 
-            core.setOutput("ready", passed === total ? "true" : "false");
-            core.setOutput("check_summary", `✅ ${passed}/${total} checks passed`);
+            if (!pr) {
+              console.log(`No open PR found for ${sha}.`);
+              core.setOutput("should_notify", "false");
+              return;
+            }
 
+            const labels = await github.paginate(github.rest.issues.listLabelsOnIssue, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr.number,
+              per_page: 100
+            });
+            const alreadyNotified = labels.some((candidate) => candidate.name === label);
+            if (alreadyNotified) {
+              console.log(`PR #${pr.number} already has ${label}.`);
+              core.setOutput("should_notify", "false");
+              return;
+            }
 
-      # - name: Notify Slack (if all checks passed)
-      #   if: steps.checks.outputs.ready == 'true' || github.event.pull_request.user.login == 'dependabot[bot]'
+            const [checksResp, statusesResp] = await Promise.all([
+              github.rest.checks.listForRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: sha
+              }),
+              github.rest.repos.getCombinedStatusForRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: sha
+              })
+            ]);
+
+            const ignoredChecks = new Set(["Evaluate PR notification state"]);
+            const checkRuns = checksResp.data.check_runs.filter(
+              (run) => !ignoredChecks.has(run.name)
+            );
+            const statusContexts = statusesResp.data.statuses;
+            const total = checkRuns.length + statusContexts.length;
+            const pendingChecks = checkRuns.filter((run) => run.status !== "completed");
+            const pendingStatuses = statusContexts.filter((status) => status.state === "pending");
+
+            if (pendingChecks.length > 0 || pendingStatuses.length > 0) {
+              console.log(
+                `Checks are still pending for PR #${pr.number}: ` +
+                  `${pendingChecks.length + pendingStatuses.length}/${total}`
+              );
+              core.setOutput("should_notify", "false");
+              return;
+            }
+
+            const failedChecks = checkRuns.filter(
+              (run) => !["success", "neutral", "skipped"].includes(run.conclusion)
+            );
+            const failedStatuses = statusContexts.filter((status) => status.state !== "success");
+            const failed = failedChecks.length + failedStatuses.length;
+            const passed = total - failed;
+            const isDependabot = pr.user.login === "dependabot[bot]";
+            const isAutoManagedDependabot = isDependabot
+              ? await dependabotAutoMergeWasAttempted(sha)
+              : false;
+
+            let shouldNotify;
+            let title;
+
+            if (isAutoManagedDependabot) {
+              shouldNotify = failed > 0;
+              title = "Dependabot auto-managed PR has failing checks";
+            } else {
+              shouldNotify = failed === 0;
+              title = "Pull Request is ready to merge";
+            }
+
+            core.setOutput("should_notify", shouldNotify ? "true" : "false");
+            core.setOutput("title", title);
+            core.setOutput("pr_number", String(pr.number));
+            core.setOutput("pr_url", pr.html_url);
+            core.setOutput("pr_head_ref", pr.head.ref);
+            core.setOutput("pr_base_ref", pr.base.ref);
+            core.setOutput("pr_author", pr.user.login);
+            core.setOutput("check_summary", `${passed}/${total} checks passed`);
+
+            console.log(`PR #${pr.number}`);
+            console.log(`author=${pr.user.login}`);
+            console.log(`isAutoManagedDependabot=${isAutoManagedDependabot}`);
+            console.log(`checkSummary=${passed}/${total}`);
+            console.log(`shouldNotify=${shouldNotify}`);
+
+            async function dependabotAutoMergeWasAttempted(headSha) {
+              const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: "dependabot-auto-update.yaml",
+                event: "pull_request",
+                head_sha: headSha,
+                per_page: 100
+              });
+              const run = runs
+                .filter((candidate) => candidate.head_sha === headSha)
+                .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
+
+              if (!run || run.status !== "completed") {
+                console.log("Dependabot auto-update has not completed for this SHA.");
+                return false;
+              }
+
+              const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                run_id: run.id,
+                per_page: 100
+              });
+
+              const autoUpdateStepNames = new Set([
+                "Approve pull request",
+                "Enable auto-merge"
+              ]);
+
+              return jobs.some((job) =>
+                job.steps?.some(
+                  (step) =>
+                    autoUpdateStepNames.has(step.name) &&
+                    step.conclusion &&
+                    step.conclusion !== "skipped"
+                )
+              );
+            }
+
+      # - name: Notify Slack
+      #   if: steps.notify.outputs.should_notify == 'true'
       #   uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
       #   with:
       #     token: ${{ secrets.SLACK_BOT_TOKEN }}
@@ -112,24 +196,24 @@ jobs:
       #     errors: "true"
       #     payload: |
       #       channel: ${{ secrets.SLACK_CHANNEL_ID }}
-      #       text: "Pull Request is ready to merge"
+      #       text: "${{ steps.notify.outputs.title }}"
       #       blocks:
       #         - type: section
       #           text:
       #             type: mrkdwn
       #             text: |
-      #               :rocket: *Pull Request Ready to Merge*
+      #               :rocket: *${{ steps.notify.outputs.title }}*
 
-      #               *<https://github.com/${{ github.repository }}/tree/${{ github.event.pull_request.head.ref }}|${{ github.event.pull_request.head.ref }}>*
-      #               Author: ${{ github.event.pull_request.user.login == 'dependabot[bot]' && ':robot_face: Dependabot' || format('<https://github.com/{0}|@{0}>', github.event.pull_request.user.login || github.actor || 'N/A') }}
+      #               *<${{ steps.notify.outputs.pr_url }}|${{ steps.notify.outputs.pr_head_ref }}>*
+      #               Author: ${{ steps.notify.outputs.pr_author == 'dependabot[bot]' && ':robot_face: Dependabot' || format('<https://github.com/{0}|@{0}>', steps.notify.outputs.pr_author) }}
       #         - type: context
       #           elements:
       #             - type: mrkdwn
-      #               text: "Branch: `${{ github.event.pull_request.head.ref || github.ref_name }} → ${{ github.event.pull_request.base.ref || 'main' }}`"
+      #               text: "Branch: `${{ steps.notify.outputs.pr_head_ref }} -> ${{ steps.notify.outputs.pr_base_ref }}`"
       #             - type: mrkdwn
       #               text: "Repo: `${{ github.repository }}`"
       #             - type: mrkdwn
-      #               text: "${{ steps.checks.outputs.check_summary || '⚠️ Skipped waiting for checks (Dependabot)' }}"
+      #               text: "${{ steps.notify.outputs.check_summary }}"
       #         - type: actions
       #           elements:
       #             - type: button
@@ -138,4 +222,17 @@ jobs:
       #                 text: "View PR"
       #                 emoji: true
       #               style: primary
-      #               url: "${{ github.event.pull_request.html_url || format('https://github.com/{0}/pulls', github.repository) }}"
+      #               url: "${{ steps.notify.outputs.pr_url }}"
+
+      # - name: Mark Slack notification sent
+      #   if: steps.notify.outputs.should_notify == 'true'
+      #   uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+      #   with:
+      #     github-token: ${{ secrets.GITHUB_TOKEN }}
+      #     script: |
+      #       await github.rest.issues.addLabels({
+      #         owner: context.repo.owner,
+      #         repo: context.repo.repo,
+      #         issue_number: Number("${{ steps.notify.outputs.pr_number }}"),
+      #         labels: ["slack-notified"]
+      #       });
