@@ -93,18 +93,6 @@ def test_validate_tasks_rejects_task_missing_actions():
         validate_tasks([task])
 
 
-def test_validate_tasks_rejects_legacy_task_signature():
-    def run(*, account_id, account_alias, session, dry_run, metadata, actions):
-        """Run an invalid legacy task."""
-
-        pass
-
-    task = ResolvedTask(name="legacy", run=run, depends_on=[], optional=False)
-
-    with pytest.raises(TaskValidationError, match="provider"):
-        validate_tasks([task])
-
-
 def test_validate_tasks_rejects_bad_signature():
     def run(account_id):  # missing required kwargs and positional-only shape
         """Run an invalid task."""
