@@ -481,7 +481,6 @@ def test_non_aws_universal_task_can_use_provider_neutral_kwargs(monkeypatch):
         execution_target_name,
         execution_target_type,
         region,
-        location,
         task_context,
         session,
         dry_run,
@@ -495,7 +494,6 @@ def test_non_aws_universal_task_can_use_provider_neutral_kwargs(monkeypatch):
                 "execution_target_name": execution_target_name,
                 "execution_target_type": execution_target_type,
                 "region": region,
-                "location": location,
                 "context_provider": task_context.provider,
                 "session_region": session.region_name,
                 "dry_run": dry_run,
@@ -549,7 +547,6 @@ def test_non_aws_universal_task_can_use_provider_neutral_kwargs(monkeypatch):
     assert seen["execution_target_name"] == "project-a"
     assert seen["execution_target_type"] == "project"
     assert seen["region"] == "us-central1"
-    assert seen["location"] == "us-central1"
     assert seen["context_provider"] == "gcp"
     assert seen["session_region"] == "us-central1"
     assert seen["dry_run"] is False

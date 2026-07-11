@@ -69,7 +69,6 @@ def _run_task(
         execution_target_name=session.subscription_id,
         execution_target_type="subscription",
         region=session.location,
-        location=session.location,
         session=session,
         dry_run=dry_run,
         metadata={},
@@ -102,7 +101,7 @@ def test_count_resource_groups_counts_and_lists_small_subscriptions(
     ]
     assert result == {
         "subscription_id": "sub-a",
-        "location": "eastus",
+        "region": "eastus",
         "resource_group_count": 2,
         "resource_groups": [
             {
@@ -118,7 +117,7 @@ def test_count_resource_groups_counts_and_lists_small_subscriptions(
         ],
     }
     assert actions == [
-        "Counted 2 Azure resource group(s) in subscription sub-a location eastus"
+        "Counted 2 Azure resource group(s) in subscription sub-a region eastus"
     ]
 
 
@@ -132,11 +131,11 @@ def test_count_resource_groups_omits_large_resource_group_list(fake_azure_resour
 
     assert result == {
         "subscription_id": "sub-a",
-        "location": "eastus",
+        "region": "eastus",
         "resource_group_count": 101,
     }
     assert actions == [
-        "Counted 101 Azure resource group(s) in subscription sub-a location eastus"
+        "Counted 101 Azure resource group(s) in subscription sub-a region eastus"
     ]
 
 
@@ -164,7 +163,6 @@ def test_count_resource_groups_requires_azure_subscription_target(
             execution_target_name="test",
             execution_target_type="account",
             region="us-east-1",
-            location="us-east-1",
             session=FakeAzureSession(),
             dry_run=False,
             metadata={},

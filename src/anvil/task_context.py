@@ -14,7 +14,6 @@ class TaskCallContext:
     execution_target_name: str
     execution_target_type: str
     region: str
-    location: str
     session: object
     dry_run: bool
     metadata: dict[str, object]
@@ -29,7 +28,6 @@ class TaskCallContext:
             "execution_target_name": self.execution_target_name,
             "execution_target_type": self.execution_target_type,
             "region": self.region,
-            "location": self.location,
             "session": self.session,
             "dry_run": self.dry_run,
             "metadata": self.metadata,

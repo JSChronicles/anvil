@@ -40,7 +40,6 @@ def run(
     execution_target_name: str,
     execution_target_type: str,
     region: str,
-    location: str,
     session,
     dry_run: bool,
     metadata: dict[str, object],
@@ -70,10 +69,10 @@ def run(
 
     __LOGGER__.info(
         f"Listed {len(alerts)} GitHub Dependabot alert(s) for "
-        f"{execution_target_type} {execution_target_name} location={location or region}"
+        f"{execution_target_type} {execution_target_name} region={region}"
     )
     actions.record(
         f"Listed {len(alerts)} GitHub Dependabot alert(s) for "
-        f"{execution_target_type} {execution_target_id} location {location or region}"
+        f"{execution_target_type} {execution_target_id} region {region}"
     )
     return {"alert_count": len(alerts), "alerts": alerts, "filters": params}

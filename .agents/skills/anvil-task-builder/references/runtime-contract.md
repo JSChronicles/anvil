@@ -53,7 +53,6 @@ def run(
     execution_target_name: str,
     execution_target_type: str,
     region: str,
-    location: str,
     session,
     dry_run: bool,
     metadata: dict[str, object],
@@ -73,8 +72,8 @@ tasks should put the operator-facing detail on `run()` in Google style:
 
 Runtime facts:
 
-- The provided `session` is already scoped to the provider target and region/location.
-- `region` is the current task execution region/location. AWS sessions also expose `session.region_name`.
+- The provided `session` is already scoped to the provider target and region.
+- `region` is the current task execution region. AWS sessions also expose `session.region_name`.
 - Operator-provided task inputs come from `metadata`.
 - `actions` is an `ActionRecorder` for audit-level actions.
 - Returned values are included in Anvil result JSON.
@@ -101,7 +100,6 @@ def run(
     execution_target_name: str,
     execution_target_type: str,
     region: str,
-    location: str,
     session,
     dry_run: bool,
     metadata: dict[str, object],
@@ -114,9 +112,8 @@ def run(
         execution_target_id: Provider-specific target ID.
         execution_target_name: Display name for the current target.
         execution_target_type: Provider-specific target type.
-        region: Current execution region or location.
-        location: Provider-neutral location alias for the current execution.
-        session: Provider runtime session scoped to the target and location.
+        region: Current execution region.
+        session: Provider runtime session scoped to the target and region.
         dry_run: Whether Anvil is running in dry-run mode.
         metadata: Task metadata from YAML. This task does not require metadata.
         actions: Action recorder provided by the Anvil engine.
@@ -127,9 +124,9 @@ def run(
 
     actions.record(
         f"Checked {provider} {execution_target_type} {execution_target_id} "
-        f"in location {location or region}"
+        f"in region {region}"
     )
-    __LOGGER__.info(f"Completed example check in location {location or region}")
+    __LOGGER__.info(f"Completed example check in region {region}")
 
     return {"checked": True}
 ```

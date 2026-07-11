@@ -65,7 +65,6 @@ def _run_task(
         execution_target_name=execution_target_name,
         execution_target_type=execution_target_type,
         region="global",
-        location="global",
         session=FakeSession(client=client),
         dry_run=False,
         metadata={} if metadata is None else metadata,
@@ -164,7 +163,7 @@ def test_audit_branch_protection_uses_default_branch() -> None:
     ]
     assert actions == [
         "Audited GitHub branch protection for repository octo-org/example "
-        "branch main location global"
+        "branch main region global"
     ]
 
 

@@ -17,6 +17,7 @@ targets:
     language: Python
     max_results: 25
   tasks:
+  # Standalone search runs once per organization with an org: qualifier.
   - name: search_code
 
 - name: github-repository-include
@@ -36,4 +37,5 @@ targets:
     extension: py
     max_results: 10
   tasks:
+  # Standalone search runs once per explicit repository with a repo: qualifier.
   - name: search_code

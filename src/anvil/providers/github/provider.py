@@ -1227,6 +1227,7 @@ class GithubProvider:
         if target.exclude is not None:
             raise ValueError(f"GitHub mode '{target.mode}' does not allow exclude")
         self._validate_include_values(mode=target.mode, include=target.include)
+        self._validate_code_search_isolation(target=target)
 
     def default_regions(self, target: TargetDescriptor) -> list[str]:
         """Return GitHub's provider-neutral global location."""
@@ -1289,7 +1290,7 @@ class GithubProvider:
 
         if target.mode == MODE_GITHUB_ORGANIZATIONS:
             owner_logins = include or target.include or []
-            if _uses_owner_scoped_github_targets(target=target):
+            if _is_code_search_only_target(target=target):
                 target_ids = owner_logins
                 target_type = "organization"
             else:
@@ -1408,6 +1409,21 @@ class GithubProvider:
                 f"{invalid_display}"
             )
 
+    @staticmethod
+    def _validate_code_search_isolation(*, target: TargetDescriptor) -> None:
+        """Require code search to use a dedicated target for efficient planning."""
+
+        task_names = {
+            task.get("name")
+            for task in target.tasks
+            if isinstance(task.get("name"), str) and task.get("name")
+        }
+        if "search_code" in task_names and task_names != {"search_code"}:
+            raise ValueError(
+                "GitHub search_code must be configured in its own target so it can "
+                "use the most efficient organization or repository search scope"
+            )
+
 
 def create_provider() -> GithubProvider:
     """Create the first-party GitHub provider."""
@@ -1498,8 +1514,8 @@ def _installation_cache_owner(*, target_id: str, target_type: str) -> str:
     return target_id
 
 
-def _uses_owner_scoped_github_targets(*, target: TargetDescriptor) -> bool:
-    """Return whether all configured tasks can run once per GitHub owner."""
+def _is_code_search_only_target(*, target: TargetDescriptor) -> bool:
+    """Return whether the target contains only GitHub code searches."""
 
     task_names = {
         task.get("name")

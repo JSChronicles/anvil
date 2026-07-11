@@ -44,13 +44,13 @@ def _get_state(project: object) -> str | None:
 
 
 def _project_info(
-    project: object, *, project_id: str, location: str
+    project: object, *, project_id: str, region: str
 ) -> dict[str, object]:
     """Build structured project result data."""
 
     result: dict[str, object] = {
         "project_id": _get_text_value(project, "project_id") or project_id,
-        "location": location,
+        "region": region,
         "project_name": _get_text_value(project, "name"),
         "display_name": _get_text_value(project, "display_name"),
     }
@@ -70,7 +70,6 @@ def run(
     execution_target_name: str,
     execution_target_type: str,
     region: str,
-    location: str,
     session,
     dry_run: bool,
     metadata: dict[str, object],
@@ -87,8 +86,7 @@ def run(
         execution_target_name: Current GCP project display name or ID.
         execution_target_type: Provider target type.
         region: Current Anvil execution region value.
-        location: Current GCP location value.
-        session: GCP session scoped to the project and location.
+        session: GCP session scoped to the project and region.
         dry_run: Whether execution is running in dry-run mode.
         metadata: Arbitrary config metadata for the task.
         actions: Action recorder provided by the engine.
@@ -124,19 +122,17 @@ def run(
     normalized_project_id = project_id.strip()
     client = resourcemanager_v3.ProjectsClient(credentials=credentials)
     project = client.get_project(name=f"projects/{normalized_project_id}")
-    result = _project_info(
-        project, project_id=normalized_project_id, location=location or region
-    )
+    result = _project_info(project, project_id=normalized_project_id, region=region)
 
     dry_run_suffix = " during dry-run" if dry_run else ""
     __LOGGER__.info(
         f"Read GCP project metadata for {execution_target_name} "
-        f"({normalized_project_id}) location={location or region}{dry_run_suffix}; "
+        f"({normalized_project_id}) region={region}{dry_run_suffix}; "
         "no mutations are performed by this read-only task"
     )
     actions.record(
         f"Read GCP project metadata for project {normalized_project_id} "
-        f"location {location or region}"
+        f"region {region}"
     )
 
     return result

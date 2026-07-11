@@ -28,7 +28,6 @@ def run(
     execution_target_name: str,
     execution_target_type: str,
     region: str,
-    location: str,
     session,
     dry_run: bool,
     metadata: dict[str, object],
@@ -61,11 +60,11 @@ def run(
 
     __LOGGER__.info(
         f"Audited {len(rulesets)} GitHub ruleset(s) for repository "
-        f"{execution_target_name} location={location or region}"
+        f"{execution_target_name} region={region}"
     )
     actions.record(
         f"Audited {len(rulesets)} GitHub ruleset(s) for repository "
-        f"{execution_target_id} location {location or region}"
+        f"{execution_target_id} region {region}"
     )
     return {
         "ruleset_count": len(rulesets),

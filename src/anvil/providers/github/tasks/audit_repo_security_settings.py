@@ -44,7 +44,6 @@ def run(
     execution_target_name: str,
     execution_target_type: str,
     region: str,
-    location: str,
     session,
     dry_run: bool,
     metadata: dict[str, object],
@@ -68,10 +67,10 @@ def run(
 
     __LOGGER__.info(
         f"Audited GitHub repository security settings for {execution_target_name} "
-        f"location={location or region}"
+        f"region={region}"
     )
     actions.record(
         f"Audited GitHub repository security settings for {execution_target_id} "
-        f"location {location or region}"
+        f"region {region}"
     )
     return {"settings": settings}

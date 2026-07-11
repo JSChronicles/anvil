@@ -351,32 +351,6 @@ def test_github_provider_uses_owner_targets_for_organization_code_search():
     assert session_factory.calls == []
 
 
-def test_github_provider_discovers_repository_targets_for_mixed_org_tasks():
-    session_factory = FakeSessionFactory()
-    session_factory.repositories = {
-        "octo-org": ["octo-org/example", "octo-org/other"],
-    }
-    provider = GithubProvider(session_factory=session_factory)
-    target = _target(
-        name="github-organization-mixed",
-        mode="organizations",
-        include=["octo-org"],
-        tasks=[{"name": "search_code"}, {"name": "audit_branch_protection"}],
-    )
-
-    plan = provider.resolve_execution_targets(
-        target=target, regions=["global"], include=target.include, exclude=None
-    )
-
-    assert [(item.id, item.type) for item in plan.execution_targets] == [
-        ("octo-org/example", "repository"),
-        ("octo-org/other", "repository"),
-    ]
-    assert session_factory.calls == [
-        {"owner_logins": ["octo-org"], "provider_options": {"token_env": "GITHUB_TOKEN"}}
-    ]
-
-
 def test_github_provider_resolves_repository_targets_offline():
     provider = create_provider()
     target = _target(include=["octo-org/example", "octo-org/other"])

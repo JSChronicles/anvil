@@ -5,9 +5,11 @@
 GitHub tasks should use the provider-neutral `run()` signature. Validate the
 provider and target type before making GitHub API calls:
 
-- `organizations` mode discovers repositories under configured owner logins.
+- `organizations` mode discovers repositories under configured owner logins for
+  granular tasks. A standalone `search_code` task instead executes once per
+  organization to use GitHub's efficient `org:` search qualifier.
 - `repositories` mode runs against explicit `owner/repo` targets.
-- GitHub uses the provider-neutral `global` location.
+- GitHub uses the provider-neutral `global` region.
 
 Repository-only tasks should validate and split `execution_target_id` with
 `require_repository_target(...)` from
@@ -34,10 +36,12 @@ PyGithub directly when a REST endpoint is needed:
 - Keep GitHub tasks read-only unless the task name and docs clearly describe a
   mutation.
 - Validate metadata before GitHub API calls.
+- Configure `search_code` in its own target so provider planning can choose the
+  most efficient organization or repository search scope.
 - Bound list-style tasks with `max_results` metadata and a conservative default.
 - Return JSON-serializable API data only.
 - Record one concise action summary with `actions.record(...)`.
-- Use `location or region` in log and action messages.
+- Use `region` in log and action messages.
 
 ## Examples
 

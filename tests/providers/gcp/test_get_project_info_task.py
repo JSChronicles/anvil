@@ -82,7 +82,6 @@ def _run_task(
         execution_target_name=session.project_id,
         execution_target_type=execution_target_type,
         region=session.location,
-        location=session.location,
         session=session,
         dry_run=dry_run,
         metadata={},
@@ -102,14 +101,14 @@ def test_get_project_info_reads_project_metadata(fake_gcp_resource_manager_sdk):
     ]
     assert result == {
         "project_id": "project-a",
-        "location": "us-central1",
+        "region": "us-central1",
         "project_name": "projects/project-a",
         "display_name": "Project A",
         "state": "ACTIVE",
         "parent": "folders/123",
     }
     assert actions == [
-        "Read GCP project metadata for project project-a location us-central1"
+        "Read GCP project metadata for project project-a region us-central1"
     ]
 
 
@@ -128,13 +127,13 @@ def test_get_project_info_supports_mapping_project_response(
 
     assert result == {
         "project_id": "project-b",
-        "location": "global",
+        "region": "global",
         "project_name": "projects/project-b",
         "display_name": "Project B",
         "state": "DELETE_REQUESTED",
     }
     assert actions == [
-        "Read GCP project metadata for project project-b location global"
+        "Read GCP project metadata for project project-b region global"
     ]
 
 
@@ -185,7 +184,6 @@ def test_get_project_info_requires_gcp_project_target(fake_gcp_resource_manager_
             execution_target_name="test",
             execution_target_type="account",
             region="us-east-1",
-            location="us-east-1",
             session=FakeGcpSession(),
             dry_run=False,
             metadata={},

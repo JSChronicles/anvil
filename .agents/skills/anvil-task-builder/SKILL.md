@@ -29,7 +29,7 @@ Use this skill to create Anvil tasks that satisfy the runtime contract, behave s
   `anvil.providers.github.tasks`.
 - Every task module must define a callable keyword-only `run()` function.
 - Every task `run()` function must have a useful Google-style docstring. Include a short summary plus `Args:`, `Returns:`, and `Raises:` sections when applicable; document required `metadata` keys explicitly.
-- The provided `session` is already scoped to the provider target and region/location.
+- The provided `session` is already scoped to the provider target and region.
 - Check `dry_run` before every mutating API call.
 - Prefix dry-run log and action messages with `(dry-run)` for planned work.
 - Use logger calls for task-specific progress and troubleshooting details.

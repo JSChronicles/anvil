@@ -89,7 +89,6 @@ def _run_task(
         execution_target_name=execution_target_name,
         execution_target_type=execution_target_type,
         region="global",
-        location="global",
         session=FakeGitHubSession(client=client),
         dry_run=False,
         metadata={"query": "secret"} if metadata is None else metadata,
@@ -147,7 +146,7 @@ def test_search_code_composes_repository_query_and_highlight() -> None:
     assert result["returned_count"] == 1
     assert actions == [
         "Searched GitHub code for repository octo-org/example "
-        "location global; returned 1 result(s)"
+        "region global; returned 1 result(s)"
     ]
 
 
@@ -267,7 +266,6 @@ def test_search_code_requires_task_facing_search_session() -> None:
             execution_target_name="octo-org/example",
             execution_target_type="repository",
             region="global",
-            location="global",
             session=object(),
             dry_run=False,
             metadata={"query": "secret"},

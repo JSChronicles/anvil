@@ -27,7 +27,6 @@ def run(
     execution_target_name: str,
     execution_target_type: str,
     region: str,
-    location: str,
     session,
     dry_run: bool,
     metadata: dict[str, object],
@@ -64,11 +63,11 @@ def run(
 
     __LOGGER__.info(
         f"Audited GitHub branch protection for repository {execution_target_name} "
-        f"branch={branch} protected={protected} location={location or region}"
+        f"branch={branch} protected={protected} region={region}"
     )
     actions.record(
         f"Audited GitHub branch protection for repository {execution_target_id} "
-        f"branch {branch} location {location or region}"
+        f"branch {branch} region {region}"
     )
     return {"branch": branch, "protected": protected, "protection": protection}
 

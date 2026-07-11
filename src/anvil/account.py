@@ -409,7 +409,6 @@ class Account:
                     execution_target_name=self.account_alias,
                     execution_target_type="account",
                     region=region,
-                    location=region,
                     session=session,
                     dry_run=self._context.dry_run,
                     metadata=self._context.metadata,

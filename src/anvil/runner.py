@@ -735,7 +735,6 @@ def _execute_provider_region(
                 execution_target_name=execution_target.name,
                 execution_target_type=execution_target.type,
                 region=region,
-                location=region,
                 session=session,
                 dry_run=context.dry_run,
                 metadata=context.metadata,

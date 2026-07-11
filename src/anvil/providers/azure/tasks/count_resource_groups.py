@@ -39,7 +39,6 @@ def run(
     execution_target_name: str,
     execution_target_type: str,
     region: str,
-    location: str,
     session,
     dry_run: bool,
     metadata: dict[str, object],
@@ -57,8 +56,7 @@ def run(
         execution_target_name: Current subscription display name or ID.
         execution_target_type: Provider target type.
         region: Current Anvil execution region value.
-        location: Current Azure location value.
-        session: Azure session scoped to the subscription and location.
+        session: Azure session scoped to the subscription and region.
         dry_run: Whether execution is running in dry-run mode.
         metadata: Arbitrary config metadata for the task.
         actions: Action recorder provided by the engine.
@@ -99,7 +97,7 @@ def run(
 
     result: dict[str, object] = {
         "subscription_id": subscription_id.strip(),
-        "location": location or region,
+        "region": region,
         "resource_group_count": resource_group_count,
     }
     if resource_group_count <= MAX_LISTED_RESOURCE_GROUPS:
@@ -111,12 +109,12 @@ def run(
     dry_run_suffix = " during dry-run" if dry_run else ""
     __LOGGER__.info(
         f"Counted {resource_group_count} Azure resource group(s) in subscription "
-        f"{execution_target_name} ({subscription_id}) location={location or region}"
+        f"{execution_target_name} ({subscription_id}) region={region}"
         f"{dry_run_suffix}; no mutations are performed by this read-only task"
     )
     actions.record(
         f"Counted {resource_group_count} Azure resource group(s) in subscription "
-        f"{subscription_id.strip()} location {location or region}"
+        f"{subscription_id.strip()} region {region}"
     )
 
     return result

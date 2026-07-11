@@ -196,13 +196,37 @@ def run(
     execution_target_name: str,
     execution_target_type: str,
     region: str,
-    location: str,
     session,
     dry_run: bool,
     metadata: dict[str, object],
     actions: ActionRecorder,
 ) -> dict[str, object]:
-    """Search code in the current GitHub organization or repository target."""
+    """Search code efficiently in the current GitHub organization or repository.
+
+    Configure this task in its own target. Organization mode performs one search
+    per included organization with an ``org:`` qualifier. Repository mode performs
+    one search per explicit repository with a ``repo:`` qualifier.
+
+    Args:
+        provider: Provider name for the current execution target.
+        execution_target_id: GitHub organization login or owner/repository name.
+        execution_target_name: Display name for the current execution target.
+        execution_target_type: GitHub ``organization`` or ``repository`` target.
+        region: Current provider-neutral region.
+        session: GitHub session scoped to the execution target.
+        dry_run: Whether Anvil is running in dry-run mode.
+        metadata: Search options. ``query`` is required. ``language``, ``path``,
+            ``extension``, ``filename``, ``max_results``, and ``highlight`` are
+            optional.
+        actions: Action recorder provided by the Anvil engine.
+
+    Returns:
+        A JSON-serializable payload containing the effective query and results.
+
+    Raises:
+        RuntimeError: If the provider, target type, metadata, session, or GitHub
+            request is invalid.
+    """
 
     if provider != "github":
         raise RuntimeError("search_code requires the github provider")
@@ -240,11 +264,11 @@ def run(
 
     __LOGGER__.info(
         f"Searched GitHub code for {execution_target_type} {execution_target_name} "
-        f"location={location or region}; returned {len(items)} result(s)"
+        f"region={region}; returned {len(items)} result(s)"
     )
     actions.record(
         f"Searched GitHub code for {execution_target_type} {execution_target_id} "
-        f"location {location or region}; returned {len(items)} result(s)"
+        f"region {region}; returned {len(items)} result(s)"
     )
 
     return result
