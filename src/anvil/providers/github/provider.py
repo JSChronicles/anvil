@@ -8,8 +8,9 @@ import os
 import re
 import subprocess
 import threading
+import time
 import tomllib
-from collections.abc import Callable
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
@@ -38,7 +39,8 @@ __LOGGER__ = logging.getLogger(__name__)
 DEFAULT_GITHUB_REGIONS = ["global"]
 DEFAULT_GITHUB_API_VERSION = "2022-11-28"
 DEFAULT_GITHUB_PER_PAGE = 100
-DEFAULT_GITHUB_SECONDARY_RATE_WAIT_SECONDS = 10
+DEFAULT_GITHUB_SEARCH_MIN_INTERVAL_SECONDS = 1.0
+DEFAULT_GITHUB_SEARCH_SECONDARY_RATE_COOLDOWN_SECONDS = 60.0
 DEFAULT_GITHUB_RETRY_TOTAL = 1
 GITHUB_CONFIG_ENV = "ANVIL_GITHUB_CONFIG"
 GITHUB_CONFIG_PATH = Path(".github") / "config"
@@ -128,6 +130,104 @@ class _GithubRepositoryDiscoveryCache:
 _GITHUB_REPOSITORY_DISCOVERY_CACHE = _GithubRepositoryDiscoveryCache()
 
 
+@dataclass(slots=True)
+class _GitHubRateGateState:
+    next_allowed_at: float = 0.0
+
+
+class GitHubRateGate:
+    """Process-local pacing gate for GitHub API calls sharing one auth identity."""
+
+    def __init__(
+        self,
+        *,
+        min_interval_seconds: float,
+        monotonic: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], None] = time.sleep,
+    ) -> None:
+        self._min_interval_seconds = min_interval_seconds
+        self._monotonic = monotonic
+        self._sleep = sleep
+        self._states: dict[object, _GitHubRateGateState] = {}
+        self._lock = threading.Lock()
+
+    def wait(self, *, key: object) -> None:
+        """Block until the next request for the auth identity may start."""
+
+        while True:
+            with self._lock:
+                state = self._states.setdefault(key, _GitHubRateGateState())
+                now = self._monotonic()
+                wait_seconds = state.next_allowed_at - now
+                if wait_seconds <= 0:
+                    state.next_allowed_at = now + self._min_interval_seconds
+                    return
+
+            self._sleep(wait_seconds)
+
+    def cooldown(self, *, key: object, seconds: float) -> None:
+        """Extend the auth identity's shared wait window after throttling."""
+
+        with self._lock:
+            state = self._states.setdefault(key, _GitHubRateGateState())
+            state.next_allowed_at = max(
+                state.next_allowed_at,
+                self._monotonic() + seconds,
+            )
+
+
+_GITHUB_RATE_GATE = GitHubRateGate(
+    min_interval_seconds=DEFAULT_GITHUB_SEARCH_MIN_INTERVAL_SECONDS
+)
+
+
+class _RateLimitedSearchResults:
+    """Pace lazy PyGithub search result page requests."""
+
+    def __init__(
+        self,
+        *,
+        results: object,
+        rate_key: object,
+        rate_gate: GitHubRateGate,
+        page_size: int,
+    ) -> None:
+        self._results = results
+        self._rate_key = rate_key
+        self._rate_gate = rate_gate
+        self._page_size = page_size
+
+    def __iter__(self) -> Iterator[object]:
+        """Yield results while pacing and observing each lazy page fetch."""
+
+        iterator = iter(self._results)
+        item_count = 0
+        while True:
+            if item_count % self._page_size == 0:
+                self._rate_gate.wait(key=self._rate_key)
+            try:
+                item = next(iterator)
+            except StopIteration:
+                return
+            except Exception as error:
+                if _is_github_secondary_rate_limit(error):
+                    self._rate_gate.cooldown(
+                        key=self._rate_key,
+                        seconds=_github_retry_after_seconds(
+                            error,
+                            default=(
+                                DEFAULT_GITHUB_SEARCH_SECONDARY_RATE_COOLDOWN_SECONDS
+                            ),
+                        ),
+                    )
+                raise
+            item_count += 1
+            yield item
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self._results, name)
+
+
 @dataclass(frozen=True, slots=True)
 class GithubExecutionTargetData:
     """GitHub-specific target identity and provider options."""
@@ -141,8 +241,16 @@ class GithubExecutionTargetData:
 class CachedGitHubClient:
     """PyGithub client wrapper with small per-session object caches."""
 
-    def __init__(self, *, client: object) -> None:
+    def __init__(
+        self,
+        *,
+        client: object,
+        rate_key: object | None = None,
+        rate_gate: GitHubRateGate = _GITHUB_RATE_GATE,
+    ) -> None:
         self._client = client
+        self._rate_key = rate_key
+        self._rate_gate = rate_gate
         self._repositories: dict[str, object] = {}
         self._organizations: dict[str, object] = {}
 
@@ -208,9 +316,29 @@ class CachedGitHubClient:
             return get_user(login)
 
     def search_code(self, query: str, *, highlight: bool = False) -> object:
-        """Run a PyGithub code search through the scoped client."""
+        """Run a paced PyGithub code search through the scoped client."""
 
-        return self._client.search_code(query=query, highlight=highlight)
+        try:
+            results = self._client.search_code(query=query, highlight=highlight)
+        except Exception as error:
+            if self._rate_key is not None and _is_github_secondary_rate_limit(error):
+                self._rate_gate.cooldown(
+                    key=self._rate_key,
+                    seconds=_github_retry_after_seconds(
+                        error,
+                        default=DEFAULT_GITHUB_SEARCH_SECONDARY_RATE_COOLDOWN_SECONDS,
+                    ),
+                )
+            raise
+
+        if self._rate_key is None:
+            return results
+        return _RateLimitedSearchResults(
+            results=results,
+            rate_key=self._rate_key,
+            rate_gate=self._rate_gate,
+            page_size=DEFAULT_GITHUB_PER_PAGE,
+        )
 
     def __getattr__(self, name: str) -> object:
         return getattr(self._client, name)
@@ -402,7 +530,8 @@ class GitHubSessionFactory:
                     auth=auth,
                     api_url=settings.api_url,
                     api_version=settings.api_version,
-                )
+                ),
+                rate_key=settings.cache_identity(),
             )
 
             repositories: list[GithubRepository] = []
@@ -476,7 +605,8 @@ class GitHubSessionFactory:
                 auth=auth,
                 api_url=settings.api_url,
                 api_version=settings.api_version,
-            )
+            ),
+            rate_key=settings.cache_identity(),
         )
 
     def _build_auth(
@@ -578,7 +708,8 @@ class GitHubSessionFactory:
                     auth=installation_auth,
                     api_url=settings.api_url,
                     api_version=settings.api_version,
-                )
+                ),
+                rate_key=(*settings.cache_identity(), "installation", installation_id),
             )
         except BaseException as error:
             with self._installation_lock:
@@ -634,10 +765,14 @@ class GitHubSessionFactory:
         retry_cls = getattr(github_module, "GithubRetry", None)
         if not callable(retry_cls):
             raise RuntimeError("PyGithub module does not expose github.GithubRetry")
-        return retry_cls(
-            total=DEFAULT_GITHUB_RETRY_TOTAL,
-            secondary_rate_wait=DEFAULT_GITHUB_SECONDARY_RATE_WAIT_SECONDS,
+        retry = retry_cls(total=DEFAULT_GITHUB_RETRY_TOTAL)
+        status_forcelist = getattr(retry, "status_forcelist", None)
+        if status_forcelist is None:
+            raise RuntimeError("PyGithub GithubRetry does not expose status_forcelist")
+        retry.status_forcelist = frozenset(
+            status for status in status_forcelist if status != 403
         )
+        return retry
 
     def _resolve_auth_settings(
         self, *, provider_options: dict[str, object]
@@ -1293,6 +1428,44 @@ def _is_not_found(error: Exception) -> bool:
         or "404" in str(error)
         or (isinstance(data, dict) and data.get("status") == "404")
     )
+
+
+def _is_github_secondary_rate_limit(error: Exception) -> bool:
+    status = getattr(error, "status", None)
+    message = str(error).lower()
+    headers = getattr(error, "headers", None)
+    has_retry_after = isinstance(headers, Mapping) and any(
+        str(name).lower() == "retry-after" for name in headers
+    )
+    return status == 403 and (
+        "secondary rate" in message
+        or "abuse detection" in message
+        or "rate limit" in message
+        or has_retry_after
+    )
+
+
+def _github_retry_after_seconds(error: Exception, *, default: float) -> float:
+    headers = getattr(error, "headers", None)
+    if not isinstance(headers, Mapping):
+        return default
+
+    retry_after = next(
+        (
+            value
+            for name, value in headers.items()
+            if str(name).lower() == "retry-after"
+        ),
+        None,
+    )
+    if retry_after is None:
+        return default
+
+    try:
+        retry_after_seconds = float(retry_after)
+    except (TypeError, ValueError):
+        return default
+    return retry_after_seconds if retry_after_seconds >= 0 else default
 
 
 def _github_netrc_host(api_url: str | None) -> str:

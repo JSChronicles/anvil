@@ -14,8 +14,10 @@ from anvil.execution_context import ExecutionContext
 from anvil.providers.base import ExecutionTarget
 from anvil.providers.github import create_provider
 from anvil.providers.github.provider import (
+    CachedGitHubClient,
     DEFAULT_GITHUB_API_VERSION,
     GITHUB_CONFIG_ENV,
+    GitHubRateGate,
     GitHubProfileConfig,
     GitHubSessionFactory,
     GithubRepository,
@@ -116,6 +118,7 @@ class FakeAuth:
 class FakeGithubRetry:
     def __init__(self, **kwargs):
         self.kwargs = kwargs
+        self.status_forcelist = frozenset((*range(500, 600), 403))
 
 
 class FakeRequester:
@@ -144,6 +147,8 @@ class FakeGithubClient:
         self.organization_calls: list[str] = []
         self.user_calls: list[str] = []
         self.rest_calls: list[tuple[str, str]] = []
+        self.search_calls: list[tuple[str, bool]] = []
+        self.search_results: object = []
         self.rest_responses = dict(FakeGithubClient.rest_responses)
         self.requester = FakeRequester(self)
         FakeGithubClient.instances.append(self)
@@ -163,6 +168,21 @@ class FakeGithubClient:
     def get_user(self, login):
         self.user_calls.append(login)
         return FakeRepositoryOwner(login=login)
+
+    def search_code(self, *, query, highlight=False):
+        self.search_calls.append((query, highlight))
+        return self.search_results
+
+
+class FakeLazySearchResults:
+    def __init__(self, items, *, error=None):
+        self.items = items
+        self.error = error
+
+    def __iter__(self):
+        if self.error is not None:
+            raise self.error
+        yield from self.items
 
 
 class FakeRepository:
@@ -549,8 +569,9 @@ def test_github_session_factory_uses_token_env_api_url_and_default_version(monke
     }
     assert FakeGithubClient.instances[0].kwargs["retry"].kwargs == {
         "total": 1,
-        "secondary_rate_wait": 10,
     }
+    assert 403 not in FakeGithubClient.instances[0].kwargs["retry"].status_forcelist
+    assert 500 in FakeGithubClient.instances[0].kwargs["retry"].status_forcelist
     assert FakeGithubClient.instances[0].kwargs["auth"].token == "secret-token"
 
 
@@ -891,6 +912,33 @@ def test_github_session_factory_caches_installation_and_client_by_owner(monkeypa
     assert first_session.client is second_session.client
 
 
+def test_github_session_factory_uses_installation_specific_rate_keys(monkeypatch):
+    _install_fake_pygithub(monkeypatch)
+    monkeypatch.setenv("GITHUB_PRIVATE_KEY", "private-key")
+    FakeGithubClient.rest_responses = {
+        "/orgs/first-org/installation": {"id": 111},
+        "/orgs/second-org/installation": {"id": 222},
+    }
+    session_factory = GitHubSessionFactory()
+
+    first_session = session_factory.create_session(
+        target_id="first-org/example",
+        target_type="repository",
+        region_name="global",
+        provider_options={"app_id": "12345", "private_key_env": "GITHUB_PRIVATE_KEY"},
+    )
+    second_session = session_factory.create_session(
+        target_id="second-org/example",
+        target_type="repository",
+        region_name="global",
+        provider_options={"app_id": "12345", "private_key_env": "GITHUB_PRIVATE_KEY"},
+    )
+
+    assert first_session.client._rate_key != second_session.client._rate_key
+    assert first_session.client._rate_key[-2:] == ("installation", 111)
+    assert second_session.client._rate_key[-2:] == ("installation", 222)
+
+
 def test_github_session_factory_single_flights_installation_lookup(monkeypatch):
     _install_fake_pygithub(monkeypatch)
     monkeypatch.setenv("GITHUB_PRIVATE_KEY", "private-key")
@@ -1054,6 +1102,72 @@ def test_cached_github_client_reuses_repo_and_organization_objects(monkeypatch):
 
     assert raw_client.repo_calls == ["octo-org/example"]
     assert raw_client.organization_calls == ["octo-org"]
+
+
+def test_cached_github_client_paces_lazy_search_pages_by_rate_key():
+    raw_client = FakeGithubClient()
+    now = 100.0
+    sleeps: list[float] = []
+
+    def monotonic() -> float:
+        return now
+
+    def sleep(seconds: float) -> None:
+        nonlocal now
+        sleeps.append(seconds)
+        now += seconds
+
+    rate_gate = GitHubRateGate(
+        min_interval_seconds=1.0, monotonic=monotonic, sleep=sleep
+    )
+    client = CachedGitHubClient(
+        client=raw_client, rate_key=("github", "token"), rate_gate=rate_gate
+    )
+
+    raw_client.search_results = FakeLazySearchResults(list(range(101)))
+    results = client.search_code("TargetDescriptor", highlight=False)
+
+    assert sleeps == []
+    assert list(results) == list(range(101))
+    assert sleeps == [1.0]
+    assert raw_client.search_calls == [("TargetDescriptor", False)]
+
+
+def test_cached_github_client_extends_cooldown_after_lazy_secondary_rate_limit():
+    raw_client = FakeGithubClient()
+    now = 100.0
+    sleeps: list[float] = []
+
+    def monotonic() -> float:
+        return now
+
+    def sleep(seconds: float) -> None:
+        nonlocal now
+        sleeps.append(seconds)
+        now += seconds
+
+    rate_gate = GitHubRateGate(
+        min_interval_seconds=1.0, monotonic=monotonic, sleep=sleep
+    )
+    client = CachedGitHubClient(
+        client=raw_client, rate_key=("github", "token"), rate_gate=rate_gate
+    )
+    error = RuntimeError("403 forbidden")
+    error.status = 403
+    error.headers = {"Retry-After": "15"}
+    raw_client.search_results = FakeLazySearchResults([], error=error)
+
+    with pytest.raises(RuntimeError, match="403 forbidden"):
+        list(client.search_code("TargetDescriptor"))
+
+    raw_client.search_results = FakeLazySearchResults([])
+    list(client.search_code("TargetDescriptor"))
+
+    assert sleeps == [15.0]
+    assert raw_client.search_calls == [
+        ("TargetDescriptor", False),
+        ("TargetDescriptor", False),
+    ]
 
 
 def test_github_session_factory_lists_org_and_user_repositories(monkeypatch):
