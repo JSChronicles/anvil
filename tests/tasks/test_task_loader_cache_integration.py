@@ -43,7 +43,7 @@ def test_graph_and_run_paths_behave_the_same_with_cached_resolution(
 
     graph.render_graph(targets=[target], output_json=True)
     graph_output = capsys.readouterr().out
-    assert '"organization": "demo-org"' in graph_output
+    assert '"target": "demo-org"' in graph_output
     assert '"name": "alpha"' in graph_output
     assert '"name": "beta"' in graph_output
 
@@ -64,15 +64,19 @@ def test_graph_and_run_paths_behave_the_same_with_cached_resolution(
         runner, "infer_auth_source", lambda profile: SimpleNamespace(value="test")
     )
     monkeypatch.setattr(
-        runner,
-        "_preflight_organization",
-        lambda **kwargs: (
-            object(),
-            "o-example",
-            "123456789012",
-            "123456789012",
-            {},
-            ["us-east-1"],
+        runner.AwsProvider,
+        "preflight_execution",
+        lambda self, **kwargs: SimpleNamespace(
+            data=SimpleNamespace(
+                session_factory=kwargs["session_factory"],
+                base_session=object(),
+                organization_id="o-example",
+                management_account_id="123456789012",
+                base_session_account_id="123456789012",
+                discovered_accounts={},
+                region_statuses={"us-east-1": "ENABLED_BY_DEFAULT"},
+            ),
+            exclusive_execution_key="o-example",
         ),
     )
 
@@ -86,19 +90,21 @@ def test_graph_and_run_paths_behave_the_same_with_cached_resolution(
         def resolve_accounts(self):
             return []
 
-    def fake_execute_accounts(
-        *, name, config_branch, max_workers, context, accounts, **kwargs
+    def fake_execute_provider_targets(
+        *, target, context, execution_targets, **kwargs
     ):
         observed_tasks.append([task.name for task in context.tasks])
         return results.TargetResult.create(
-            config_branch=config_branch,
-            target_name=name,
+            config_branch=target.config_branch,
+            target_name=target.name,
             dry_run=context.dry_run,
             entities=[],
         )
 
     monkeypatch.setattr(runner, "OrganizationResolver", FakeResolver)
-    monkeypatch.setattr(runner, "execute_accounts", fake_execute_accounts)
+    monkeypatch.setattr(
+        runner, "_execute_provider_targets", fake_execute_provider_targets
+    )
 
     engine_result = runner.run_multiple_targets(
         targets=[target, target],

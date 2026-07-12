@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, replace
+from typing import Protocol
 
 from boto3.session import Session
 
 from anvil.account import Account, AccountAccessStrategy, _AssumedCredentialState
 from anvil.account_resolver import AccountResolver
 from anvil.auth import auth_check, infer_auth_source
+from anvil.benchmark import BenchmarkRecorder
 from anvil.descriptors import ConfigBranch, TargetDescriptor
 from anvil.execution_context import ExecutionContext
 from anvil.organization import OrganizationResolver
@@ -35,19 +38,78 @@ class AwsExecutionTargetData:
     session_factory: SessionFactory
 
 
+@dataclass(frozen=True, slots=True)
+class AwsOrganizationPreflightCacheEntry:
+    """Cached AWS organization discovery data shared across configured targets."""
+
+    management_account_id: str
+    discovered_accounts: dict[str, dict[str, str]]
+    region_statuses: dict[str, str]
+
+
+@dataclass(frozen=True, slots=True)
+class AwsPreflightData:
+    """AWS provider-owned preflight data needed for execution target resolution."""
+
+    session_factory: SessionFactory
+    base_session: Session
+    organization_id: str
+    management_account_id: str
+    base_session_account_id: str
+    discovered_accounts: dict[str, dict[str, str]]
+    region_statuses: dict[str, str]
+
+
+@dataclass(frozen=True, slots=True)
+class AwsPreflightResult:
+    """AWS preflight result plus scheduler admission metadata."""
+
+    data: AwsPreflightData
+    exclusive_execution_key: str
+
+
+@dataclass(frozen=True, slots=True)
+class _AwsOrganizationCacheLookup:
+    entry: object
+    hit: bool
+    waited: bool
+
+
+class _AwsOrganizationCache(Protocol):
+    def get_or_discover(
+        self,
+        *,
+        organization_id: str,
+        discover: Callable[[], AwsOrganizationPreflightCacheEntry],
+    ) -> _AwsOrganizationCacheLookup:
+        """Return cached or newly discovered organization data."""
+
+
 class AwsExecutionRuntime:
     """AWS account runtime adapter around the v0.29.2 account lifecycle."""
 
     def __init__(self, *, account: Account) -> None:
         self._account = account
         self._assumed_credential_state: _AssumedCredentialState | None = None
+        self._recorder = BenchmarkRecorder(enabled=account._context.benchmark_enabled)
+        self._recorder.update(
+            {
+                "access_strategy": account.access_strategy.value,
+                "assume_role_seconds": 0.0,
+                "assume_role_refresh_count": 0,
+                "direct_access_validation_seconds": 0.0,
+            }
+        )
 
         if account.access_strategy is AccountAccessStrategy.ASSUME_ROLE:
-            self._assumed_credential_state = _AssumedCredentialState(
-                credentials=account._get_assumed_role_credentials()
-            )
+            with self._recorder.phase("assume_role_seconds"):
+                self._assumed_credential_state = _AssumedCredentialState(
+                    credentials=account._get_assumed_role_credentials()
+                )
+            self._sync_assume_role_benchmark()
         else:
-            account._validate_direct_account_access()
+            with self._recorder.phase("direct_access_validation_seconds"):
+                account._validate_direct_account_access()
 
     def build_session(self, *, region: str) -> CachedClientSession:
         """Build a cached AWS client session for one account-region pair."""
@@ -68,9 +130,28 @@ class AwsExecutionRuntime:
             assumed_credential_state=self._assumed_credential_state,
             region_duration_seconds=duration_seconds,
         )
+        self._sync_assume_role_benchmark()
 
     def close(self) -> None:
         """AWS runtime currently has no explicit resources to release."""
+
+    @property
+    def benchmark(self) -> dict[str, object] | None:
+        """Return AWS runtime benchmark data when benchmarking is enabled."""
+
+        return self._recorder.data
+
+    def _sync_assume_role_benchmark(self) -> None:
+        if self._assumed_credential_state is None:
+            return
+
+        self._recorder.set(
+            "assume_role_refresh_count", self._assumed_credential_state.refresh_count
+        )
+        self._recorder.set(
+            "assume_role_refresh_window_seconds",
+            self._assumed_credential_state.refresh_window.total_seconds(),
+        )
 
 
 class AwsProvider:
@@ -169,21 +250,11 @@ class AwsProvider:
         regions: list[str],
         include: list[str] | None,
         exclude: list[str] | None,
-        session_factory: SessionFactory | None = None,
-        base_session: Session | None = None,
-        organization_id: str | None = None,
-        management_account_id: str | None = None,
-        base_session_account_id: str | None = None,
-        discovered_accounts: dict[str, dict[str, str]] | None = None,
-        region_statuses: dict[str, str] | None = None,
+        preflight_data: AwsPreflightData | None = None,
         organization_resolver_cls: type[OrganizationResolver] = OrganizationResolver,
         account_resolver_cls: type[AccountResolver] = AccountResolver,
     ) -> ProviderExecutionPlan:
-        """Resolve existing AWS account objects into provider-neutral targets.
-
-        Extra keyword-only parameters are temporary AWS compatibility adapter
-        inputs for the v0.29.2 runner path while provider dispatch is completed.
-        """
+        """Resolve existing AWS account objects into provider-neutral targets."""
 
         self.validate_target(target)
         effective_target = replace(target, include=include, exclude=exclude)
@@ -196,20 +267,32 @@ class AwsProvider:
             fail_fast=effective_target.fail_fast,
             max_parallel_regions=effective_target.max_parallel_regions,
         )
-        resolved_session_factory = session_factory or SessionFactory()
+        resolved_session_factory = (
+            preflight_data.session_factory if preflight_data else SessionFactory()
+        )
 
         if effective_target.is_organization_config:
             resolver = organization_resolver_cls(
                 descriptor=effective_target,
                 context=context,
-                management_account_id=management_account_id,
-                base_session_account_id=base_session_account_id,
+                management_account_id=(
+                    preflight_data.management_account_id if preflight_data else None
+                ),
+                base_session_account_id=(
+                    preflight_data.base_session_account_id if preflight_data else None
+                ),
                 session_factory=resolved_session_factory,
-                base_session=base_session,
-                discovered_accounts=discovered_accounts,
-                region_statuses=region_statuses,
+                base_session=preflight_data.base_session if preflight_data else None,
+                discovered_accounts=(
+                    preflight_data.discovered_accounts if preflight_data else None
+                ),
+                region_statuses=(
+                    preflight_data.region_statuses if preflight_data else None
+                ),
             )
-            exclusive_execution_key = organization_id
+            exclusive_execution_key = (
+                preflight_data.organization_id if preflight_data else None
+            )
         else:
             resolver = account_resolver_cls(
                 descriptor=effective_target,
@@ -231,17 +314,75 @@ class AwsProvider:
             exclusive_execution_key=exclusive_execution_key,
         )
 
-    def accounts_from_execution_targets(
-        self, *, execution_targets: list[ExecutionTarget], context: ExecutionContext
-    ) -> list[Account]:
-        """Adapt AWS provider execution targets back to current account objects."""
+    def preflight_execution(
+        self,
+        *,
+        target: TargetDescriptor,
+        context: ExecutionContext,
+        session_factory: SessionFactory,
+        organization_cache: _AwsOrganizationCache,
+        benchmark: dict[str, object] | None = None,
+        organization_resolver_cls: type[OrganizationResolver] = OrganizationResolver,
+    ) -> AwsPreflightResult:
+        """Discover AWS organization execution data before target execution."""
 
-        return [
-            self._account_from_execution_target(
-                execution_target=execution_target, context=context
+        self.validate_target(target)
+        if not target.is_organization_config:
+            raise ValueError("AWS preflight requires organization mode")
+
+        sink = BenchmarkRecorder(data=benchmark)
+        with sink.phase("create_base_session_seconds"):
+            base_session = session_factory.create_base_session(
+                profile_name=target.profile,
+                region_name=self.bootstrap_region(configured_regions=context.regions),
             )
-            for execution_target in execution_targets
-        ]
+
+        with sink.phase("describe_organization_seconds"):
+            organization_id, management_account_id = (
+                organization_resolver_cls.describe_organization(base_session)
+            )
+
+        with sink.phase("describe_base_session_account_seconds"):
+            base_session_account_id = (
+                organization_resolver_cls.describe_base_session_account(base_session)
+            )
+
+        def discover_organization() -> AwsOrganizationPreflightCacheEntry:
+            with sink.phase("discover_accounts_seconds"):
+                discovered_accounts = organization_resolver_cls.discover_accounts(
+                    base_session
+                )
+
+            with sink.phase("discover_region_statuses_seconds"):
+                region_statuses = self.discover_region_statuses(session=base_session)
+
+            return AwsOrganizationPreflightCacheEntry(
+                management_account_id=management_account_id,
+                discovered_accounts=discovered_accounts,
+                region_statuses=region_statuses,
+            )
+
+        lookup = organization_cache.get_or_discover(
+            organization_id=organization_id, discover=discover_organization
+        )
+        if not isinstance(lookup.entry, AwsOrganizationPreflightCacheEntry):
+            raise RuntimeError("AWS organization cache returned unexpected value")
+
+        sink.set("organization_cache_hit", lookup.hit)
+        sink.set("organization_cache_waited", lookup.waited)
+
+        preflight_data = AwsPreflightData(
+            session_factory=session_factory,
+            base_session=base_session,
+            organization_id=organization_id,
+            management_account_id=lookup.entry.management_account_id,
+            base_session_account_id=base_session_account_id,
+            discovered_accounts=lookup.entry.discovered_accounts,
+            region_statuses=lookup.entry.region_statuses,
+        )
+        return AwsPreflightResult(
+            data=preflight_data, exclusive_execution_key=organization_id
+        )
 
     def prepare_execution_runtime(
         self,

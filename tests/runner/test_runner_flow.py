@@ -1,5 +1,6 @@
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from types import SimpleNamespace
 
 import pytest
 
@@ -77,7 +78,7 @@ def test_run_dispatches_non_aws_provider_without_aws_auth_or_preflight(monkeypat
 
     monkeypatch.setattr("anvil.runner.auth_check", fail_auth_check)
     monkeypatch.setattr(
-        "anvil.runner._preflight_organization",
+        "anvil.runner.AwsProvider.preflight_execution",
         lambda **kwargs: (_ for _ in ()).throw(
             AssertionError("AWS organization preflight should not run")
         ),
@@ -236,7 +237,7 @@ def test_azure_subscription_discovery_runs_without_aws_paths(monkeypatch):
         ),
     )
     monkeypatch.setattr(
-        "anvil.runner._preflight_organization",
+        "anvil.runner.AwsProvider.preflight_execution",
         lambda **kwargs: (_ for _ in ()).throw(
             AssertionError("AWS organization preflight should not run")
         ),
@@ -624,7 +625,7 @@ def test_gcp_project_discovery_runs_without_aws_paths(monkeypatch):
         ),
     )
     monkeypatch.setattr(
-        "anvil.runner._preflight_organization",
+        "anvil.runner.AwsProvider.preflight_execution",
         lambda **kwargs: (_ for _ in ()).throw(
             AssertionError("AWS organization preflight should not run")
         ),
@@ -864,11 +865,6 @@ def test_explicit_modes_reject_cli_exclude_before_execution(
 ):
     executed = False
 
-    def fail_execute_accounts(**kwargs):
-        nonlocal executed
-        executed = True
-        raise AssertionError("explicit-mode exclude should stop before execution")
-
     def fail_execute_provider_execution_target(**kwargs):
         nonlocal executed
         executed = True
@@ -886,7 +882,6 @@ def test_explicit_modes_reject_cli_exclude_before_execution(
             message="ok",
         ),
     )
-    monkeypatch.setattr("anvil.runner.execute_accounts", fail_execute_accounts)
     monkeypatch.setattr(
         "anvil.runner._execute_provider_execution_target",
         fail_execute_provider_execution_target,
@@ -994,29 +989,33 @@ def test_run_multiple_targets_reuses_same_profile_auth_during_preparation(monkey
 
     monkeypatch.setattr("anvil.runner.auth_check", fake_auth_check)
     monkeypatch.setattr("anvil.runner.resolve_tasks", _empty_resolved_execution)
-    monkeypatch.setattr(
-        "anvil.runner._preflight_organization",
-        lambda **kwargs: (
-            object(),
-            "o-shared",
-            "999999999999",
-            "999999999999",
-            {
+
+    def fake_preflight_execution(self, **kwargs):
+        data = SimpleNamespace(
+            session_factory=kwargs["session_factory"],
+            base_session=object(),
+            organization_id="o-shared",
+            management_account_id="999999999999",
+            base_session_account_id="999999999999",
+            discovered_accounts={
                 "999999999999": {
                     "account_number": "999999999999",
                     "account_alias": "management",
                 }
             },
-            {"us-east-1": "ENABLED_BY_DEFAULT"},
-        ),
+            region_statuses={"us-east-1": "ENABLED_BY_DEFAULT"},
+        )
+        return SimpleNamespace(data=data, exclusive_execution_key="o-shared")
+
+    monkeypatch.setattr(
+        "anvil.runner.AwsProvider.preflight_execution",
+        fake_preflight_execution,
     )
     monkeypatch.setattr(
-        "anvil.runner.execute_accounts",
-        lambda **kwargs: __import__(
-            "anvil.results", fromlist=["TargetResult"]
-        ).TargetResult.create(
-            config_branch=kwargs["config_branch"],
-            target_name=kwargs["name"],
+        "anvil.runner._execute_provider_targets",
+        lambda **kwargs: TargetResult.create(
+            config_branch=kwargs["target"].config_branch,
+            target_name=kwargs["target"].name,
             dry_run=kwargs["context"].dry_run,
             entities=[],
         ),
@@ -1186,11 +1185,11 @@ def test_run_multiple_targets_reuses_same_org_discovery_cache(monkeypatch):
         call_counts["regions"] += 1
         return region_statuses
 
-    def fake_execute_accounts(**kwargs):
+    def fake_execute_provider_targets(**kwargs):
         call_counts["execute"] += 1
         return TargetResult.create(
-            config_branch=kwargs["config_branch"],
-            target_name=kwargs["name"],
+            config_branch=kwargs["target"].config_branch,
+            target_name=kwargs["target"].name,
             dry_run=kwargs["context"].dry_run,
             entities=[],
         )
@@ -1203,7 +1202,9 @@ def test_run_multiple_targets_reuses_same_org_discovery_cache(monkeypatch):
         "anvil.runner.OrganizationResolver.discover_region_statuses",
         staticmethod(fake_discover_regions),
     )
-    monkeypatch.setattr("anvil.runner.execute_accounts", fake_execute_accounts)
+    monkeypatch.setattr(
+        "anvil.runner._execute_provider_targets", fake_execute_provider_targets
+    )
 
     targets = _load_targets(
         {
@@ -1270,20 +1271,22 @@ def test_run_multiple_targets_preserves_aws_account_access_strategies(monkeypatc
         def create_base_session(self, **kwargs):
             return object()
 
-    def fake_execute_accounts(**kwargs):
-        observed_accounts[kwargs["name"]] = [
-            (account.account_id, account.access_strategy.value)
-            for account in kwargs["accounts"]
+    def fake_execute_provider_targets(**kwargs):
+        observed_accounts[kwargs["target"].name] = [
+            (execution_target.id, execution_target.provider_data.access_strategy.value)
+            for execution_target in kwargs["execution_targets"]
         ]
         return TargetResult.create(
-            config_branch=kwargs["config_branch"],
-            target_name=kwargs["name"],
+            config_branch=kwargs["target"].config_branch,
+            target_name=kwargs["target"].name,
             dry_run=kwargs["context"].dry_run,
             entities=[],
         )
 
     monkeypatch.setattr("anvil.runner.SessionFactory", FakeSessionFactory)
-    monkeypatch.setattr("anvil.runner.execute_accounts", fake_execute_accounts)
+    monkeypatch.setattr(
+        "anvil.runner._execute_provider_targets", fake_execute_provider_targets
+    )
 
     targets = _load_targets(
         {
@@ -1643,12 +1646,10 @@ def test_run_prepared_target_uses_cached_org_preflight(monkeypatch):
     )
 
     monkeypatch.setattr(
-        "anvil.runner.execute_accounts",
-        lambda **kwargs: __import__(
-            "anvil.results", fromlist=["TargetResult"]
-        ).TargetResult.create(
-            config_branch=kwargs["config_branch"],
-            target_name=kwargs["name"],
+        "anvil.runner._execute_provider_targets",
+        lambda **kwargs: TargetResult.create(
+            config_branch=kwargs["target"].config_branch,
+            target_name=kwargs["target"].name,
             dry_run=kwargs["context"].dry_run,
             entities=[],
         ),
@@ -1667,6 +1668,16 @@ def test_run_prepared_target_uses_cached_org_preflight(monkeypatch):
             message="ok",
         ),
         context=context,
+        provider_preflight=SimpleNamespace(
+            session_factory=FakeSessionFactory(),
+            base_session=base_session,
+            organization_id="o-shared",
+            management_account_id="999999999999",
+            base_session_account_id="999999999999",
+            discovered_accounts=discovered_accounts,
+            region_statuses=region_statuses,
+        ),
+        exclusive_execution_key="o-shared",
         session_factory=FakeSessionFactory(),
         base_session=base_session,
         organization_id="o-shared",

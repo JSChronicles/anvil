@@ -3,7 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from anvil.descriptors import ConfigBranch, TargetDescriptor
-from anvil.providers.aws.provider import AwsExecutionTargetData, AwsProvider
+from anvil.providers.aws.provider import (
+    AwsExecutionTargetData,
+    AwsPreflightData,
+    AwsProvider,
+)
 
 
 @dataclass
@@ -20,8 +24,38 @@ class FakeSessionFactory:
         return BaseSession(profile_name=kwargs["profile_name"])
 
 
-def test_resolve_execution_targets_maps_explicit_assume_role_accounts():
+def _preflight_data(
+    *,
+    session_factory: FakeSessionFactory,
+    base_session: BaseSession | None = None,
+    discovered_accounts: dict[str, dict[str, str]] | None = None,
+) -> AwsPreflightData:
+    return AwsPreflightData(
+        session_factory=session_factory,
+        base_session=base_session or BaseSession(),
+        organization_id="o-shared",
+        management_account_id="111111111111",
+        base_session_account_id="111111111111",
+        discovered_accounts=discovered_accounts
+        or {
+            "111111111111": {
+                "account_number": "111111111111",
+                "account_alias": "management",
+            },
+            "222222222222": {
+                "account_number": "222222222222",
+                "account_alias": "member",
+            },
+        },
+        region_statuses={"us-east-1": "ENABLED_BY_DEFAULT"},
+    )
+
+
+def test_resolve_execution_targets_maps_explicit_assume_role_accounts(monkeypatch):
     session_factory = FakeSessionFactory()
+    monkeypatch.setattr(
+        "anvil.providers.aws.provider.SessionFactory", lambda: session_factory
+    )
     target = TargetDescriptor(
         config_branch=ConfigBranch.TARGETS,
         name="selected",
@@ -36,7 +70,6 @@ def test_resolve_execution_targets_maps_explicit_assume_role_accounts():
         regions=["us-east-1"],
         include=target.include,
         exclude=target.exclude,
-        session_factory=session_factory,
     )
 
     assert plan.exclusive_execution_key is None
@@ -57,8 +90,11 @@ def test_resolve_execution_targets_maps_explicit_assume_role_accounts():
     ]
 
 
-def test_resolve_execution_targets_maps_explicit_direct_profile_account():
+def test_resolve_execution_targets_maps_explicit_direct_profile_account(monkeypatch):
     session_factory = FakeSessionFactory()
+    monkeypatch.setattr(
+        "anvil.providers.aws.provider.SessionFactory", lambda: session_factory
+    )
     target = TargetDescriptor(
         config_branch=ConfigBranch.TARGETS,
         name="current",
@@ -72,7 +108,6 @@ def test_resolve_execution_targets_maps_explicit_direct_profile_account():
         regions=["us-east-1"],
         include=target.include,
         exclude=target.exclude,
-        session_factory=session_factory,
     )
 
     assert [execution_target.id for execution_target in plan.execution_targets] == [
@@ -81,8 +116,13 @@ def test_resolve_execution_targets_maps_explicit_direct_profile_account():
     assert plan.execution_targets[0].metadata["access_strategy"] == "direct_profile"
 
 
-def test_resolve_execution_targets_maps_explicit_assume_role_accounts_with_provider_options():
+def test_resolve_execution_targets_maps_explicit_assume_role_accounts_with_provider_options(
+    monkeypatch,
+):
     session_factory = FakeSessionFactory()
+    monkeypatch.setattr(
+        "anvil.providers.aws.provider.SessionFactory", lambda: session_factory
+    )
     target = TargetDescriptor(
         config_branch=ConfigBranch.TARGETS,
         name="selected",
@@ -97,7 +137,6 @@ def test_resolve_execution_targets_maps_explicit_assume_role_accounts_with_provi
         regions=["us-east-1"],
         include=target.include,
         exclude=target.exclude,
-        session_factory=session_factory,
     )
 
     assert plan.exclusive_execution_key is None
@@ -126,22 +165,9 @@ def test_resolve_execution_targets_maps_organization_accounts_and_execution_key(
         regions=["us-east-1"],
         include=target.include,
         exclude=target.exclude,
-        session_factory=session_factory,
-        base_session=base_session,
-        organization_id="o-shared",
-        management_account_id="111111111111",
-        base_session_account_id="111111111111",
-        discovered_accounts={
-            "111111111111": {
-                "account_number": "111111111111",
-                "account_alias": "management",
-            },
-            "222222222222": {
-                "account_number": "222222222222",
-                "account_alias": "member",
-            },
-        },
-        region_statuses={"us-east-1": "ENABLED_BY_DEFAULT"},
+        preflight_data=_preflight_data(
+            session_factory=session_factory, base_session=base_session
+        ),
     )
 
     assert plan.exclusive_execution_key == "o-shared"
@@ -175,22 +201,9 @@ def test_resolve_execution_targets_maps_organization_accounts_with_provider_opti
         regions=["us-east-1"],
         include=target.include,
         exclude=target.exclude,
-        session_factory=session_factory,
-        base_session=base_session,
-        organization_id="o-shared",
-        management_account_id="111111111111",
-        base_session_account_id="111111111111",
-        discovered_accounts={
-            "111111111111": {
-                "account_number": "111111111111",
-                "account_alias": "management",
-            },
-            "222222222222": {
-                "account_number": "222222222222",
-                "account_alias": "member",
-            },
-        },
-        region_statuses={"us-east-1": "ENABLED_BY_DEFAULT"},
+        preflight_data=_preflight_data(
+            session_factory=session_factory, base_session=base_session
+        ),
     )
 
     assert plan.exclusive_execution_key == "o-shared"
@@ -213,18 +226,15 @@ def test_resolve_execution_targets_preserves_unknown_include_warning(caplog):
         regions=["us-east-1"],
         include=target.include,
         exclude=target.exclude,
-        session_factory=FakeSessionFactory(),
-        base_session=BaseSession(),
-        organization_id="o-shared",
-        management_account_id="111111111111",
-        base_session_account_id="111111111111",
-        discovered_accounts={
-            "111111111111": {
-                "account_number": "111111111111",
-                "account_alias": "management",
-            }
-        },
-        region_statuses={"us-east-1": "ENABLED_BY_DEFAULT"},
+        preflight_data=_preflight_data(
+            session_factory=FakeSessionFactory(),
+            discovered_accounts={
+                "111111111111": {
+                    "account_number": "111111111111",
+                    "account_alias": "management",
+                }
+            },
+        ),
     )
 
     assert plan.execution_targets == []
@@ -244,18 +254,15 @@ def test_resolve_execution_targets_preserves_unknown_exclude_warning(caplog):
         regions=["us-east-1"],
         include=target.include,
         exclude=target.exclude,
-        session_factory=FakeSessionFactory(),
-        base_session=BaseSession(),
-        organization_id="o-shared",
-        management_account_id="111111111111",
-        base_session_account_id="111111111111",
-        discovered_accounts={
-            "111111111111": {
-                "account_number": "111111111111",
-                "account_alias": "management",
-            }
-        },
-        region_statuses={"us-east-1": "ENABLED_BY_DEFAULT"},
+        preflight_data=_preflight_data(
+            session_factory=FakeSessionFactory(),
+            discovered_accounts={
+                "111111111111": {
+                    "account_number": "111111111111",
+                    "account_alias": "management",
+                }
+            },
+        ),
     )
 
     assert [execution_target.id for execution_target in plan.execution_targets] == [

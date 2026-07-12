@@ -11,7 +11,10 @@ from anvil.descriptors import ConfigBranch, TargetDescriptor
 from anvil.execution_context import ExecutionContext
 from anvil.providers.aws.provider import AwsExecutionTargetData, AwsProvider
 from anvil.providers.base import ExecutionTarget
+from anvil.results import ExecutionStatus
+from anvil.runner import _execute_provider_execution_target
 from anvil.session import AssumedRoleCredentials, CachedClientSession
+from anvil.task_loader import ResolvedTask
 
 
 @dataclass
@@ -93,13 +96,19 @@ def _target() -> TargetDescriptor:
     )
 
 
-def _context(*, regions: list[str] | None = None) -> ExecutionContext:
+def _context(
+    *,
+    regions: list[str] | None = None,
+    tasks: list[ResolvedTask] | None = None,
+    benchmark_enabled: bool = False,
+) -> ExecutionContext:
     return ExecutionContext(
         regions=regions or ["us-east-1"],
         role_name="TestRole",
         dry_run=True,
-        tasks=[],
+        tasks=tasks or [],
         metadata={},
+        benchmark_enabled=benchmark_enabled,
     )
 
 
@@ -245,3 +254,45 @@ def test_runtime_returns_cached_client_session_for_region():
     session = runtime.build_session(region="us-east-1")
 
     assert session.client("ec2") is session.client("ec2")
+
+
+def test_aws_provider_execution_path_preserves_runtime_benchmark_data():
+    session_factory = RecordingSessionFactory()
+
+    def run(**kwargs):
+        return {"region": kwargs["region"]}
+
+    context = _context(
+        regions=["us-east-1", "us-west-2"],
+        tasks=[ResolvedTask("scan", run, depends_on=[], optional=False)],
+        benchmark_enabled=True,
+    )
+
+    result = _execute_provider_execution_target(
+        provider=AwsProvider(),
+        target=_target(),
+        execution_target=_execution_target(
+            session_factory=session_factory,
+            access_strategy=AccountAccessStrategy.ASSUME_ROLE,
+            regions=["us-east-1", "us-west-2"],
+        ),
+        context=context,
+    )
+
+    assert result.status is ExecutionStatus.SUCCESS
+    assert result.benchmark is not None
+    assert result.benchmark["access_strategy"] == "assume_role"
+    assert result.benchmark["assume_role_seconds"] >= 0.0
+    assert result.benchmark["direct_access_validation_seconds"] == 0.0
+    assert result.benchmark["assume_role_refresh_count"] == 0
+    assert result.benchmark["assume_role_refresh_window_seconds"] >= 300.0
+    assert result.benchmark["region_execution_seconds"] >= 0.0
+    region_benchmarks = result.benchmark["regions"]
+    assert isinstance(region_benchmarks, dict)
+    assert set(region_benchmarks) == {"us-east-1", "us-west-2"}
+    for region_benchmark in region_benchmarks.values():
+        assert isinstance(region_benchmark, dict)
+        assert region_benchmark["duration_seconds"] >= 0.0
+        assert region_benchmark["task_count"] == 1
+        assert region_benchmark["interrupted"] is False
+        assert region_benchmark["failed"] is False
