@@ -89,6 +89,15 @@ def test_validate_cli_parses_auth_validation(monkeypatch):
     assert args.config_file == [Path("yaml/orgs.yaml")]
 
 
+def test_validate_cli_parses_config_file_validation(monkeypatch):
+    args = _run_main_with_args(
+        monkeypatch, ["anvil", "validate", "--config-file", "yaml/orgs.yaml"]
+    )
+
+    assert args.auth is False
+    assert args.config_file == [Path("yaml/orgs.yaml")]
+
+
 def test_validate_cli_parses_quiet(monkeypatch):
     args = _run_main_with_args(monkeypatch, ["anvil", "validate", "--tasks", "--quiet"])
 
@@ -670,6 +679,79 @@ def test_validate_aggregates_failures_and_successes(monkeypatch, capsys):
     assert "[OK]     Providers" in output
     assert "[OK]     Authentication" in output
     assert "Result:" not in output
+
+
+def test_validate_config_file_alone_runs_offline_config_validation(monkeypatch, capsys):
+    cli = _import_cli_or_skip()
+    args = SimpleNamespace(
+        tasks=None,
+        processors=None,
+        providers=None,
+        auth=False,
+        config_file=[Path("yaml/noop.yaml")],
+        include=None,
+        exclude=None,
+        quiet=False,
+    )
+
+    calls = []
+    loaded_config = SimpleNamespace(branch=cli.ConfigBranch.TARGETS, targets=[])
+    monkeypatch.setattr(
+        cli,
+        "_load_targets_from_config_file",
+        lambda path: calls.append(("load", path)) or loaded_config,
+    )
+    monkeypatch.setattr(
+        cli,
+        "_validate_cli_overrides",
+        lambda **kwargs: calls.append(("overrides", kwargs["loaded_config"])),
+    )
+    monkeypatch.setattr(
+        cli,
+        "_cmd_validate_auth",
+        lambda _: (_ for _ in ()).throw(
+            AssertionError("config validation should not run auth checks")
+        ),
+    )
+
+    assert cli._cmd_validate(args) == 0
+    assert calls == [
+        ("load", Path("yaml/noop.yaml")),
+        ("overrides", loaded_config),
+    ]
+    assert "[OK]     Config" in capsys.readouterr().out
+
+
+def test_validate_config_file_with_auth_uses_auth_validation_only(
+    monkeypatch, capsys
+):
+    cli = _import_cli_or_skip()
+    args = SimpleNamespace(
+        tasks=None,
+        processors=None,
+        providers=None,
+        auth=True,
+        config_file=[Path("yaml/noop.yaml")],
+        include=None,
+        exclude=None,
+        quiet=False,
+    )
+
+    calls = []
+    monkeypatch.setattr(cli, "_cmd_validate_auth", lambda _: calls.append("auth") or 0)
+    monkeypatch.setattr(
+        cli,
+        "_validate_config_files",
+        lambda _: (_ for _ in ()).throw(
+            AssertionError("auth validation loads and validates config itself")
+        ),
+    )
+
+    assert cli._cmd_validate(args) == 0
+    assert calls == ["auth"]
+    output = capsys.readouterr().out
+    assert "[OK]     Authentication" in output
+    assert "Config" not in output
 
 
 def test_validate_treats_nonzero_auth_exit_code_as_failure(monkeypatch, capsys):

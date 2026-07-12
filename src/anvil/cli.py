@@ -373,6 +373,15 @@ def _cmd_validate_auth(args: argparse.Namespace) -> int:
     return _cmd_auth_check(auth_args)
 
 
+def _validate_config_files(args: argparse.Namespace) -> None:
+    if args.config_file is None:
+        raise ValueError("--config-file is required for config validation")
+
+    for config_file in args.config_file:
+        loaded_config = _load_targets_from_config_file(config_file)
+        _validate_cli_overrides(loaded_config=loaded_config, args=args)
+
+
 def _print_grouped_listing(
     *, label: str, descriptors: Sequence[ListableDescriptor]
 ) -> None:
@@ -654,6 +663,11 @@ def _print_validation_summary(results: list[ValidationResult]) -> None:
 def _cmd_validate(args: argparse.Namespace) -> int:
     results: list[ValidationResult] = []
 
+    if args.config_file is not None and not args.auth:
+        results.append(
+            _validation_result("Config", lambda: _validate_config_files(args))
+        )
+
     if args.tasks is not None:
         results.append(
             _validation_result("Tasks", lambda: _validate_selected_tasks(args.tasks))
@@ -681,7 +695,7 @@ def _cmd_validate(args: argparse.Namespace) -> int:
     if not results:
         raise ValueError(
             "at least one validation category is required: "
-            "--tasks, --processors, --providers, or --auth"
+            "--config-file, --tasks, --processors, --providers, or --auth"
         )
 
     if not args.quiet:
@@ -1104,7 +1118,10 @@ def main() -> None:
         "--config-file",
         nargs="+",
         type=Path,
-        help="Path(s) to YAML config file(s) required with --auth",
+        help=(
+            "Path(s) to YAML config file(s) to validate offline, or to use with "
+            "--auth"
+        ),
     )
     validate_group = validate_parser.add_mutually_exclusive_group()
     validate_group.add_argument(
@@ -1199,10 +1216,11 @@ def main() -> None:
         and args.processors is None
         and args.providers is None
         and not args.auth
+        and args.config_file is None
     ):
         validate_parser.error(
             "at least one validation category is required: "
-            "--tasks, --processors, --providers, or --auth"
+            "--config-file, --tasks, --processors, --providers, or --auth"
         )
 
     log_level = (
