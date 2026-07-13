@@ -25,7 +25,6 @@ import yaml
 from anvil._loader_utils import DiscoveryIssue
 from anvil.benchmark import BenchmarkRecorder
 from anvil.descriptors import ConfigBranch, LoadedConfig
-from anvil.graph import render_graph
 from anvil.processor_loader import (
     ProcessorDescriptor,
     ProcessorSpec,
@@ -977,16 +976,6 @@ def _print_diagnostic_checks(checks: list[DiagnosticCheck]) -> None:
         print(f"[{check.status}] {check.label}{detail}")
 
 
-def _cmd_graph(args: argparse.Namespace) -> int:
-
-    for config_file in args.config_file:
-        loaded_config = _load_targets_from_config_file(config_file)
-        _validate_cli_overrides(loaded_config=loaded_config, args=args)
-        render_graph(targets=loaded_config.targets, output_json=args.json)
-
-    return 0
-
-
 def _result_filters_from_args(args: argparse.Namespace) -> ResultFilters:
     return ResultFilters(
         record_type=args.type,
@@ -1415,16 +1404,6 @@ def main() -> None:
         ),
     )
     validate_parser.set_defaults(func=_cmd_validate)
-
-    graph_parser = subparsers.add_parser(
-        "graph", help="Show task dependency graph for configured provider targets"
-    )
-    _add_common_config_args(graph_parser)
-    _add_log_level_arg(graph_parser)
-    graph_parser.add_argument(
-        "--json", action="store_true", help="Output graph as JSON"
-    )
-    graph_parser.set_defaults(func=_cmd_graph)
 
     results_parser = subparsers.add_parser(
         "results", help="Query flattened run results"

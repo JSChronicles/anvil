@@ -84,7 +84,6 @@ Anvil is built for teams that need repeatable cloud workflows, such as inventory
 
 There are multiple global commands:
 ```console
-anvil graph     # Show the resolved task dependency graph
 anvil results   # Query JSONL results and rerun failures
 anvil list      # List available tasks, processors, and providers
 anvil validate  # Inspect environment health or run focused validation checks

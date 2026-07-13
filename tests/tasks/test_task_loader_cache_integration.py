@@ -6,11 +6,8 @@ from types import SimpleNamespace
 from anvil.task_loader import TaskDescriptor
 
 
-def test_graph_and_run_paths_behave_the_same_with_cached_resolution(
-    monkeypatch, capsys
-):
+def test_run_path_reuses_cached_task_resolution(monkeypatch):
     task_loader = importlib.import_module("anvil.task_loader")
-    graph = importlib.import_module("anvil.graph")
     runner = importlib.import_module("anvil.runner")
     descriptors = importlib.import_module("anvil.descriptors")
     results = importlib.import_module("anvil.results")
@@ -40,12 +37,6 @@ def test_graph_and_run_paths_behave_the_same_with_cached_resolution(
         name="demo-org",
         tasks=[{"name": "alpha"}, {"name": "beta", "depends_on": ["alpha"]}],
     )
-
-    graph.render_graph(targets=[target], output_json=True)
-    graph_output = capsys.readouterr().out
-    assert '"target": "demo-org"' in graph_output
-    assert '"name": "alpha"' in graph_output
-    assert '"name": "beta"' in graph_output
 
     monkeypatch.setattr(
         runner,
