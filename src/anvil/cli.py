@@ -9,9 +9,14 @@ import datetime
 import inspect
 import json
 import logging
+import os
 import shlex
+import shutil
+import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from importlib import metadata as importlib_metadata
+from importlib import util as importlib_util
 from pathlib import Path
 from typing import Protocol
 
@@ -76,6 +81,16 @@ class ValidationResult:
     label: str
     succeeded: bool
     error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class DiagnosticCheck:
+    """One offline diagnostic line emitted by default validation."""
+
+    section: str
+    status: str
+    label: str
+    detail: str | None = None
 
 
 class ListableDescriptor(Protocol):
@@ -693,14 +708,273 @@ def _cmd_validate(args: argparse.Namespace) -> int:
         )
 
     if not results:
-        raise ValueError(
-            "at least one validation category is required: "
-            "--config-file, --tasks, --processors, --providers, or --auth"
-        )
+        checks = _diagnostic_checks(args)
+        if not args.quiet:
+            _print_diagnostic_checks(checks)
+        return 1 if any(check.status == "ERROR" for check in checks) else 0
 
     if not args.quiet:
         _print_validation_summary(results)
     return 0 if all(result.succeeded for result in results) else 1
+
+
+def _package_version(distribution_name: str) -> str:
+    try:
+        return importlib_metadata.version(distribution_name)
+    except importlib_metadata.PackageNotFoundError:
+        return "unknown"
+
+
+def _module_available(module_name: str) -> bool:
+    try:
+        return importlib_util.find_spec(module_name) is not None
+    except ModuleNotFoundError:
+        return False
+
+
+def _diagnostic_dependency_checks() -> list[DiagnosticCheck]:
+    dependencies = [
+        ("aws", "boto3", "boto3"),
+        ("azure", "azure.identity", "azure-identity"),
+        ("gcp", "google.auth", "google-auth"),
+        ("github", "github", "PyGithub"),
+    ]
+
+    checks: list[DiagnosticCheck] = []
+    for provider_name, module_name, package_name in dependencies:
+        if _module_available(module_name):
+            checks.append(
+                DiagnosticCheck(
+                    section="Optional Dependencies",
+                    status="OK",
+                    label=provider_name,
+                    detail=f"{package_name} importable",
+                )
+            )
+        else:
+            checks.append(
+                DiagnosticCheck(
+                    section="Optional Dependencies",
+                    status="WARN",
+                    label=provider_name,
+                    detail=f"{package_name} not importable",
+                )
+            )
+
+    return checks
+
+
+def _diagnostic_discovery_checks() -> list[DiagnosticCheck]:
+    checks: list[DiagnosticCheck] = []
+
+    provider_discovery = discover_providers()
+    provider_names = ", ".join(
+        descriptor.name for descriptor in provider_discovery.providers
+    )
+    checks.append(
+        DiagnosticCheck(
+            section="Discovery",
+            status="OK",
+            label="providers",
+            detail=provider_names or "none",
+        )
+    )
+    for issue in provider_discovery.issues:
+        checks.append(
+            DiagnosticCheck(
+                section="Discovery",
+                status="WARN",
+                label=f"provider {issue.name}",
+                detail=f"{issue.source}: {issue.error}",
+            )
+        )
+
+    task_discovery = discover_tasks()
+    checks.append(
+        DiagnosticCheck(
+            section="Discovery",
+            status="OK" if not task_discovery.issues else "WARN",
+            label="tasks",
+            detail=f"{len(task_discovery.tasks)} discovered",
+        )
+    )
+    for issue in task_discovery.issues:
+        checks.append(
+            DiagnosticCheck(
+                section="Discovery",
+                status="WARN",
+                label=f"task {issue.name}",
+                detail=f"{issue.source}: {issue.error}",
+            )
+        )
+
+    processor_discovery = discover_processors()
+    checks.append(
+        DiagnosticCheck(
+            section="Discovery",
+            status="OK" if not processor_discovery.issues else "WARN",
+            label="processors",
+            detail=f"{len(processor_discovery.processors)} discovered",
+        )
+    )
+    for issue in processor_discovery.issues:
+        checks.append(
+            DiagnosticCheck(
+                section="Discovery",
+                status="WARN",
+                label=f"processor {issue.name}",
+                detail=f"{issue.source}: {issue.error}",
+            )
+        )
+
+    return checks
+
+
+def _env_present(name: str) -> bool:
+    return bool(os.environ.get(name))
+
+
+def _diagnostic_auth_source_checks() -> list[DiagnosticCheck]:
+    home = Path.home()
+    aws_config_path = home / ".aws" / "config"
+    checks = [
+        DiagnosticCheck(
+            section="Auth Sources",
+            status="OK" if _env_present("AWS_PROFILE") else "WARN",
+            label="AWS_PROFILE",
+            detail="set" if _env_present("AWS_PROFILE") else "not set",
+        ),
+        DiagnosticCheck(
+            section="Auth Sources",
+            status="OK" if aws_config_path.exists() else "WARN",
+            label="AWS config",
+            detail=str(aws_config_path) if aws_config_path.exists() else "not found",
+        ),
+        DiagnosticCheck(
+            section="Auth Sources",
+            status="OK" if _env_present("GOOGLE_APPLICATION_CREDENTIALS") else "WARN",
+            label="GOOGLE_APPLICATION_CREDENTIALS",
+            detail=(
+                "set" if _env_present("GOOGLE_APPLICATION_CREDENTIALS") else "not set"
+            ),
+        ),
+        DiagnosticCheck(
+            section="Auth Sources",
+            status="OK" if _env_present("GITHUB_TOKEN") else "WARN",
+            label="GITHUB_TOKEN",
+            detail="set" if _env_present("GITHUB_TOKEN") else "not set",
+        ),
+        DiagnosticCheck(
+            section="Auth Sources",
+            status="OK" if _env_present("ANVIL_GITHUB_CONFIG") else "WARN",
+            label="ANVIL_GITHUB_CONFIG",
+            detail="set" if _env_present("ANVIL_GITHUB_CONFIG") else "not set",
+        ),
+    ]
+
+    for executable_name in ("aws", "az", "gcloud", "gh"):
+        executable_path = shutil.which(executable_name)
+        checks.append(
+            DiagnosticCheck(
+                section="Auth Sources",
+                status="OK" if executable_path else "WARN",
+                label=f"{executable_name} executable",
+                detail=executable_path or "not found on PATH",
+            )
+        )
+
+    return checks
+
+
+def _diagnostic_path_checks() -> list[DiagnosticCheck]:
+    cwd = Path.cwd()
+    results_dir = cwd / "results"
+    return [
+        DiagnosticCheck(
+            section="Environment",
+            status="OK",
+            label="Python",
+            detail=sys.version.split()[0],
+        ),
+        DiagnosticCheck(
+            section="Environment",
+            status="OK",
+            label="Anvil",
+            detail=_package_version("anvil"),
+        ),
+        DiagnosticCheck(
+            section="Environment",
+            status="OK",
+            label="Working directory",
+            detail=str(cwd),
+        ),
+        DiagnosticCheck(
+            section="Environment",
+            status="OK" if results_dir.exists() else "WARN",
+            label="Results directory",
+            detail=str(results_dir) if results_dir.exists() else "not created yet",
+        ),
+    ]
+
+
+def _diagnostic_config_checks(args: argparse.Namespace) -> list[DiagnosticCheck]:
+    checks: list[DiagnosticCheck] = []
+    if args.config_file is None:
+        return checks
+
+    for config_file in args.config_file:
+        try:
+            loaded_config = _load_targets_from_config_file(config_file)
+            _validate_cli_overrides(loaded_config=loaded_config, args=args)
+        except Exception as error:
+            checks.append(
+                DiagnosticCheck(
+                    section="Config",
+                    status="ERROR",
+                    label=str(config_file),
+                    detail=str(error),
+                )
+            )
+            continue
+
+        provider_names = sorted({target.provider for target in loaded_config.targets})
+        checks.append(
+            DiagnosticCheck(
+                section="Config",
+                status="OK",
+                label=str(config_file),
+                detail=(
+                    f"{len(loaded_config.targets)} target(s); "
+                    f"providers: {', '.join(provider_names) or 'none'}"
+                ),
+            )
+        )
+
+    return checks
+
+
+def _diagnostic_checks(args: argparse.Namespace) -> list[DiagnosticCheck]:
+    return [
+        *_diagnostic_path_checks(),
+        *_diagnostic_dependency_checks(),
+        *_diagnostic_discovery_checks(),
+        *_diagnostic_auth_source_checks(),
+        *_diagnostic_config_checks(args),
+    ]
+
+
+def _print_diagnostic_checks(checks: list[DiagnosticCheck]) -> None:
+    print("Anvil Validation Diagnostics")
+
+    current_section: str | None = None
+    for check in checks:
+        if check.section != current_section:
+            print()
+            print(check.section)
+            current_section = check.section
+
+        detail = f" {check.detail}" if check.detail else ""
+        print(f"[{check.status}] {check.label}{detail}")
 
 
 def _cmd_graph(args: argparse.Namespace) -> int:
@@ -1210,19 +1484,6 @@ def main() -> None:
         results_parser.error("--output requires --processor")
     if args.command == "validate" and args.auth and args.config_file is None:
         validate_parser.error("--config-file is required with --auth")
-    if (
-        args.command == "validate"
-        and args.tasks is None
-        and args.processors is None
-        and args.providers is None
-        and not args.auth
-        and args.config_file is None
-    ):
-        validate_parser.error(
-            "at least one validation category is required: "
-            "--config-file, --tasks, --processors, --providers, or --auth"
-        )
-
     log_level = (
         "CRITICAL"
         if args.command == "validate" and getattr(args, "quiet", False)

@@ -87,7 +87,7 @@ There are multiple global commands:
 anvil graph     # Show the resolved task dependency graph
 anvil results   # Query JSONL results and rerun failures
 anvil list      # List available tasks, processors, and providers
-anvil validate  # Validate tasks, processors, providers, and authentication
+anvil validate  # Inspect environment health or run focused validation checks
 anvil run       # Execute YAML-defined workflows
 ```
 
@@ -205,8 +205,29 @@ and [Rerun failures](https://opsfoundry.dev/anvil/cli/#rerun-failures).
 
 ### Validation
 
-Use `anvil validate` before a run to perform one or more checks without running
-tasks:
+Use `anvil validate` before a run to inspect the local environment or perform
+one or more focused checks without running tasks:
+
+```console
+anvil validate
+```
+
+With no switches, `anvil validate` prints offline diagnostics for the current
+Anvil environment, including Python and Anvil versions, optional provider
+dependency availability, provider/task/processor discovery, local auth source
+hints, and result path state. It does not call cloud APIs, validate live access,
+or run tasks.
+
+Validate a YAML config file offline:
+
+```console
+anvil validate --config-file ./yaml/orgs.yaml
+```
+
+This parses the config, validates schema and target shape, and checks CLI
+override semantics without checking credentials or calling provider APIs.
+
+Run focused validation categories:
 
 ```console
 anvil validate --tasks --processors --auth --config-file ./yaml/orgs.yaml
@@ -214,7 +235,7 @@ anvil validate --tasks --processors --auth --config-file ./yaml/orgs.yaml
 
 `--tasks` and `--processors` validate discovery and callable signatures.
 `--providers` validates the provider contract. `--auth` validates cloud access
-for the configured targets.
+for the configured targets after loading and validating the config file.
 
 See more at [Task validation](https://opsfoundry.dev/anvil/task-contract/#task-validation).
 
