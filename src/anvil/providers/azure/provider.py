@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -16,6 +17,8 @@ from anvil.providers.base import (
 )
 from anvil.regions import is_region_selector, resolve_location_selectors
 from anvil.results import ExecutionStatus
+
+__LOGGER__ = logging.getLogger(__name__)
 
 DEFAULT_AZURE_LOCATIONS = ["eastus"]
 AZURE_AVAILABLE_LOCATION_STATUS = "available"
@@ -412,10 +415,10 @@ class AzureProvider:
                 subscriptions=subscriptions, include=include, exclude=exclude
             )
         else:
-            subscriptions = [
-                AzureSubscription(subscription_id=subscription_id)
-                for subscription_id in include or target.include or []
-            ]
+            subscriptions = self._subscriptions_for_explicit_ids(
+                provider_options=target.provider_options,
+                subscription_ids=include or target.include or [],
+            )
         execution_targets = [
             self._execution_target(
                 subscription=subscription,
@@ -544,6 +547,30 @@ class AzureProvider:
         self, *, tenant_id: str | None, client_id: str | None, client_secret: str | None
     ) -> object:
         return (AzureSessionFactory, tenant_id, client_id, client_secret)
+
+    def _subscriptions_for_explicit_ids(
+        self, *, provider_options: dict[str, object], subscription_ids: list[str]
+    ) -> list[AzureSubscription]:
+        try:
+            discovered_subscriptions = self._discover_subscriptions(
+                provider_options=provider_options
+            )
+        except Exception as error:
+            __LOGGER__.debug(
+                f"Azure subscription display-name lookup skipped: {error}"
+            )
+            discovered_subscriptions = []
+
+        discovered_by_id = {
+            subscription.subscription_id: subscription
+            for subscription in discovered_subscriptions
+        }
+        return [
+            discovered_by_id.get(
+                subscription_id, AzureSubscription(subscription_id=subscription_id)
+            )
+            for subscription_id in subscription_ids
+        ]
 
     def _filter_discovered_subscriptions(
         self,

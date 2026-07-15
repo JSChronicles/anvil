@@ -174,7 +174,12 @@ def test_azure_provider_rejects_client_secret_without_tenant_and_client_id():
 
 
 def test_azure_resolves_explicit_subscription_targets_deterministically():
-    session_factory = FakeSessionFactory()
+    session_factory = FakeSessionFactory(
+        subscriptions=[
+            AzureSubscription(subscription_id="sub-a", display_name="Subscription A"),
+            AzureSubscription(subscription_id="sub-b", display_name="Subscription B"),
+        ]
+    )
     provider = AzureProvider(session_factory=session_factory)
     target = _target(include=["sub-b"])
 
@@ -190,6 +195,10 @@ def test_azure_resolves_explicit_subscription_targets_deterministically():
         "sub-a",
         "sub-b",
     ]
+    assert [execution_target.name for execution_target in plan.execution_targets] == [
+        "Subscription A",
+        "Subscription B",
+    ]
     assert [execution_target.type for execution_target in plan.execution_targets] == [
         "subscription",
         "subscription",
@@ -198,8 +207,30 @@ def test_azure_resolves_explicit_subscription_targets_deterministically():
         isinstance(execution_target.provider_data, AzureExecutionTargetData)
         for execution_target in plan.execution_targets
     )
-    assert session_factory.list_calls == []
+    assert session_factory.list_calls == [
+        {"tenant_id": None, "client_id": None, "client_secret": None}
+    ]
     assert session_factory.location_calls == []
+
+
+def test_azure_explicit_subscription_names_fall_back_to_ids_when_lookup_fails():
+    class FailingSessionFactory(FakeSessionFactory):
+        def list_subscriptions(self, **kwargs):
+            raise RuntimeError("denied")
+
+    provider = AzureProvider(session_factory=FailingSessionFactory())
+    target = _target(include=["sub-a"])
+
+    plan = provider.resolve_execution_targets(
+        target=target, regions=["eastus"], include=target.include, exclude=None
+    )
+
+    assert [execution_target.id for execution_target in plan.execution_targets] == [
+        "sub-a"
+    ]
+    assert [execution_target.name for execution_target in plan.execution_targets] == [
+        "sub-a"
+    ]
 
 
 def test_azure_resolves_location_selectors_per_subscription():

@@ -100,7 +100,6 @@ def run(
     resource_group_count = len(resource_groups)
 
     result: dict[str, object] = {
-        "subscription_id": subscription_id.strip(),
         "region": region,
         "resource_group_count": resource_group_count,
     }

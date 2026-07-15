@@ -100,7 +100,6 @@ def test_count_resource_groups_counts_and_lists_small_subscriptions(
         {"credential": session.credential, "subscription_id": "sub-a"}
     ]
     assert result == {
-        "subscription_id": "sub-a",
         "region": "eastus",
         "resource_group_count": 2,
         "resource_groups": [
@@ -130,7 +129,6 @@ def test_count_resource_groups_omits_large_resource_group_list(fake_azure_resour
     result, actions = _run_task(session=FakeAzureSession(), dry_run=True)
 
     assert result == {
-        "subscription_id": "sub-a",
         "region": "eastus",
         "resource_group_count": 101,
     }
