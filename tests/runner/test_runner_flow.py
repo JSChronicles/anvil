@@ -1,5 +1,7 @@
+import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from types import ModuleType
 from types import SimpleNamespace
 
 import pytest
@@ -32,6 +34,15 @@ def _empty_resolved_execution(**kwargs):
 def _load_targets(config: dict) -> list[TargetDescriptor]:
     validate_config_schema(config=config)
     return load_config_descriptors(config=config).targets
+
+
+@pytest.fixture(autouse=True)
+def fake_azure_identity_dependency(monkeypatch):
+    azure_module = ModuleType("azure")
+    identity_module = ModuleType("azure.identity")
+    azure_module.identity = identity_module
+    monkeypatch.setitem(sys.modules, "azure", azure_module)
+    monkeypatch.setitem(sys.modules, "azure.identity", identity_module)
 
 
 def test_runner_auth_failure_short_circuits(monkeypatch):
@@ -247,8 +258,8 @@ def test_azure_subscription_discovery_runs_without_aws_paths(monkeypatch):
         lambda self, **kwargs: (
             subscription_calls.append(kwargs)
             or [
-                AzureSubscription(subscription_id="sub-b"),
-                AzureSubscription(subscription_id="sub-a"),
+                AzureSubscription(subscription_id="sub-b", display_name="Sub B"),
+                AzureSubscription(subscription_id="sub-a", display_name="Sub A"),
             ]
         ),
     )
@@ -279,6 +290,10 @@ def test_azure_subscription_discovery_runs_without_aws_paths(monkeypatch):
     assert [result.id for result in engine_result.target_results[0].entities] == [
         "sub-a",
         "sub-b",
+    ]
+    assert [result.name for result in engine_result.target_results[0].entities] == [
+        "Sub A",
+        "Sub B",
     ]
     assert subscription_calls == [
         {"tenant_id": None, "client_id": None, "client_secret": None}

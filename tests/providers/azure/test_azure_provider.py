@@ -17,6 +17,7 @@ from anvil.providers.azure.provider import (
     AzureSessionFactory,
 )
 from anvil.providers.base import ProviderRegion
+from anvil.results import ExecutionStatus
 
 
 @dataclass(frozen=True)
@@ -263,8 +264,8 @@ def test_azure_rejects_unknown_location_selector():
 def test_azure_subscription_discovery_resolves_listed_subscriptions():
     session_factory = FakeSessionFactory(
         subscriptions=[
-            AzureSubscription(subscription_id="sub-b"),
-            AzureSubscription(subscription_id="sub-a"),
+            AzureSubscription(subscription_id="sub-b", display_name="Subscription B"),
+            AzureSubscription(subscription_id="sub-a", display_name="Subscription A"),
         ]
     )
     provider = AzureProvider(session_factory=session_factory)
@@ -277,6 +278,10 @@ def test_azure_subscription_discovery_resolves_listed_subscriptions():
     assert [execution_target.id for execution_target in plan.execution_targets] == [
         "sub-a",
         "sub-b",
+    ]
+    assert [execution_target.name for execution_target in plan.execution_targets] == [
+        "Subscription A",
+        "Subscription B",
     ]
     assert session_factory.list_calls == [
         {"tenant_id": None, "client_id": None, "client_secret": None}
@@ -410,6 +415,24 @@ def test_azure_session_factory_imports_sdk_only_when_session_is_built(monkeypatc
 
     with pytest.raises(RuntimeError, match=r"azure-identity.*anvil\[azure\]"):
         AzureSessionFactory().create_session(subscription_id="sub-a", location="eastus")
+
+
+def test_azure_auth_check_reports_missing_identity_dependency(monkeypatch):
+    real_import = builtins.__import__
+
+    def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "azure.identity":
+            raise ImportError("missing azure identity")
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+
+    result = AzureProvider().auth_check(_target())
+
+    assert result.status is ExecutionStatus.ERROR
+    assert result.source == "azure"
+    assert "azure-identity" in result.message
+    assert "uv sync --extra azure" in result.remediation
 
 
 def test_azure_session_factory_uses_client_secret_credential(monkeypatch):

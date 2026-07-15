@@ -66,12 +66,15 @@ Anvil is built for teams that need repeatable cloud workflows, such as inventory
 
 
 1. Install Anvil with the provider SDKs you need:
-   1. Base installs include AWS support and the default CLI behavior:
+   1. Installed package users can choose provider extras with pip. Base installs
+      include AWS support and the default CLI behavior:
       `pip install anvil`
    1. Azure users should install the Azure extra:
       `pip install "anvil[azure]"`
    1. GCP users should install the GCP extra:
       `pip install "anvil[gcp]"`
+   1. Source checkout users should sync the matching uv extra instead:
+      `uv sync --extra azure` or `uv sync --extra gcp`
 1. When using the uv tool, there are several ways to run and install dependencies. Here are only a couple examples:
 1. uv sync:
    1. Sync the project's dependencies with the environment: uv sync

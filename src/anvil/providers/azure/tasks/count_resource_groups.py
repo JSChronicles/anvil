@@ -8,6 +8,10 @@ from collections.abc import Mapping
 from anvil.actions import ActionRecorder
 
 __LOGGER__ = logging.getLogger(__name__)
+AZURE_EXTRA_REMEDIATION = (
+    "Install Azure dependencies with 'uv sync --extra azure' for a source checkout "
+    "or 'pip install \"anvil[azure]\"' for an installed package."
+)
 
 MAX_LISTED_RESOURCE_GROUPS = 100
 
@@ -88,7 +92,7 @@ def run(
     except ImportError as error:
         raise RuntimeError(
             "count_resource_groups requires optional dependency "
-            "'azure-mgmt-resource'. Install with 'anvil[azure]'."
+            f"'azure-mgmt-resource'. {AZURE_EXTRA_REMEDIATION}"
         ) from error
 
     client = ResourceManagementClient(credential, subscription_id.strip())

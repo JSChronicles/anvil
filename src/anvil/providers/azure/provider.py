@@ -20,6 +20,10 @@ from anvil.results import ExecutionStatus
 DEFAULT_AZURE_LOCATIONS = ["eastus"]
 AZURE_AVAILABLE_LOCATION_STATUS = "available"
 AZURE_AVAILABLE_LOCATION_STATUSES = {AZURE_AVAILABLE_LOCATION_STATUS}
+AZURE_EXTRA_REMEDIATION = (
+    "Install Azure dependencies with 'uv sync --extra azure' for a source checkout "
+    "or 'pip install \"anvil[azure]\"' for an installed package."
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,8 +140,7 @@ class AzureSessionFactory:
         except ImportError as error:
             raise RuntimeError(
                 "Azure provider requires optional dependency 'azure-identity' "
-                "when building an Azure runtime session. Install with "
-                "'anvil[azure]'."
+                f"when building an Azure runtime session. {AZURE_EXTRA_REMEDIATION}"
             ) from error
 
         try:
@@ -204,7 +207,7 @@ class AzureSessionFactory:
         except ImportError as error:
             raise RuntimeError(
                 "Azure subscription discovery requires optional dependency "
-                "'azure-mgmt-subscription'. Install with 'anvil[azure]'."
+                f"'azure-mgmt-subscription'. {AZURE_EXTRA_REMEDIATION}"
             ) from error
 
         try:
@@ -251,7 +254,7 @@ class AzureSessionFactory:
         except ImportError as error:
             raise RuntimeError(
                 "Azure location discovery requires optional dependency "
-                "'azure-mgmt-resource-subscriptions'. Install with 'anvil[azure]'."
+                f"'azure-mgmt-resource-subscriptions'. {AZURE_EXTRA_REMEDIATION}"
             ) from error
 
         try:
@@ -360,9 +363,21 @@ class AzureProvider:
         return (self.metadata.name, target.profile)
 
     def auth_check(self, target: TargetDescriptor) -> ProviderAuthResult:
-        """Report deferred Azure auth checks without live SDK calls."""
+        """Validate Azure auth dependencies without acquiring a live token."""
 
         self.validate_target(target)
+        try:
+            import azure.identity  # noqa: F401
+        except ImportError:
+            return ProviderAuthResult(
+                status=ExecutionStatus.ERROR,
+                source="azure",
+                message=(
+                    "Azure authentication requires optional dependency "
+                    "'azure-identity'."
+                ),
+                remediation=AZURE_EXTRA_REMEDIATION,
+            )
         return ProviderAuthResult(
             status=ExecutionStatus.SUCCESS,
             source="deferred",
@@ -393,20 +408,25 @@ class AzureProvider:
             subscriptions = self._discover_subscriptions(
                 provider_options=target.provider_options
             )
-            subscription_ids = self._filter_discovered_subscription_ids(
+            subscriptions = self._filter_discovered_subscriptions(
                 subscriptions=subscriptions, include=include, exclude=exclude
             )
         else:
-            subscription_ids = include or target.include
+            subscriptions = [
+                AzureSubscription(subscription_id=subscription_id)
+                for subscription_id in include or target.include or []
+            ]
         execution_targets = [
             self._execution_target(
-                subscription_id=subscription_id,
+                subscription=subscription,
                 locations=self._resolve_locations(
-                    target=target, subscription_id=subscription_id, regions=regions
+                    target=target,
+                    subscription_id=subscription.subscription_id,
+                    regions=regions,
                 ),
                 provider_options=target.provider_options,
             )
-            for subscription_id in subscription_ids
+            for subscription in subscriptions
         ]
         return ProviderExecutionPlan(execution_targets=execution_targets)
 
@@ -434,12 +454,13 @@ class AzureProvider:
     def _execution_target(
         self,
         *,
-        subscription_id: str,
+        subscription: AzureSubscription,
         locations: list[str],
         provider_options: dict[str, object],
     ) -> ExecutionTarget:
+        subscription_name = subscription.display_name or subscription.subscription_id
         data = AzureExecutionTargetData(
-            subscription_id=subscription_id,
+            subscription_id=subscription.subscription_id,
             locations=list(locations),
             tenant_id=self._string_option(
                 provider_options=provider_options, option_name="tenant_id"
@@ -456,11 +477,11 @@ class AzureProvider:
             session_factory=self._session_factory,
         )
         return ExecutionTarget(
-            id=subscription_id,
-            name=subscription_id,
+            id=subscription.subscription_id,
+            name=subscription_name,
             type="subscription",
             provider=self.metadata.name,
-            metadata={"subscription_id": subscription_id},
+            metadata={"subscription_id": subscription.subscription_id},
             provider_data=data,
         )
 
@@ -524,17 +545,21 @@ class AzureProvider:
     ) -> object:
         return (AzureSessionFactory, tenant_id, client_id, client_secret)
 
-    def _filter_discovered_subscription_ids(
+    def _filter_discovered_subscriptions(
         self,
         *,
         subscriptions: list[AzureSubscription],
         include: list[str] | None,
         exclude: list[str] | None,
-    ) -> list[str]:
-        discovered_ids = sorted(
-            subscription.subscription_id for subscription in subscriptions
+    ) -> list[AzureSubscription]:
+        discovered_subscriptions = sorted(
+            subscriptions, key=lambda subscription: subscription.subscription_id
         )
-        discovered_set = set(discovered_ids)
+        discovered_by_id = {
+            subscription.subscription_id: subscription
+            for subscription in discovered_subscriptions
+        }
+        discovered_set = set(discovered_by_id)
 
         if include is not None:
             unknown = [
@@ -548,9 +573,11 @@ class AzureProvider:
                     "Azure include filter matched unknown subscription IDs: "
                     f"{unknown_display}"
                 )
-            subscription_ids = [subscription_id for subscription_id in include]
+            selected_subscriptions = [
+                discovered_by_id[subscription_id] for subscription_id in include
+            ]
         else:
-            subscription_ids = discovered_ids
+            selected_subscriptions = discovered_subscriptions
 
         if exclude is not None:
             unknown = [
@@ -565,13 +592,13 @@ class AzureProvider:
                     f"{unknown_display}"
                 )
             excluded = set(exclude)
-            subscription_ids = [
-                subscription_id
-                for subscription_id in subscription_ids
-                if subscription_id not in excluded
+            selected_subscriptions = [
+                subscription
+                for subscription in selected_subscriptions
+                if subscription.subscription_id not in excluded
             ]
 
-        return subscription_ids
+        return selected_subscriptions
 
     def _string_option(
         self, *, provider_options: dict[str, object], option_name: str

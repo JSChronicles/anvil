@@ -1474,6 +1474,9 @@ def main() -> None:
     )
     # Suppress repeated botocore SSO cache reads at INFO while keeping Anvil INFO logs.
     logging.getLogger("botocore.tokens").setLevel(logging.WARNING)
+    # Provider SDK INFO logs include credential probing and HTTP request details.
+    for sdk_logger_name in ("azure", "github", "google"):
+        logging.getLogger(sdk_logger_name).setLevel(logging.WARNING)
 
     try:
         exit_code = args.func(args)
