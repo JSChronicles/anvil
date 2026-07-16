@@ -26,6 +26,7 @@ from anvil.descriptors import ConfigBranch, TargetDescriptor
 from anvil.execution_context import ExecutionContext
 from anvil.organization import OrganizationResolver
 from anvil.providers.aws import AwsProvider
+from anvil.providers.azure import AzureProvider
 from anvil.provider_loader import list_providers
 from anvil.providers.base import (
     ExecutionTarget,
@@ -137,7 +138,9 @@ class PreparedTarget:
     context: ExecutionContext | None
     session_factory: SessionFactory = field(default_factory=SessionFactory)
     provider_preflight: object | None = None
+    preflight_error: str | None = None
     exclusive_execution_key: object | None = None
+    exclusive_execution_keys: tuple[object, ...] = ()
     base_session: Session | None = None
     organization_id: str | None = None
     management_account_id: str | None = None
@@ -553,7 +556,9 @@ def prepare_target(
         )
 
         provider_preflight: object | None = None
+        preflight_error: str | None = None
         exclusive_execution_key: object | None = None
+        exclusive_execution_keys: tuple[object, ...] = ()
         base_session: Session | None = None
         organization_id: str | None = None
         management_account_id: str | None = None
@@ -583,6 +588,25 @@ def prepare_target(
             base_session_account_id = preflight_result.data.base_session_account_id
             discovered_accounts = preflight_result.data.discovered_accounts
             region_statuses = preflight_result.data.region_statuses
+        elif effective_target.provider == "azure":
+            if not isinstance(provider, AzureProvider):
+                raise TypeError("Azure target resolved to a non-Azure provider")
+
+            try:
+                preflight_result = provider.preflight_execution(
+                    target=effective_target,
+                    regions=context.regions,
+                    include=effective_include,
+                    exclude=effective_exclude,
+                    benchmark=recorder.data,
+                )
+            except (RuntimeError, ValueError) as error:
+                provider_preflight = None
+                preflight_error = str(error)
+                exclusive_execution_keys = ()
+            else:
+                provider_preflight = preflight_result.data
+                exclusive_execution_keys = preflight_result.exclusive_execution_keys
 
     return PreparedTarget(
         index=index,
@@ -591,7 +615,9 @@ def prepare_target(
         context=context,
         session_factory=session_factory,
         provider_preflight=provider_preflight,
+        preflight_error=preflight_error,
         exclusive_execution_key=exclusive_execution_key,
+        exclusive_execution_keys=exclusive_execution_keys,
         base_session=base_session,
         organization_id=organization_id,
         management_account_id=management_account_id,
@@ -1076,6 +1102,19 @@ def run_prepared_target(*, prepared_target: PreparedTarget) -> TargetExecutionOu
 
     target: TargetDescriptor = prepared_target.effective_target
     context: ExecutionContext = prepared_target.context
+    if prepared_target.preflight_error is not None:
+        return TargetExecutionOutcome(
+            index=prepared_target.index,
+            target_result=TargetResult.create(
+                config_branch=target.config_branch,
+                target_name=target.name,
+                dry_run=context.dry_run,
+                entities=[],
+                error=prepared_target.preflight_error,
+            ),
+            cancelled=context.cancel_event.is_set(),
+        )
+
     benchmark_data = (
         dict(prepared_target.benchmark)
         if prepared_target.benchmark is not None
@@ -1098,6 +1137,17 @@ def run_prepared_target(*, prepared_target: PreparedTarget) -> TargetExecutionOu
                     preflight_data=prepared_target.provider_preflight,
                     organization_resolver_cls=OrganizationResolver,
                     account_resolver_cls=AccountResolver,
+                )
+            elif target.provider == "azure":
+                if not isinstance(provider, AzureProvider):
+                    raise TypeError("Azure target resolved to a non-Azure provider")
+
+                execution_plan = provider.resolve_execution_targets(
+                    target=target,
+                    regions=context.regions,
+                    include=prepared_target.effective_include,
+                    exclude=prepared_target.effective_exclude,
+                    preflight_data=prepared_target.provider_preflight,
                 )
             else:
                 execution_plan = provider.resolve_execution_targets(
@@ -1149,16 +1199,24 @@ def _next_eligible_target(
     # execution. We enforce that only at execution admission so preparation can
     # still proceed in parallel.
     for offset, prepared_target in enumerate(pending):
-        execution_key = (
-            prepared_target.exclusive_execution_key or prepared_target.organization_id
-        )
-        if execution_key is not None and execution_key in active_execution_keys:
+        execution_keys = _prepared_target_execution_keys(prepared_target)
+        if any(key in active_execution_keys for key in execution_keys):
             continue
 
         del pending[offset]
         return prepared_target
 
     return None
+
+
+def _prepared_target_execution_keys(prepared_target: PreparedTarget) -> tuple[object, ...]:
+    if prepared_target.exclusive_execution_keys:
+        return prepared_target.exclusive_execution_keys
+
+    execution_key = (
+        prepared_target.exclusive_execution_key or prepared_target.organization_id
+    )
+    return () if execution_key is None else (execution_key,)
 
 
 def run_auth_checks(*, targets: list[TargetDescriptor]) -> EngineResult:
@@ -1259,12 +1317,9 @@ def _run_target_pipeline(
                     )
                     execution_futures[future] = next_target
 
-                    execution_key = (
-                        next_target.exclusive_execution_key
-                        or next_target.organization_id
+                    active_execution_keys.update(
+                        _prepared_target_execution_keys(next_target)
                     )
-                    if execution_key is not None:
-                        active_execution_keys.add(execution_key)
 
                 waited_futures = set(preflight_futures) | set(execution_futures)
                 if not waited_futures:
@@ -1284,12 +1339,9 @@ def _run_target_pipeline(
                         continue
 
                     prepared_target = execution_futures.pop(future)
-                    execution_key = (
-                        prepared_target.exclusive_execution_key
-                        or prepared_target.organization_id
+                    active_execution_keys.difference_update(
+                        _prepared_target_execution_keys(prepared_target)
                     )
-                    if execution_key is not None:
-                        active_execution_keys.discard(execution_key)
 
                     outcome = future.result()
                     target_results_by_index[outcome.index] = outcome.target_result

@@ -1,5 +1,6 @@
 import sys
 import threading
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from types import ModuleType
 from types import SimpleNamespace
@@ -18,6 +19,7 @@ from anvil.runner import (
     OrganizationRunCache,
     OrganizationRunCacheEntry,
     PreparedTarget,
+    _next_eligible_target,
     prepare_target,
     run_auth_checks,
     run_multiple_targets,
@@ -38,11 +40,32 @@ def _load_targets(config: dict) -> list[TargetDescriptor]:
 
 @pytest.fixture(autouse=True)
 def fake_azure_identity_dependency(monkeypatch):
+    class FakeDefaultAzureCredential:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def get_token(self, scope):
+            return SimpleNamespace(token=f"token:{scope}")
+
+    class FakeClientSecretCredential(FakeDefaultAzureCredential):
+        def __init__(self, *, tenant_id, client_id, client_secret):
+            super().__init__(
+                tenant_id=tenant_id,
+                client_id=client_id,
+                client_secret=client_secret,
+            )
+
     azure_module = ModuleType("azure")
     identity_module = ModuleType("azure.identity")
+    identity_module.ClientSecretCredential = FakeClientSecretCredential
+    identity_module.DefaultAzureCredential = FakeDefaultAzureCredential
     azure_module.identity = identity_module
     monkeypatch.setitem(sys.modules, "azure", azure_module)
     monkeypatch.setitem(sys.modules, "azure.identity", identity_module)
+    monkeypatch.setattr(
+        "anvil.providers.azure.provider.AzureSessionFactory.list_locations",
+        lambda self, **kwargs: [ProviderRegion(name="eastus", status="available")],
+    )
 
 
 def test_runner_auth_failure_short_circuits(monkeypatch):
@@ -127,7 +150,7 @@ def test_run_dispatches_non_aws_provider_without_aws_auth_or_preflight(monkeypat
 
     assert resolved_provider_names == ["azure"]
     assert engine_result.auth_results[0].status is ExecutionStatus.SUCCESS
-    assert engine_result.auth_results[0].source == "deferred"
+    assert engine_result.auth_results[0].source == "azure"
     assert engine_result.target_results[0].entities[0].id == (
         "11111111-2222-3333-4444-555555555555"
     )
@@ -212,7 +235,6 @@ def test_non_aws_provider_options_reach_runtime_session_factory(monkeypatch):
             "tenant_id": "tenant-a",
             "client_id": "client-a",
             "client_secret": "secret-a",
-            "subscription_id": "billing-sub",
         },
         tasks=[],
     )
@@ -233,7 +255,6 @@ def test_non_aws_provider_options_reach_runtime_session_factory(monkeypatch):
             "tenant_id": "tenant-a",
             "client_id": "client-a",
             "client_secret": "secret-a",
-            "configured_subscription_id": "billing-sub",
         }
     ]
 
@@ -441,6 +462,59 @@ def test_azure_subscription_discovery_plan_is_cached_across_targets(monkeypatch)
         "sub-a",
         "sub-a",
     ]
+
+
+def test_scheduler_blocks_targets_with_overlapping_azure_execution_keys():
+    context = ExecutionContext(
+        regions=["eastus"], role_name=None, dry_run=False, tasks=[], metadata={}
+    )
+    auth_result = AuthResult(
+        target_name="azure-a",
+        status=ExecutionStatus.SUCCESS,
+        source="test",
+        started_at="start",
+        ended_at="end",
+        duration_seconds=0.0,
+        message="ok",
+    )
+    overlapping_target = PreparedTarget(
+        index=0,
+        effective_target=TargetDescriptor(
+            config_branch=ConfigBranch.TARGETS,
+            name="azure-a",
+            provider="azure",
+            mode="subscriptions",
+            include=["sub-a", "sub-b"],
+        ),
+        auth_result=auth_result,
+        context=context,
+        exclusive_execution_keys=(
+            ("azure", "subscription", "sub-a"),
+            ("azure", "subscription", "sub-b"),
+        ),
+    )
+    non_overlapping_target = PreparedTarget(
+        index=1,
+        effective_target=TargetDescriptor(
+            config_branch=ConfigBranch.TARGETS,
+            name="azure-b",
+            provider="azure",
+            mode="subscriptions",
+            include=["sub-c"],
+        ),
+        auth_result=auth_result,
+        context=context,
+        exclusive_execution_keys=(("azure", "subscription", "sub-c"),),
+    )
+    pending = deque([overlapping_target, non_overlapping_target])
+
+    selected = _next_eligible_target(
+        pending=pending,
+        active_execution_keys={("azure", "subscription", "sub-b")},
+    )
+
+    assert selected is non_overlapping_target
+    assert list(pending) == [overlapping_target]
 
 
 def test_gcp_provider_options_reach_runtime_session_factory(monkeypatch):

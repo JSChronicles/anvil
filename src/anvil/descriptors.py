@@ -29,7 +29,7 @@ SUPPORTED_PROVIDER_MODES = {
 }
 SUPPORTED_PROVIDER_OPTIONS = {
     PROVIDER_AWS: {"profile", "role_name"},
-    PROVIDER_AZURE: {"tenant_id", "client_id", "client_secret", "subscription_id"},
+    PROVIDER_AZURE: {"tenant_id", "client_id", "client_secret"},
     PROVIDER_GCP: {"credentials_path", "organization_id", "quota_project_id"},
     PROVIDER_GITHUB: {
         "api_url",
@@ -250,15 +250,9 @@ class TargetDescriptor:
             tenant_id = self.provider_options.get("tenant_id")
             client_id = self.provider_options.get("client_id")
             client_secret = self.provider_options.get("client_secret")
-            subscription_id = self.provider_options.get("subscription_id")
             if tenant_id is not None and client_secret is None:
                 raise ValueError(
                     "Azure provider.options.tenant_id is only supported with "
-                    "client_secret"
-                )
-            if subscription_id is not None and client_secret is None:
-                raise ValueError(
-                    "Azure provider.options.subscription_id is only supported with "
                     "client_secret"
                 )
             if client_secret is not None and (tenant_id is None or client_id is None):

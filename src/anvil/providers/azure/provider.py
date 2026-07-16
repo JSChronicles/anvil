@@ -5,7 +5,12 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from anvil.descriptors import ConfigBranch, MODE_AZURE_TENANT, TargetDescriptor
+from anvil.benchmark import BenchmarkRecorder
+from anvil.descriptors import (
+    ConfigBranch,
+    MODE_AZURE_TENANT,
+    TargetDescriptor,
+)
 from anvil.execution_context import ExecutionContext
 from anvil.providers.base import (
     ExecutionTarget,
@@ -108,8 +113,23 @@ class AzureExecutionTargetData:
     tenant_id: str | None
     client_id: str | None
     client_secret: str | None
-    configured_subscription_id: str | None
     session_factory: "AzureSessionFactory"
+
+
+@dataclass(frozen=True, slots=True)
+class AzurePreflightData:
+    """Azure provider-owned discovery data prepared before execution."""
+
+    subscriptions: list[AzureSubscription]
+    location_statuses_by_subscription: dict[str, dict[str, str]]
+
+
+@dataclass(frozen=True, slots=True)
+class AzurePreflightResult:
+    """Azure preflight result plus scheduler admission metadata."""
+
+    data: AzurePreflightData | None
+    exclusive_execution_keys: tuple[object, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,7 +139,6 @@ class AzureSession:
     subscription_id: str
     location: str
     credential: object
-    configured_subscription_id: str | None = None
 
     @property
     def region_name(self) -> str:
@@ -179,7 +198,6 @@ class AzureSessionFactory:
         tenant_id: str | None = None,
         client_id: str | None = None,
         client_secret: str | None = None,
-        configured_subscription_id: str | None = None,
     ) -> AzureSession:
         """Create an Azure session for a subscription/location pair."""
 
@@ -190,8 +208,31 @@ class AzureSessionFactory:
             subscription_id=subscription_id,
             location=location,
             credential=credential,
-            configured_subscription_id=configured_subscription_id,
         )
+
+    def validate_auth(
+        self,
+        *,
+        tenant_id: str | None = None,
+        client_id: str | None = None,
+        client_secret: str | None = None,
+    ) -> None:
+        """Validate Azure credentials can acquire an ARM access token."""
+
+        credential = self._build_credential(
+            tenant_id=tenant_id, client_id=client_id, client_secret=client_secret
+        )
+        get_token = getattr(credential, "get_token", None)
+        if not callable(get_token):
+            raise RuntimeError(
+                "Azure credential does not support token validation with get_token()."
+            )
+        try:
+            get_token("https://management.azure.com/.default")
+        except Exception as error:
+            raise RuntimeError(
+                f"Azure provider could not validate ARM authentication: {error}"
+            ) from error
 
     def list_subscriptions(
         self,
@@ -298,7 +339,6 @@ class AzureExecutionRuntime:
             tenant_id=self._data.tenant_id,
             client_id=self._data.client_id,
             client_secret=self._data.client_secret,
-            configured_subscription_id=self._data.configured_subscription_id,
         )
 
     def record_region_outcome(
@@ -337,16 +377,11 @@ class AzureProvider:
                 "Azure provider.options.tenant_id is only supported with client_secret"
             )
         if (
-            target.provider_options.get("subscription_id") is not None
-            and target.provider_options.get("client_secret") is None
-        ):
-            raise ValueError(
-                "Azure provider.options.subscription_id is only supported with "
-                "client_secret"
+            target.provider_options.get("client_secret") is not None
+            and (
+                target.provider_options.get("tenant_id") is None
+                or target.provider_options.get("client_id") is None
             )
-        if target.provider_options.get("client_secret") is not None and (
-            target.provider_options.get("tenant_id") is None
-            or target.provider_options.get("client_id") is None
         ):
             raise ValueError(
                 "Azure provider.options.client_secret requires tenant_id and client_id"
@@ -366,30 +401,49 @@ class AzureProvider:
         return (self.metadata.name, target.profile)
 
     def auth_check(self, target: TargetDescriptor) -> ProviderAuthResult:
-        """Validate Azure auth dependencies without acquiring a live token."""
+        """Validate Azure auth dependencies and ARM token acquisition."""
 
         self.validate_target(target)
         try:
-            import azure.identity  # noqa: F401
-        except ImportError:
+            self._session_factory.validate_auth(
+                tenant_id=self._string_option(
+                    provider_options=target.provider_options,
+                    option_name="tenant_id",
+                ),
+                client_id=self._string_option(
+                    provider_options=target.provider_options,
+                    option_name="client_id",
+                ),
+                client_secret=self._string_option(
+                    provider_options=target.provider_options,
+                    option_name="client_secret",
+                ),
+            )
+        except RuntimeError as error:
+            message = str(error)
+            if "azure-identity" in message:
+                return ProviderAuthResult(
+                    status=ExecutionStatus.ERROR,
+                    source="azure",
+                    message="Azure authentication requires optional dependency "
+                    "'azure-identity'.",
+                    remediation=AZURE_EXTRA_REMEDIATION,
+                )
             return ProviderAuthResult(
                 status=ExecutionStatus.ERROR,
                 source="azure",
-                message=(
-                    "Azure authentication requires optional dependency "
-                    "'azure-identity'."
-                ),
-                remediation=AZURE_EXTRA_REMEDIATION,
+                message=message,
             )
         return ProviderAuthResult(
             status=ExecutionStatus.SUCCESS,
-            source="deferred",
-            message="Azure authentication is validated when a runtime session is built.",
+            source="azure",
+            message="Azure ARM authentication validated.",
         )
 
     def discover_regions(self, target: TargetDescriptor) -> list[ProviderRegion]:
-        """Return configured/default Azure locations without live discovery."""
+        """Discover Azure locations when a concrete subscription is configured."""
 
+        self.validate_target(target)
         return [
             ProviderRegion(name=location, available=True, status="configured")
             for location in self.default_regions(target)
@@ -402,17 +456,17 @@ class AzureProvider:
         regions: list[str],
         include: list[str] | None,
         exclude: list[str] | None,
+        preflight_data: AzurePreflightData | None = None,
     ) -> ProviderExecutionPlan:
         """Resolve Azure subscription IDs deterministically."""
 
         self.validate_target(target)
 
-        if target.mode == MODE_AZURE_TENANT or target.include is None:
-            subscriptions = self._discover_subscriptions(
-                provider_options=target.provider_options
-            )
-            subscriptions = self._filter_discovered_subscriptions(
-                subscriptions=subscriptions, include=include, exclude=exclude
+        if preflight_data is not None:
+            subscriptions = list(preflight_data.subscriptions)
+        elif target.mode == MODE_AZURE_TENANT or target.include is None:
+            subscriptions = self._resolve_discovered_subscriptions(
+                target=target, include=include, exclude=exclude
             )
         else:
             subscriptions = self._subscriptions_for_explicit_ids(
@@ -426,12 +480,125 @@ class AzureProvider:
                     target=target,
                     subscription_id=subscription.subscription_id,
                     regions=regions,
+                    preflight_data=preflight_data,
                 ),
                 provider_options=target.provider_options,
             )
             for subscription in subscriptions
         ]
         return ProviderExecutionPlan(execution_targets=execution_targets)
+
+    def preflight_execution(
+        self,
+        *,
+        target: TargetDescriptor,
+        regions: list[str],
+        include: list[str] | None,
+        exclude: list[str] | None,
+        benchmark: dict[str, object] | None = None,
+    ) -> AzurePreflightResult:
+        """Discover Azure execution data before target execution."""
+
+        self.validate_target(target)
+        sink = BenchmarkRecorder(data=benchmark)
+        if target.mode == MODE_AZURE_TENANT or target.include is None:
+            with sink.phase("azure_discover_subscriptions_seconds"):
+                subscriptions = self._resolve_discovered_subscriptions(
+                    target=target, include=include, exclude=exclude
+                )
+        else:
+            subscriptions = self._subscriptions_for_explicit_preflight(
+                subscription_ids=include or target.include or []
+            )
+
+        with sink.phase("azure_discover_locations_seconds"):
+            location_statuses_by_subscription = self._discover_location_statuses(
+                target=target, subscriptions=subscriptions
+            )
+
+        sink.update(
+            {
+                "azure_selected_subscription_count": len(subscriptions),
+                "azure_validated_subscription_count": len(
+                    location_statuses_by_subscription
+                ),
+                "azure_selected_location_count": len(regions),
+                "azure_discovered_location_count": sum(
+                    len(statuses)
+                    for statuses in location_statuses_by_subscription.values()
+                ),
+            }
+        )
+        preflight_data = AzurePreflightData(
+            subscriptions=subscriptions,
+            location_statuses_by_subscription=location_statuses_by_subscription,
+        )
+
+        return AzurePreflightResult(
+            data=preflight_data,
+            exclusive_execution_keys=self._subscription_execution_exclusion_keys(
+                subscriptions=subscriptions
+            ),
+        )
+
+    def execution_exclusion_keys(
+        self,
+        *,
+        target: TargetDescriptor,
+        include: list[str] | None,
+        exclude: list[str] | None,
+    ) -> tuple[object, ...]:
+        """Return scheduler keys that prevent overlapping Azure target execution."""
+
+        return self.preflight_execution(
+            target=target,
+            regions=self.default_regions(target),
+            include=include,
+            exclude=exclude,
+        ).exclusive_execution_keys
+
+    def _resolve_discovered_subscriptions(
+        self,
+        *,
+        target: TargetDescriptor,
+        include: list[str] | None,
+        exclude: list[str] | None,
+    ) -> list[AzureSubscription]:
+        subscriptions = self._discover_subscriptions(
+            provider_options=target.provider_options
+        )
+        return self._filter_discovered_subscriptions(
+            subscriptions=subscriptions, include=include, exclude=exclude
+        )
+
+    def _subscriptions_for_explicit_preflight(
+        self, *, subscription_ids: list[str]
+    ) -> list[AzureSubscription]:
+        return [
+            AzureSubscription(subscription_id=subscription_id)
+            for subscription_id in subscription_ids
+        ]
+
+    def _discover_location_statuses(
+        self, *, target: TargetDescriptor, subscriptions: list[AzureSubscription]
+    ) -> dict[str, dict[str, str]]:
+        return {
+            subscription.subscription_id: {
+                location.name: location.status or "unknown"
+                for location in self._list_subscription_locations(
+                    target=target, subscription_id=subscription.subscription_id
+                )
+            }
+            for subscription in subscriptions
+        }
+
+    def _subscription_execution_exclusion_keys(
+        self, *, subscriptions: list[AzureSubscription]
+    ) -> tuple[object, ...]:
+        return tuple(
+            (self.metadata.name, "subscription", subscription.subscription_id)
+            for subscription in subscriptions
+        )
 
     def prepare_execution_runtime(
         self,
@@ -474,9 +641,6 @@ class AzureProvider:
             client_secret=self._string_option(
                 provider_options=provider_options, option_name="client_secret"
             ),
-            configured_subscription_id=self._string_option(
-                provider_options=provider_options, option_name="subscription_id"
-            ),
             session_factory=self._session_factory,
         )
         return ExecutionTarget(
@@ -489,12 +653,39 @@ class AzureProvider:
         )
 
     def _resolve_locations(
-        self, *, target: TargetDescriptor, subscription_id: str, regions: list[str]
+        self,
+        *,
+        target: TargetDescriptor,
+        subscription_id: str,
+        regions: list[str],
+        preflight_data: AzurePreflightData | None = None,
     ) -> list[str]:
         if not any(is_region_selector(region) for region in regions):
             return list(regions)
 
-        locations = self._session_factory.list_locations(
+        if preflight_data is not None:
+            location_statuses = preflight_data.location_statuses_by_subscription.get(
+                subscription_id, {}
+            )
+        else:
+            location_statuses = {
+                location.name: location.status or "unknown"
+                for location in self._list_subscription_locations(
+                    target=target, subscription_id=subscription_id
+                )
+            }
+        return resolve_location_selectors(
+            target_name=target.name,
+            configured_locations=regions,
+            location_statuses=location_statuses,
+            available_statuses=AZURE_AVAILABLE_LOCATION_STATUSES,
+            label="location",
+        )
+
+    def _list_subscription_locations(
+        self, *, target: TargetDescriptor, subscription_id: str
+    ) -> list[ProviderRegion]:
+        return self._session_factory.list_locations(
             subscription_id=subscription_id,
             tenant_id=self._string_option(
                 provider_options=target.provider_options, option_name="tenant_id"
@@ -505,15 +696,6 @@ class AzureProvider:
             client_secret=self._string_option(
                 provider_options=target.provider_options, option_name="client_secret"
             ),
-        )
-        return resolve_location_selectors(
-            target_name=target.name,
-            configured_locations=regions,
-            location_statuses={
-                location.name: location.status or "unknown" for location in locations
-            },
-            available_statuses=AZURE_AVAILABLE_LOCATION_STATUSES,
-            label="location",
         )
 
     def _discover_subscriptions(
