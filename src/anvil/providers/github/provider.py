@@ -31,12 +31,13 @@ from anvil.providers.base import (
     ProviderExecutionRuntime,
     ProviderMetadata,
     ProviderRegion,
+    configured_or_default_regions,
 )
 from anvil.results import ExecutionStatus
 
 __LOGGER__ = logging.getLogger(__name__)
 
-DEFAULT_GITHUB_REGIONS = ["global"]
+DEFAULT_REGIONS = ("global",)
 DEFAULT_GITHUB_API_VERSION = "2022-11-28"
 DEFAULT_GITHUB_PER_PAGE = 100
 DEFAULT_GITHUB_SEARCH_MIN_INTERVAL_SECONDS = 1.0
@@ -171,8 +172,7 @@ class GitHubRateGate:
         with self._lock:
             state = self._states.setdefault(key, _GitHubRateGateState())
             state.next_allowed_at = max(
-                state.next_allowed_at,
-                self._monotonic() + seconds,
+                state.next_allowed_at, self._monotonic() + seconds
             )
 
 
@@ -1204,7 +1204,11 @@ class GithubProvider:
     """GitHub provider for organization-discovered and explicit repository targets."""
 
     metadata = ProviderMetadata(
-        name="github", display_name="GitHub", description="GitHub provider"
+        name="github",
+        display_name="GitHub",
+        description="GitHub provider",
+        default_regions=DEFAULT_REGIONS,
+        supported_task_scopes=frozenset({"region", "target"}),
     )
 
     def __init__(self, *, session_factory: GitHubSessionFactory | None = None) -> None:
@@ -1228,14 +1232,6 @@ class GithubProvider:
             raise ValueError(f"GitHub mode '{target.mode}' does not allow exclude")
         self._validate_include_values(mode=target.mode, include=target.include)
         self._validate_code_search_isolation(target=target)
-
-    def default_regions(self, target: TargetDescriptor) -> list[str]:
-        """Return GitHub's provider-neutral global location."""
-
-        self.validate_target(target)
-        if target.regions == ["us-east-1"]:
-            return list(DEFAULT_GITHUB_REGIONS)
-        return list(target.regions or DEFAULT_GITHUB_REGIONS)
 
     def auth_cache_key(self, target: TargetDescriptor) -> object | None:
         """Return a stable auth cache identity without importing PyGithub."""
@@ -1271,7 +1267,9 @@ class GithubProvider:
 
         return [
             ProviderRegion(name=region, available=True, status="configured")
-            for region in self.default_regions(target)
+            for region in configured_or_default_regions(
+                configured=target.regions, default=self.metadata.default_regions
+            )
         ]
 
     def resolve_execution_targets(
@@ -1295,8 +1293,7 @@ class GithubProvider:
                 target_type = "organization"
             else:
                 repositories = self._discover_repositories(
-                    owner_logins=owner_logins,
-                    provider_options=target.provider_options,
+                    owner_logins=owner_logins, provider_options=target.provider_options
                 )
                 target_ids = [repository.full_name for repository in repositories]
                 target_type = "repository"
@@ -1479,7 +1476,7 @@ def _github_retry_after_seconds(error: Exception, *, default: float) -> float:
 
     try:
         retry_after_seconds = float(retry_after)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return default
     return retry_after_seconds if retry_after_seconds >= 0 else default
 

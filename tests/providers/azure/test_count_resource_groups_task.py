@@ -7,7 +7,11 @@ from types import ModuleType
 import pytest
 
 from anvil.actions import ActionRecorder
-from anvil.providers.azure.tasks.count_resource_groups import run
+from anvil.providers.azure.tasks.count_resource_groups import TASK_SCOPE, run
+
+
+def test_count_resource_groups_is_target_scoped():
+    assert TASK_SCOPE == "target"
 
 
 @dataclass(frozen=True)
@@ -128,10 +132,7 @@ def test_count_resource_groups_omits_large_resource_group_list(fake_azure_resour
 
     result, actions = _run_task(session=FakeAzureSession(), dry_run=True)
 
-    assert result == {
-        "region": "eastus",
-        "resource_group_count": 101,
-    }
+    assert result == {"region": "eastus", "resource_group_count": 101}
     assert actions == [
         "Counted 101 Azure resource group(s) in subscription sub-a region eastus"
     ]

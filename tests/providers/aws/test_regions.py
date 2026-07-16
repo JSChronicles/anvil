@@ -49,10 +49,11 @@ class FakeSession:
         )
 
 
-def test_aws_provider_default_regions_preserves_descriptor_default():
+def test_aws_provider_metadata_declares_default_region():
     target = TargetDescriptor(config_branch=ConfigBranch.TARGETS, name="org-a")
 
-    assert AwsProvider().default_regions(target) == ["us-east-1"]
+    assert target.regions is None
+    assert AwsProvider.metadata.default_regions == ("us-east-1",)
 
 
 def test_aws_provider_bootstrap_region_prefers_first_explicit_region():

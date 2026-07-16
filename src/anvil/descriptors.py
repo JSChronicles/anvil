@@ -58,7 +58,7 @@ class TargetDescriptor:
     config_branch: ConfigBranch
     name: str
     profile: str | None = None
-    regions: list[str] = field(default_factory=lambda: ["us-east-1"])
+    regions: list[str] | None = None
     role_name: str | None = None
     tasks: list[dict[str, object]] = field(default_factory=lambda: [{"name": "noop"}])
     post_run: list[dict[str, object]] = field(default_factory=list)
@@ -148,22 +148,19 @@ class TargetDescriptor:
         if not 1 <= self.max_parallel_regions <= 4:
             raise ValueError("max_parallel_regions must be between 1 and 4")
 
-        if not self.regions:
+        if self.regions == []:
             raise ValueError("regions must contain at least one region")
-
-        normalized_regions = [region.strip() for region in self.regions]
-        if any(not region for region in normalized_regions):
-            raise ValueError("regions must not contain empty values")
-
-        if len(set(normalized_regions)) != len(normalized_regions):
-            raise ValueError("regions must not contain duplicates")
-
-        if ALL_REGION_SELECTOR in normalized_regions and normalized_regions != [
-            ALL_REGION_SELECTOR
-        ]:
-            raise ValueError("regions selector 'all' must be the only region value")
-
-        object.__setattr__(self, "regions", normalized_regions)
+        if self.regions is not None:
+            normalized_regions = [region.strip() for region in self.regions]
+            if any(not region for region in normalized_regions):
+                raise ValueError("regions must not contain empty values")
+            if len(set(normalized_regions)) != len(normalized_regions):
+                raise ValueError("regions must not contain duplicates")
+            if ALL_REGION_SELECTOR in normalized_regions and normalized_regions != [
+                ALL_REGION_SELECTOR
+            ]:
+                raise ValueError("regions selector 'all' must be the only region value")
+            object.__setattr__(self, "regions", normalized_regions)
 
         normalized_include = self._normalize_target_ids(self.include)
         normalized_exclude = self._normalize_target_ids(self.exclude)
@@ -201,7 +198,9 @@ class TargetDescriptor:
 
             if not self.allows_region_selectors:
                 target_region_selectors = [
-                    region for region in self.regions if is_region_selector(region)
+                    region
+                    for region in self.regions or []
+                    if is_region_selector(region)
                 ]
                 if target_region_selectors:
                     raise ValueError(

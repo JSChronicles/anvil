@@ -24,6 +24,8 @@ from anvil.providers.base import (
 from anvil.providers.aws.regions import AwsRegionService
 from anvil.session import CachedClientSession, SessionFactory
 
+DEFAULT_REGIONS = ("us-east-1",)
+
 
 @dataclass(frozen=True, slots=True)
 class AwsExecutionTargetData:
@@ -158,7 +160,11 @@ class AwsProvider:
     """AWS provider adapter for existing organization/account target shapes."""
 
     metadata = ProviderMetadata(
-        name="aws", display_name="AWS", description="Amazon Web Services provider"
+        name="aws",
+        display_name="AWS",
+        description="Amazon Web Services provider",
+        default_regions=DEFAULT_REGIONS,
+        supported_task_scopes=frozenset({"region"}),
     )
 
     def __init__(self, *, region_service: AwsRegionService | None = None) -> None:
@@ -171,12 +177,6 @@ class AwsProvider:
             raise ValueError(f"Unsupported AWS target branch: {target.config_branch}")
         if target.provider != self.metadata.name:
             raise ValueError("AWS provider supports provider 'aws' targets only")
-
-    def default_regions(self, target: TargetDescriptor) -> list[str]:
-        """Return the target's configured AWS regions."""
-
-        self.validate_target(target)
-        return self._region_service.default_regions(configured_regions=target.regions)
 
     def bootstrap_region(self, *, configured_regions: list[str]) -> str:
         """Return the concrete AWS region used for discovery calls."""

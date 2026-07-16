@@ -108,10 +108,8 @@ def test_gcp_provider_metadata_and_default_locations():
     provider = GcpProvider()
 
     assert provider.metadata.name == "gcp"
-    assert provider.default_regions(_target()) == ["us-central1"]
-    assert provider.default_regions(_target(regions=["europe-west1"])) == [
-        "europe-west1"
-    ]
+    assert provider.metadata.default_regions == ("us-central1",)
+    assert provider.metadata.supported_task_scopes == frozenset({"region", "target"})
     assert [region.name for region in provider.discover_regions(_target())] == [
         "us-central1"
     ]

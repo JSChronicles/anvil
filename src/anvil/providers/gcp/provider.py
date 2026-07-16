@@ -13,11 +13,12 @@ from anvil.providers.base import (
     ProviderExecutionRuntime,
     ProviderMetadata,
     ProviderRegion,
+    configured_or_default_regions,
 )
 from anvil.regions import is_region_selector, resolve_location_selectors
 from anvil.results import ExecutionStatus
 
-DEFAULT_GCP_LOCATIONS = ["us-central1"]
+DEFAULT_REGIONS = ("us-central1",)
 GCP_AVAILABLE_REGION_STATUS = "UP"
 GCP_AVAILABLE_REGION_STATUSES = {GCP_AVAILABLE_REGION_STATUS}
 
@@ -289,7 +290,11 @@ class GcpProvider:
     """GCP provider for explicit and discovered project targets."""
 
     metadata = ProviderMetadata(
-        name="gcp", display_name="GCP", description="Google Cloud provider"
+        name="gcp",
+        display_name="GCP",
+        description="Google Cloud provider",
+        default_regions=DEFAULT_REGIONS,
+        supported_task_scopes=frozenset({"region", "target"}),
     )
 
     def __init__(self, *, session_factory: GcpSessionFactory | None = None) -> None:
@@ -306,14 +311,6 @@ class GcpProvider:
             raise ValueError("GCP provider supports provider 'gcp' targets only")
         if target.include is not None and target.exclude is not None:
             raise ValueError("GCP include and exclude filters are mutually exclusive")
-
-    def default_regions(self, target: TargetDescriptor) -> list[str]:
-        """Return configured GCP locations or the minimal default."""
-
-        self.validate_target(target)
-        if target.regions == ["us-east-1"]:
-            return list(DEFAULT_GCP_LOCATIONS)
-        return list(target.regions or DEFAULT_GCP_LOCATIONS)
 
     def auth_cache_key(self, target: TargetDescriptor) -> object | None:
         """Return a provider auth cache identity without loading GCP SDKs."""
@@ -335,7 +332,9 @@ class GcpProvider:
 
         return [
             ProviderRegion(name=location, available=True, status="configured")
-            for location in self.default_regions(target)
+            for location in configured_or_default_regions(
+                configured=target.regions, default=self.metadata.default_regions
+            )
         ]
 
     def resolve_execution_targets(

@@ -27,6 +27,38 @@ def _target(*, provider_name: str, mode: str, **overrides):
     return target
 
 
+def test_target_descriptor_distinguishes_omitted_and_explicit_regions():
+    validators = _import_validators_or_skip()
+    omitted = _target(provider_name="azure", mode="subscriptions")
+    omitted.pop("regions")
+    omitted["include"] = ["subscription-omitted"]
+    explicit = _target(
+        provider_name="azure",
+        mode="subscriptions",
+        name="azure-explicit",
+        regions=["us-east-1"],
+        include=["subscription-explicit"],
+    )
+
+    loaded = validators.load_config_descriptors(
+        config={"schema_version": 2, "targets": [omitted, explicit]}
+    )
+
+    assert loaded.targets[0].regions is None
+    assert loaded.targets[1].regions == ["us-east-1"]
+
+
+def test_schema_rejects_explicit_empty_regions():
+    validators = _import_validators_or_skip()
+    config = {
+        "schema_version": 2,
+        "targets": [_target(provider_name="aws", mode="organization", regions=[])],
+    }
+
+    with pytest.raises(ValueError, match="regions"):
+        validators.validate_config_schema(config=config)
+
+
 def test_load_config_descriptors_reads_run_controls_and_post_run():
     validators = _import_validators_or_skip()
 

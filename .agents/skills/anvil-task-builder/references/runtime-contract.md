@@ -73,7 +73,20 @@ tasks should put the operator-facing detail on `run()` in Google style:
 Runtime facts:
 
 - The provided `session` is already scoped to the provider target and region.
-- `region` is the current task execution region. AWS sessions also expose `session.region_name`.
+- Tasks run once per concrete region by default. A task module may declare
+  `TASK_SCOPE = "target"` to run once per execution target instead.
+- Providers declare which task scopes they support. AWS supports only the
+  default `region` scope; Azure, GCP, and GitHub support `region` and `target`.
+- A target-scoped task receives the first resolved concrete provider location
+  as `region`, and its session uses that location. No synthetic target-scope or
+  global sentinel is introduced. GitHub's `global` value is a real provider
+  location.
+- Anvil does not automatically filter provider API responses by region.
+- Task documentation should explain whether the task uses `region` to select an
+  endpoint/client, passes it to an API request filter, filters returned resources
+  itself, or ignores it because the API is target-wide.
+- For region-scoped tasks, `region` is the current task execution region. AWS
+  sessions also expose `session.region_name`.
 - Operator-provided task inputs come from `metadata`.
 - `actions` is an `ActionRecorder` for audit-level actions.
 - Returned values are included in Anvil result JSON.

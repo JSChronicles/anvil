@@ -14,11 +14,6 @@ from anvil.session import BOTO_CONFIG
 class AwsRegionService:
     """AWS-owned region defaulting, discovery, and selector resolution."""
 
-    def default_regions(self, *, configured_regions: list[str]) -> list[str]:
-        """Return the configured AWS regions after descriptor defaults apply."""
-
-        return list(configured_regions)
-
     def bootstrap_region(self, *, configured_regions: list[str]) -> str:
         """Return the concrete AWS region used for discovery calls."""
 

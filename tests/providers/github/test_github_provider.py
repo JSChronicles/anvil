@@ -258,7 +258,9 @@ def test_github_provider_metadata_and_default_location():
 
     assert provider.metadata.name == "github"
     assert provider.metadata.display_name == "GitHub"
-    assert provider.default_regions(target) == ["global"]
+    assert target.regions is None
+    assert provider.metadata.default_regions == ("global",)
+    assert provider.metadata.supported_task_scopes == frozenset({"region", "target"})
     assert provider.discover_regions(target)[0].name == "global"
 
 
@@ -541,9 +543,7 @@ def test_github_session_factory_uses_token_env_api_url_and_default_version(monke
         "per_page": 100,
         "retry": FakeGithubClient.instances[0].kwargs["retry"],
     }
-    assert FakeGithubClient.instances[0].kwargs["retry"].kwargs == {
-        "total": 1,
-    }
+    assert FakeGithubClient.instances[0].kwargs["retry"].kwargs == {"total": 1}
     assert 403 not in FakeGithubClient.instances[0].kwargs["retry"].status_forcelist
     assert 500 in FakeGithubClient.instances[0].kwargs["retry"].status_forcelist
     assert FakeGithubClient.instances[0].kwargs["auth"].token == "secret-token"

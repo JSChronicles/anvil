@@ -638,7 +638,7 @@ def test_validate_selected_providers_reports_contract_member(monkeypatch):
 
     error = str(exc_info.value)
     assert "broken (plugin: broken-provider)" in error
-    assert "default_regions" in error
+    assert "auth_cache_key" in error
 
 
 def test_validate_aggregates_failures_and_successes(monkeypatch, capsys):
@@ -715,16 +715,11 @@ def test_validate_config_file_alone_runs_offline_config_validation(monkeypatch, 
     )
 
     assert cli._cmd_validate(args) == 0
-    assert calls == [
-        ("load", Path("yaml/noop.yaml")),
-        ("overrides", loaded_config),
-    ]
+    assert calls == [("load", Path("yaml/noop.yaml")), ("overrides", loaded_config)]
     assert "[OK]     Config" in capsys.readouterr().out
 
 
-def test_validate_config_file_with_auth_uses_auth_validation_only(
-    monkeypatch, capsys
-):
+def test_validate_config_file_with_auth_uses_auth_validation_only(monkeypatch, capsys):
     cli = _import_cli_or_skip()
     args = SimpleNamespace(
         tasks=None,

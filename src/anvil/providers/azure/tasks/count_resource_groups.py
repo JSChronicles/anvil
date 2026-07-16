@@ -14,6 +14,7 @@ AZURE_EXTRA_REMEDIATION = (
 )
 
 MAX_LISTED_RESOURCE_GROUPS = 100
+TASK_SCOPE = "target"
 
 
 def _get_text_value(resource_group: object, key: str) -> str | None:
@@ -50,16 +51,20 @@ def run(
 ) -> dict[str, object]:
     """Count resource groups in the current Azure subscription.
 
-    This is a read-only Azure task. It lists resource groups for the current
-    subscription and includes individual resource group summaries when the count
-    is at or below the task's listing threshold. Task metadata is ignored.
+    This is a read-only, subscription-wide task that runs once per execution
+    target. It calls ``resource_groups.list()`` without a location filter and
+    includes individual summaries when the count is at or below the task's
+    listing threshold. Task metadata is ignored. The region argument is the
+    first resolved Azure location and identifies only the execution/session
+    location; it does not limit the resources returned by the API.
 
     Args:
         provider: Provider name for the current execution target.
         execution_target_id: Current subscription ID.
         execution_target_name: Current subscription display name or ID.
         execution_target_type: Provider target type.
-        region: Current Anvil execution region value.
+        region: First resolved Azure execution/session location. The task does
+            not use it to filter resource groups.
         session: Azure session scoped to the subscription and region.
         dry_run: Whether execution is running in dry-run mode.
         metadata: Arbitrary config metadata for the task.

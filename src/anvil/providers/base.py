@@ -16,6 +16,29 @@ class ProviderMetadata:
     name: str
     display_name: str
     description: str | None = None
+    default_regions: tuple[str, ...] = ()
+    supported_task_scopes: frozenset[str] = frozenset({"region"})
+
+
+def configured_or_default_regions(
+    *, configured: list[str] | None, default: tuple[str, ...]
+) -> list[str]:
+    """Return configured regions or provider defaults when they were omitted."""
+
+    if configured is None:
+        return list(default)
+    return list(configured)
+
+
+def validate_resolved_regions(*, regions: list[str]) -> None:
+    """Validate concrete regions at the provider-default resolution boundary."""
+
+    if not regions:
+        raise ValueError("regions must contain at least one region")
+    if any(not isinstance(region, str) or not region.strip() for region in regions):
+        raise ValueError("regions must contain only non-empty strings")
+    if len(set(regions)) != len(regions):
+        raise ValueError("regions must not contain duplicates")
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,9 +104,6 @@ class Provider(Protocol):
     def validate_target(self, target: TargetDescriptor) -> None:
         """Validate provider-specific target options."""
 
-    def default_regions(self, target: TargetDescriptor) -> list[str]:
-        """Return provider defaults when a target does not configure regions."""
-
     def auth_cache_key(self, target: TargetDescriptor) -> object | None:
         """Return a cache key for duplicate auth checks."""
 
@@ -127,7 +147,6 @@ def validate_provider_contract(provider: Provider) -> None:
 
     required_methods = {
         "validate_target": {"target"},
-        "default_regions": {"target"},
         "auth_cache_key": {"target"},
         "auth_check": {"target"},
         "discover_regions": {"target"},

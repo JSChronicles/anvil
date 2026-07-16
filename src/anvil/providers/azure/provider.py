@@ -6,11 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from anvil.benchmark import BenchmarkRecorder
-from anvil.descriptors import (
-    ConfigBranch,
-    MODE_AZURE_TENANT,
-    TargetDescriptor,
-)
+from anvil.descriptors import ConfigBranch, MODE_AZURE_TENANT, TargetDescriptor
 from anvil.execution_context import ExecutionContext
 from anvil.providers.base import (
     ExecutionTarget,
@@ -19,13 +15,14 @@ from anvil.providers.base import (
     ProviderExecutionRuntime,
     ProviderMetadata,
     ProviderRegion,
+    configured_or_default_regions,
 )
 from anvil.regions import is_region_selector, resolve_location_selectors
 from anvil.results import ExecutionStatus
 
 __LOGGER__ = logging.getLogger(__name__)
 
-DEFAULT_AZURE_LOCATIONS = ["eastus"]
+DEFAULT_REGIONS = ("eastus",)
 AZURE_AVAILABLE_LOCATION_STATUS = "available"
 AZURE_AVAILABLE_LOCATION_STATUSES = {AZURE_AVAILABLE_LOCATION_STATUS}
 AZURE_EXTRA_REMEDIATION = (
@@ -205,9 +202,7 @@ class AzureSessionFactory:
             tenant_id=tenant_id, client_id=client_id, client_secret=client_secret
         )
         return AzureSession(
-            subscription_id=subscription_id,
-            location=location,
-            credential=credential,
+            subscription_id=subscription_id, location=location, credential=credential
         )
 
     def validate_auth(
@@ -354,7 +349,11 @@ class AzureProvider:
     """Azure provider for explicit and discovered subscription targets."""
 
     metadata = ProviderMetadata(
-        name="azure", display_name="Azure", description="Microsoft Azure provider"
+        name="azure",
+        display_name="Azure",
+        description="Microsoft Azure provider",
+        default_regions=DEFAULT_REGIONS,
+        supported_task_scopes=frozenset({"region", "target"}),
     )
 
     def __init__(self, *, session_factory: AzureSessionFactory | None = None) -> None:
@@ -376,24 +375,13 @@ class AzureProvider:
             raise ValueError(
                 "Azure provider.options.tenant_id is only supported with client_secret"
             )
-        if (
-            target.provider_options.get("client_secret") is not None
-            and (
-                target.provider_options.get("tenant_id") is None
-                or target.provider_options.get("client_id") is None
-            )
+        if target.provider_options.get("client_secret") is not None and (
+            target.provider_options.get("tenant_id") is None
+            or target.provider_options.get("client_id") is None
         ):
             raise ValueError(
                 "Azure provider.options.client_secret requires tenant_id and client_id"
             )
-
-    def default_regions(self, target: TargetDescriptor) -> list[str]:
-        """Return configured Azure locations or the minimal default."""
-
-        self.validate_target(target)
-        if target.regions == ["us-east-1"]:
-            return list(DEFAULT_AZURE_LOCATIONS)
-        return list(target.regions or DEFAULT_AZURE_LOCATIONS)
 
     def auth_cache_key(self, target: TargetDescriptor) -> object | None:
         """Return a provider auth cache identity without loading Azure SDKs."""
@@ -407,12 +395,10 @@ class AzureProvider:
         try:
             self._session_factory.validate_auth(
                 tenant_id=self._string_option(
-                    provider_options=target.provider_options,
-                    option_name="tenant_id",
+                    provider_options=target.provider_options, option_name="tenant_id"
                 ),
                 client_id=self._string_option(
-                    provider_options=target.provider_options,
-                    option_name="client_id",
+                    provider_options=target.provider_options, option_name="client_id"
                 ),
                 client_secret=self._string_option(
                     provider_options=target.provider_options,
@@ -430,9 +416,7 @@ class AzureProvider:
                     remediation=AZURE_EXTRA_REMEDIATION,
                 )
             return ProviderAuthResult(
-                status=ExecutionStatus.ERROR,
-                source="azure",
-                message=message,
+                status=ExecutionStatus.ERROR, source="azure", message=message
             )
         return ProviderAuthResult(
             status=ExecutionStatus.SUCCESS,
@@ -446,7 +430,9 @@ class AzureProvider:
         self.validate_target(target)
         return [
             ProviderRegion(name=location, available=True, status="configured")
-            for location in self.default_regions(target)
+            for location in configured_or_default_regions(
+                configured=target.regions, default=self.metadata.default_regions
+            )
         ]
 
     def resolve_execution_targets(
@@ -552,7 +538,9 @@ class AzureProvider:
 
         return self.preflight_execution(
             target=target,
-            regions=self.default_regions(target),
+            regions=configured_or_default_regions(
+                configured=target.regions, default=self.metadata.default_regions
+            ),
             include=include,
             exclude=exclude,
         ).exclusive_execution_keys
@@ -738,9 +726,7 @@ class AzureProvider:
                 provider_options=provider_options
             )
         except Exception as error:
-            __LOGGER__.debug(
-                f"Azure subscription display-name lookup skipped: {error}"
-            )
+            __LOGGER__.debug(f"Azure subscription display-name lookup skipped: {error}")
             discovered_subscriptions = []
 
         discovered_by_id = {

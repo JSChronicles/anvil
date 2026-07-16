@@ -1,8 +1,11 @@
 import pytest
+import sys
+from types import ModuleType
 
 from anvil.task_loader import (
     TaskConfigError,
     TaskDescriptor,
+    TaskScope,
     discover_tasks,
     list_tasks,
     resolve_tasks,
@@ -30,11 +33,102 @@ def _mock_provider_tasks(monkeypatch, names: list[str]) -> None:
     resolve_tasks.__globals__["_load_provider_task_callable"].cache_clear()
 
 
+def _mock_scoped_tasks(monkeypatch, scopes: dict[str, object]) -> None:
+    runs = {}
+    for name, scope in scopes.items():
+        module_name = f"tests.fake_task_{name}_{scope}"
+        module = ModuleType(module_name)
+        if scope is not None:
+            module.TASK_SCOPE = scope
+
+        def run(**kwargs):
+            return kwargs
+
+        run.__module__ = module_name
+        module.run = run
+        monkeypatch.setitem(sys.modules, module_name, module)
+        runs[name] = run
+
+    monkeypatch.setattr(
+        "anvil.task_loader._load_provider_task_callable",
+        lambda *, provider_name, task_name: runs[task_name],
+    )
+    resolve_tasks.__globals__["_resolve_tasks_cached"].cache_clear()
+
+
 def test_resolve_tasks_no_dependencies(monkeypatch):
     _mock_provider_tasks(monkeypatch, ["a", "b"])
 
     execution = resolve_tasks(task_specs=[{"name": "a"}, {"name": "b"}])
     assert [task.name for task in execution.ordered] == ["a", "b"]
+    assert all(task.scope is TaskScope.REGION for task in execution.ordered)
+
+
+def test_resolve_tasks_loads_explicit_region_and_target_scopes(monkeypatch):
+    _mock_scoped_tasks(
+        monkeypatch, {"regional": TaskScope.REGION, "target_wide": "target"}
+    )
+
+    execution = resolve_tasks(
+        task_specs=[{"name": "regional"}, {"name": "target_wide"}],
+        provider_name="azure",
+        supported_task_scopes=frozenset({"region", "target"}),
+    )
+
+    assert [task.scope for task in execution.ordered] == [
+        TaskScope.REGION,
+        TaskScope.TARGET,
+    ]
+
+
+def test_resolve_tasks_rejects_invalid_task_scope(monkeypatch):
+    _mock_scoped_tasks(monkeypatch, {"bad": "subscription"})
+
+    with pytest.raises(TaskConfigError, match="invalid TASK_SCOPE"):
+        resolve_tasks(
+            task_specs=[{"name": "bad"}],
+            supported_task_scopes=frozenset({"region", "target"}),
+        )
+
+
+def test_resolve_tasks_rejects_scope_unsupported_by_provider(monkeypatch):
+    _mock_scoped_tasks(monkeypatch, {"target_wide": "target"})
+
+    with pytest.raises(TaskConfigError, match="provider 'aws' does not support"):
+        resolve_tasks(
+            task_specs=[{"name": "target_wide"}],
+            provider_name="aws",
+            supported_task_scopes=frozenset({"region"}),
+        )
+
+
+def test_region_task_may_depend_on_target_task(monkeypatch):
+    _mock_scoped_tasks(monkeypatch, {"target_wide": "target", "regional": "region"})
+
+    execution = resolve_tasks(
+        task_specs=[
+            {"name": "regional", "depends_on": ["target_wide"]},
+            {"name": "target_wide"},
+        ],
+        provider_name="azure",
+        supported_task_scopes=frozenset({"region", "target"}),
+    )
+
+    assert [task.name for task in execution.ordered] == ["target_wide", "regional"]
+
+
+def test_target_task_cannot_depend_on_region_task(monkeypatch):
+    _mock_scoped_tasks(monkeypatch, {"target_wide": "target", "regional": "region"})
+
+    with pytest.raises(TaskConfigError, match="execute before regional fan-out"):
+        resolve_tasks(
+            task_specs=[
+                {"name": "target_wide", "depends_on": ["regional"]},
+                {"name": "regional"},
+            ],
+            provider_name="azure",
+            supported_task_scopes=frozenset({"region", "target"}),
+        )
 
 
 def test_resolve_tasks_dependency_order(monkeypatch):

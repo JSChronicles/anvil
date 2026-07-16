@@ -3,9 +3,11 @@ from __future__ import annotations
 import importlib
 import logging
 import pkgutil
+import sys
 from collections import defaultdict, deque
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from enum import StrEnum
 from functools import lru_cache
 from importlib.metadata import EntryPoint, entry_points
 
@@ -28,12 +30,20 @@ PROVIDER_TASK_ENTRY_POINT_GROUP_PREFIX = "anvil.providers"
 # ============================================================================
 
 
+class TaskScope(StrEnum):
+    """Frequency at which a task is invoked for one execution target."""
+
+    REGION = "region"
+    TARGET = "target"
+
+
 @dataclass(frozen=True, slots=True)
 class ResolvedTask:
     name: str
     run: Callable
     depends_on: list[str]
     optional: bool
+    scope: TaskScope = TaskScope.REGION
 
 
 @dataclass(slots=True)
@@ -43,7 +53,7 @@ class _TaskSpec:
 
 
 TaskSpecKey = tuple[tuple[str, tuple[str, ...], bool], ...]
-CachedOrderedTask = tuple[tuple[str, Callable, tuple[str, ...], bool], ...]
+CachedOrderedTask = tuple[tuple[str, Callable, tuple[str, ...], bool, TaskScope], ...]
 CachedAdjacency = tuple[tuple[str, tuple[str, ...]], ...]
 
 
@@ -333,15 +343,53 @@ def _freeze_task_specs(task_specs: Sequence[TaskSpecInput]) -> TaskSpecKey:
     return tuple(frozen_specs)
 
 
+def _task_scope(*, task_name: str, run: Callable) -> TaskScope:
+    """Load and validate static scope metadata from a task module."""
+
+    module = sys.modules.get(run.__module__)
+    if module is None:
+        module = importlib.import_module(run.__module__)
+    raw_scope = getattr(module, "TASK_SCOPE", TaskScope.REGION)
+    try:
+        return TaskScope(raw_scope)
+    except (TypeError, ValueError) as error:
+        raise TaskConfigError(
+            f"Task '{task_name}' has invalid TASK_SCOPE {raw_scope!r}; "
+            "expected 'region' or 'target'"
+        ) from error
+
+
+def _normalize_supported_task_scopes(
+    supported_task_scopes: frozenset[str | TaskScope],
+) -> tuple[TaskScope, ...]:
+    """Normalize provider scope capabilities into a stable cache key."""
+
+    try:
+        return tuple(
+            sorted(
+                {TaskScope(scope) for scope in supported_task_scopes},
+                key=lambda scope: scope.value,
+            )
+        )
+    except (TypeError, ValueError) as error:
+        raise TaskConfigError(
+            "supported_task_scopes must contain only 'region' or 'target'"
+        ) from error
+
+
 def _build_resolved_execution(
     ordered: CachedOrderedTask, adjacency: CachedAdjacency
 ) -> ResolvedExecution:
     return ResolvedExecution(
         ordered=[
             ResolvedTask(
-                name=name, run=run, depends_on=list(depends_on), optional=optional
+                name=name,
+                run=run,
+                depends_on=list(depends_on),
+                optional=optional,
+                scope=scope,
             )
-            for name, run, depends_on, optional in ordered
+            for name, run, depends_on, optional, scope in ordered
         ],
         adjacency={name: list(children) for name, children in adjacency},
     )
@@ -349,7 +397,9 @@ def _build_resolved_execution(
 
 @lru_cache(maxsize=128)
 def _resolve_tasks_cached(
-    provider_name: str, task_specs_key: TaskSpecKey
+    provider_name: str,
+    task_specs_key: TaskSpecKey,
+    supported_task_scopes: tuple[TaskScope, ...],
 ) -> tuple[CachedOrderedTask, CachedAdjacency]:
     task_specs: list[dict[str, object]] = [
         {"name": name, "depends_on": list(depends_on), "optional": optional}
@@ -362,12 +412,40 @@ def _resolve_tasks_cached(
 
     ordered_names, adjacency = _topological_sort(spec_by_name)
 
+    loaded_tasks: dict[str, tuple[Callable, TaskScope]] = {}
+    supported_scope_set = frozenset(supported_task_scopes)
+    for name in ordered_names:
+        run = _load_provider_task_callable(provider_name=provider_name, task_name=name)
+        scope = _task_scope(task_name=name, run=run)
+        if scope not in supported_scope_set:
+            raise TaskConfigError(
+                f"Task '{name}' declares scope '{scope.value}', which provider "
+                f"'{provider_name}' does not support"
+            )
+        loaded_tasks[name] = (run, scope)
+
+    for name, spec in spec_by_name.items():
+        if loaded_tasks[name][1] is not TaskScope.TARGET:
+            continue
+        regional_dependencies = [
+            dependency
+            for dependency in spec.depends_on
+            if loaded_tasks[dependency][1] is TaskScope.REGION
+        ]
+        if regional_dependencies:
+            dependencies = ", ".join(regional_dependencies)
+            raise TaskConfigError(
+                f"TARGET task '{name}' cannot depend on REGION task(s): "
+                f"{dependencies}. TARGET tasks execute before regional fan-out"
+            )
+
     ordered: CachedOrderedTask = tuple(
         (
             name,
-            _load_provider_task_callable(provider_name=provider_name, task_name=name),
+            loaded_tasks[name][0],
             tuple(spec_by_name[name].depends_on),
             spec_by_name[name].optional,
+            loaded_tasks[name][1],
         )
         for name in ordered_names
     )
@@ -453,10 +531,16 @@ def _topological_sort(
 
 
 def resolve_tasks(
-    *, task_specs: Sequence[TaskSpecInput], provider_name: str = "aws"
+    *,
+    task_specs: Sequence[TaskSpecInput],
+    provider_name: str = "aws",
+    supported_task_scopes: frozenset[str | TaskScope] = frozenset({"region"}),
 ) -> ResolvedExecution:
     task_specs_key = _freeze_task_specs(task_specs)
-    ordered, adjacency = _resolve_tasks_cached(provider_name, task_specs_key)
+    normalized_scopes = _normalize_supported_task_scopes(supported_task_scopes)
+    ordered, adjacency = _resolve_tasks_cached(
+        provider_name, task_specs_key, normalized_scopes
+    )
     return _build_resolved_execution(ordered, adjacency)
 
 

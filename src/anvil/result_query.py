@@ -452,7 +452,9 @@ def _narrow_target_for_failed_entity(
 
     regions = target.regions
     if failed_regions and not entity_level_failure_exists:
-        regions = [region for region in target.regions if region in failed_regions]
+        regions = [
+            region for region in target.regions or [] if region in failed_regions
+        ]
         if not regions:
             regions = sorted(failed_regions)
 

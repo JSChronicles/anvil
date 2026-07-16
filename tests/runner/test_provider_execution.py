@@ -8,11 +8,8 @@ from anvil.descriptors import ConfigBranch, TargetDescriptor
 from anvil.execution_context import ExecutionContext
 from anvil.providers.base import ExecutionTarget, ProviderMetadata
 from anvil.results import ExecutionStatus
-from anvil.runner import (
-    _execute_provider_execution_target,
-    _execute_provider_targets,
-)
-from anvil.task_loader import ResolvedTask
+from anvil.runner import _execute_provider_execution_target, _execute_provider_targets
+from anvil.task_loader import ResolvedTask, TaskScope
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,8 +96,121 @@ def _context(
     )
 
 
-def _task(name: str, run, *, optional: bool = False) -> ResolvedTask:
-    return ResolvedTask(name=name, run=run, depends_on=[], optional=optional)
+def _task(
+    name: str,
+    run,
+    *,
+    optional: bool = False,
+    scope: TaskScope = TaskScope.REGION,
+    depends_on: list[str] | None = None,
+) -> ResolvedTask:
+    return ResolvedTask(
+        name=name, run=run, depends_on=depends_on or [], optional=optional, scope=scope
+    )
+
+
+def test_target_task_runs_once_with_first_resolved_region() -> None:
+    invocations: list[str] = []
+
+    def run(**kwargs):
+        invocations.append(kwargs["region"])
+        return {"resources": ["from-all-locations"]}
+
+    calls: dict[str, object] = {}
+    context = _context(tasks=[_task("inventory", run, scope=TaskScope.TARGET)])
+
+    result = _execute_provider_execution_target(
+        provider=_Provider(calls=calls),
+        target=_target(),
+        execution_target=_execution_target(
+            "target-a", regions=["region-a", "region-b", "region-c"]
+        ),
+        context=context,
+    )
+
+    assert result.status is ExecutionStatus.SUCCESS
+    assert invocations == ["region-a"]
+    assert [call[1] for call in calls["build_sessions"]] == ["region-a"]
+    assert result.tasks[0].region == "region-a"
+    assert result.tasks[0].result == {"resources": ["from-all-locations"]}
+
+
+def test_mixed_target_and_region_tasks_run_in_separate_phases() -> None:
+    invocations: list[tuple[str, str]] = []
+
+    def target_run(**kwargs):
+        invocations.append(("target", kwargs["region"]))
+        return {"ok": True}
+
+    def region_run(**kwargs):
+        invocations.append(("region", kwargs["region"]))
+        return {"ok": True}
+
+    context = _context(
+        tasks=[
+            _task("target", target_run, scope=TaskScope.TARGET),
+            _task("region", region_run, depends_on=["target"]),
+        ]
+    )
+
+    result = _execute_provider_execution_target(
+        provider=_Provider(calls={}),
+        target=_target(),
+        execution_target=_execution_target(
+            "target-a", regions=["region-a", "region-b"]
+        ),
+        context=context,
+    )
+
+    assert result.status is ExecutionStatus.SUCCESS
+    assert invocations == [
+        ("target", "region-a"),
+        ("region", "region-a"),
+        ("region", "region-b"),
+    ]
+    assert [(task.region, task.task_name) for task in result.tasks] == [
+        ("region-a", "target"),
+        ("region-a", "region"),
+        ("region-b", "region"),
+    ]
+
+
+def test_optional_target_failure_blocks_only_dependent_region_tasks() -> None:
+    independent_regions: list[str] = []
+
+    def target_run(**kwargs):
+        raise RuntimeError("optional target failure")
+
+    def dependent_run(**kwargs):
+        raise AssertionError("blocked dependency must not run")
+
+    def independent_run(**kwargs):
+        independent_regions.append(kwargs["region"])
+        return {"ok": True}
+
+    context = _context(
+        tasks=[
+            _task("target", target_run, optional=True, scope=TaskScope.TARGET),
+            _task("dependent", dependent_run, optional=True, depends_on=["target"]),
+            _task("independent", independent_run),
+        ]
+    )
+
+    result = _execute_provider_execution_target(
+        provider=_Provider(calls={}),
+        target=_target(),
+        execution_target=_execution_target(
+            "target-a", regions=["region-a", "region-b"]
+        ),
+        context=context,
+    )
+
+    assert result.status is ExecutionStatus.SUCCESS
+    assert independent_regions == ["region-a", "region-b"]
+    assert [task.status for task in result.tasks if task.task_name == "dependent"] == [
+        ExecutionStatus.ERROR,
+        ExecutionStatus.ERROR,
+    ]
 
 
 def test_provider_execution_respects_max_parallel_regions() -> None:
@@ -119,10 +229,7 @@ def test_provider_execution_respects_max_parallel_regions() -> None:
         return {"region": kwargs["region"]}
 
     calls: dict[str, object] = {}
-    context = _context(
-        tasks=[_task("scan", run)],
-        max_parallel_regions=2,
-    )
+    context = _context(tasks=[_task("scan", run)], max_parallel_regions=2)
 
     result = _execute_provider_execution_target(
         provider=_Provider(calls=calls),
@@ -147,10 +254,7 @@ def test_provider_execution_stops_launching_regions_after_required_failure() -> 
         raise RuntimeError(f"failed {kwargs['region']}")
 
     calls: dict[str, object] = {}
-    context = _context(
-        tasks=[_task("scan", run)],
-        max_parallel_regions=1,
-    )
+    context = _context(tasks=[_task("scan", run)], max_parallel_regions=1)
 
     result = _execute_provider_execution_target(
         provider=_Provider(calls=calls),
@@ -225,8 +329,7 @@ def test_provider_fail_fast_cancels_pending_execution_targets() -> None:
 def test_provider_execution_records_each_completed_region_outcome() -> None:
     calls: dict[str, object] = {}
     context = _context(
-        tasks=[_task("scan", lambda **kwargs: {"ok": True})],
-        max_parallel_regions=2,
+        tasks=[_task("scan", lambda **kwargs: {"ok": True})], max_parallel_regions=2
     )
 
     result = _execute_provider_execution_target(
@@ -255,8 +358,7 @@ def test_provider_result_keeps_region_and_task_order_stable() -> None:
         return {"task": "second", "region": kwargs["region"]}
 
     context = _context(
-        tasks=[_task("first", first), _task("second", second)],
-        max_parallel_regions=2,
+        tasks=[_task("first", first), _task("second", second)], max_parallel_regions=2
     )
 
     result = _execute_provider_execution_target(
@@ -301,8 +403,7 @@ def test_provider_sequential_regions_share_action_recorder() -> None:
 
 def test_provider_benchmark_records_entity_worker_metrics() -> None:
     context = _context(
-        tasks=[_task("scan", lambda **kwargs: {"ok": True})],
-        max_parallel_regions=3,
+        tasks=[_task("scan", lambda **kwargs: {"ok": True})], max_parallel_regions=3
     )
     benchmark_data: dict[str, object] = {}
 

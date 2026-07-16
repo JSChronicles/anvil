@@ -149,8 +149,8 @@ def test_azure_provider_metadata_and_default_locations():
     provider = AzureProvider()
 
     assert provider.metadata.name == "azure"
-    assert provider.default_regions(_target()) == ["eastus"]
-    assert provider.default_regions(_target(regions=["westus2"])) == ["westus2"]
+    assert provider.metadata.default_regions == ("eastus",)
+    assert provider.metadata.supported_task_scopes == frozenset({"region", "target"})
     assert [region.name for region in provider.discover_regions(_target())] == [
         "eastus"
     ]
@@ -251,9 +251,9 @@ def test_azure_tenant_preflight_discovers_selected_subscriptions_for_exclusion()
     )
 
     assert result.data is not None
-    assert [subscription.subscription_id for subscription in result.data.subscriptions] == [
-        "sub-a"
-    ]
+    assert [
+        subscription.subscription_id for subscription in result.data.subscriptions
+    ] == ["sub-a"]
     assert result.exclusive_execution_keys == (("azure", "subscription", "sub-a"),)
 
 
@@ -266,9 +266,9 @@ def test_azure_tenant_preflight_without_tenant_id_uses_default_credential_discov
     )
 
     assert result.data is not None
-    assert [subscription.subscription_id for subscription in result.data.subscriptions] == [
-        "sub-a"
-    ]
+    assert [
+        subscription.subscription_id for subscription in result.data.subscriptions
+    ] == ["sub-a"]
     assert result.exclusive_execution_keys == (("azure", "subscription", "sub-a"),)
 
 

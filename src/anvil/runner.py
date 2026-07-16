@@ -33,6 +33,8 @@ from anvil.providers.base import (
     Provider,
     ProviderAuthResult,
     ProviderExecutionRuntime,
+    configured_or_default_regions,
+    validate_resolved_regions,
 )
 from anvil.results import (
     AuthResult,
@@ -46,7 +48,7 @@ from anvil.results import (
 from anvil.session import SessionFactory
 from anvil.task_context import TaskCallContext
 from anvil.task_invocation import invoke_task
-from anvil.task_loader import ResolvedExecution, ResolvedTask, resolve_tasks
+from anvil.task_loader import ResolvedExecution, ResolvedTask, TaskScope, resolve_tasks
 
 __LOGGER__ = logging.getLogger(__name__)
 
@@ -478,6 +480,8 @@ def _auth_result_from_config_error(
 def _build_execution_context(
     *, target: TargetDescriptor, tasks: list[ResolvedTask], benchmark_enabled: bool
 ) -> ExecutionContext:
+    if target.regions is None:
+        raise ValueError("execution context requires resolved regions")
     return ExecutionContext(
         regions=target.regions,
         role_name=target.role_name,
@@ -542,15 +546,21 @@ def prepare_target(
                 benchmark=recorder.data,
             )
 
+        regions = configured_or_default_regions(
+            configured=effective_target.regions,
+            default=provider.metadata.default_regions,
+        )
+        validate_resolved_regions(regions=regions)
+        effective_target = replace(effective_target, regions=regions)
+
         with recorder.phase("resolve_tasks_seconds"):
             execution: ResolvedExecution = resolve_tasks(
                 task_specs=effective_target.tasks,
                 provider_name=effective_target.provider,
+                supported_task_scopes=provider.metadata.supported_task_scopes,
             )
             tasks: list[ResolvedTask] = execution.ordered
 
-        regions = provider.default_regions(effective_target)
-        effective_target = replace(effective_target, regions=regions)
         context: ExecutionContext = _build_execution_context(
             target=effective_target, tasks=tasks, benchmark_enabled=benchmark_enabled
         )
@@ -664,17 +674,19 @@ def _execute_provider_region(
     region: str,
     target_cancel_event: threading.Event,
     actions: ActionRecorder | None = None,
+    tasks: list[ResolvedTask] | None = None,
+    dependency_results: dict[str, TaskResult] | None = None,
 ) -> _ProviderRegionOutcome:
     region_started = time.perf_counter()
     session = runtime.build_session(region=region)
     if actions is None:
         actions = ActionRecorder(actions=[])
     task_results: list[TaskResult] = []
-    region_task_results: dict[str, TaskResult] = {}
+    region_task_results: dict[str, TaskResult] = dict(dependency_results or {})
     optional_map = {task.name: task.optional for task in context.tasks}
     interrupted = False
 
-    for task in context.tasks:
+    for task in tasks if tasks is not None else context.tasks:
         if context.cancel_event.is_set() or target_cancel_event.is_set():
             interrupted = True
             break
@@ -787,33 +799,78 @@ def _execute_provider_execution_target(
         regions = _execution_target_regions(
             execution_target=execution_target, context=context
         )
+        target_tasks = [
+            task for task in context.tasks if task.scope is TaskScope.TARGET
+        ]
+        region_tasks = [
+            task for task in context.tasks if task.scope is TaskScope.REGION
+        ]
+        target_outcome: _ProviderRegionOutcome | None = None
+        target_execution_seconds = 0.0
+        if target_tasks:
+            target_started = time.perf_counter()
+            target_outcome = _execute_provider_region(
+                execution_target=execution_target,
+                runtime=runtime,
+                context=context,
+                region=regions[0],
+                target_cancel_event=threading.Event(),
+                actions=ActionRecorder(actions=[]),
+                tasks=target_tasks,
+            )
+            target_execution_seconds = time.perf_counter() - target_started
+            task_results.extend(target_outcome.task_results)
+
         region_started = time.perf_counter()
-        region_outcomes = _execute_provider_regions(
-            execution_target=execution_target,
-            runtime=runtime,
-            context=context,
-            regions=regions,
-        )
+        if (region_tasks or not context.tasks) and not (
+            target_outcome is not None
+            and (target_outcome.failed or target_outcome.interrupted)
+        ):
+            region_outcomes = _execute_provider_regions(
+                execution_target=execution_target,
+                runtime=runtime,
+                context=context,
+                regions=regions,
+                tasks=region_tasks,
+                dependency_results={
+                    result.task_name: result for result in target_outcome.task_results
+                }
+                if target_outcome is not None
+                else None,
+            )
+        else:
+            region_outcomes = []
         region_execution_seconds = time.perf_counter() - region_started
         benchmark = _provider_runtime_benchmark(
             runtime=runtime,
             region_outcomes=region_outcomes,
             region_execution_seconds=region_execution_seconds,
+            target_outcome=target_outcome,
+            target_execution_seconds=target_execution_seconds,
         )
         for outcome in region_outcomes:
             task_results.extend(outcome.task_results)
 
         region_order = {region: index for index, region in enumerate(regions)}
         task_order = _task_order(context)
+        task_scope_order = {
+            task.name: 0 if task.scope is TaskScope.TARGET else 1
+            for task in context.tasks
+        }
         task_results.sort(
             key=lambda result: (
+                task_scope_order.get(result.task_name, 1),
                 region_order.get(result.region, len(region_order)),
                 task_order.get(result.task_name, len(task_order)),
             )
         )
 
-        interrupted = any(outcome.interrupted for outcome in region_outcomes)
-        failed = any(outcome.failed for outcome in region_outcomes)
+        interrupted = (
+            target_outcome.interrupted if target_outcome is not None else False
+        ) or any(outcome.interrupted for outcome in region_outcomes)
+        failed = (
+            target_outcome.failed if target_outcome is not None else False
+        ) or any(outcome.failed for outcome in region_outcomes)
         status = (
             ExecutionStatus.INTERRUPTED
             if interrupted
@@ -849,6 +906,8 @@ def _provider_runtime_benchmark(
     runtime: ProviderExecutionRuntime,
     region_outcomes: list[_ProviderRegionOutcome],
     region_execution_seconds: float,
+    target_outcome: _ProviderRegionOutcome | None = None,
+    target_execution_seconds: float = 0.0,
 ) -> dict[str, object] | None:
     benchmark = getattr(runtime, "benchmark", None)
     if callable(benchmark):
@@ -857,6 +916,14 @@ def _provider_runtime_benchmark(
         return None
 
     benchmark["region_execution_seconds"] = region_execution_seconds
+    if target_outcome is not None:
+        benchmark["target_execution_seconds"] = target_execution_seconds
+        benchmark["target"] = {
+            "region": target_outcome.region,
+            "task_count": len(target_outcome.task_results),
+            "interrupted": target_outcome.interrupted,
+            "failed": target_outcome.failed,
+        }
     benchmark["regions"] = {
         outcome.region: {
             "duration_seconds": outcome.duration_seconds,
@@ -875,6 +942,8 @@ def _execute_provider_regions(
     runtime: ProviderExecutionRuntime,
     context: ExecutionContext,
     regions: list[str],
+    tasks: list[ResolvedTask] | None = None,
+    dependency_results: dict[str, TaskResult] | None = None,
 ) -> list[_ProviderRegionOutcome]:
     target_cancel_event = threading.Event()
     if context.max_parallel_regions == 1:
@@ -884,6 +953,8 @@ def _execute_provider_regions(
             context=context,
             regions=regions,
             target_cancel_event=target_cancel_event,
+            tasks=tasks,
+            dependency_results=dependency_results,
         )
 
     return _execute_provider_regions_parallel(
@@ -892,6 +963,8 @@ def _execute_provider_regions(
         context=context,
         regions=regions,
         target_cancel_event=target_cancel_event,
+        tasks=tasks,
+        dependency_results=dependency_results,
     )
 
 
@@ -902,6 +975,8 @@ def _execute_provider_regions_sequential(
     context: ExecutionContext,
     regions: list[str],
     target_cancel_event: threading.Event,
+    tasks: list[ResolvedTask] | None = None,
+    dependency_results: dict[str, TaskResult] | None = None,
 ) -> list[_ProviderRegionOutcome]:
     region_outcomes: list[_ProviderRegionOutcome] = []
     actions = ActionRecorder(actions=[])
@@ -914,6 +989,8 @@ def _execute_provider_regions_sequential(
             region=region,
             target_cancel_event=target_cancel_event,
             actions=actions,
+            tasks=tasks,
+            dependency_results=dependency_results,
         )
         region_outcomes.append(outcome)
 
@@ -931,6 +1008,8 @@ def _execute_provider_regions_parallel(
     context: ExecutionContext,
     regions: list[str],
     target_cancel_event: threading.Event,
+    tasks: list[ResolvedTask] | None = None,
+    dependency_results: dict[str, TaskResult] | None = None,
 ) -> list[_ProviderRegionOutcome]:
     pending_regions: deque[str] = deque(regions)
     active_futures: set[Future[_ProviderRegionOutcome]] = set()
@@ -956,6 +1035,8 @@ def _execute_provider_regions_parallel(
                     context=context,
                     region=region,
                     target_cancel_event=target_cancel_event,
+                    tasks=tasks,
+                    dependency_results=dependency_results,
                 )
                 active_futures.add(future)
 
@@ -1056,7 +1137,8 @@ def _execute_provider_targets(
                     entity_execution_window_seconds=entity_execution_window_seconds,
                 ),
                 "max_parallel_regions": context.max_parallel_regions,
-                "entity_region_limit": target.max_workers * context.max_parallel_regions,
+                "entity_region_limit": target.max_workers
+                * context.max_parallel_regions,
             }
         )
 
@@ -1091,9 +1173,7 @@ def _entity_worker_utilization(
     if max_workers <= 0 or entity_execution_window_seconds <= 0:
         return 0.0
 
-    return sum_entity_duration_seconds / (
-        max_workers * entity_execution_window_seconds
-    )
+    return sum_entity_duration_seconds / (max_workers * entity_execution_window_seconds)
 
 
 def run_prepared_target(*, prepared_target: PreparedTarget) -> TargetExecutionOutcome:
@@ -1209,7 +1289,9 @@ def _next_eligible_target(
     return None
 
 
-def _prepared_target_execution_keys(prepared_target: PreparedTarget) -> tuple[object, ...]:
+def _prepared_target_execution_keys(
+    prepared_target: PreparedTarget,
+) -> tuple[object, ...]:
     if prepared_target.exclusive_execution_keys:
         return prepared_target.exclusive_execution_keys
 
