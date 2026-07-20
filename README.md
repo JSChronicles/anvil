@@ -12,7 +12,11 @@
 <!-- PROJECT LOGO -->
 <br />
 <div align="center">
-    <img src="images/logo.png" alt="Logo" width="256" height="256">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="images/anvil-logo-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="images/anvil-logo-light.png">
+    <img src="images/anvil-logo-light.png" alt="Anvil logo" width="236">
+  </picture>
 
   <h3 align="center">README</h3>
 
