@@ -1,12 +1,12 @@
 repos:
 - repo: https://github.com/astral-sh/uv-pre-commit
   # uv version.
-  rev: 73c2d77a42a113aee9e4b748c24937f09557b82d # 0.11.24
+  rev: d9fca3320346514799461a80b0753eb45d707d46 # 0.11.28
   hooks:
     - id: uv-lock
 - repo: https://github.com/astral-sh/ruff-pre-commit
   # Ruff version.
-  rev: 745be0411e3c150e246d527e531e5a221b8c3462 # v0.15.19
+  rev: 01a675ea018f2fb714478a5ffb83fcea8374bb06 # v0.15.21
   hooks:
     # Run the linter. https://docs.astral.sh/ruff/linter/
     - id: ruff-check
