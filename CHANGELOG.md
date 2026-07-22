@@ -4,6 +4,62 @@ All notable changes to this project will be documented in this file.
 
 <!-- version list -->
 
+## v0.30.0 (2026-07-22)
+
+### Bug Fixes
+
+- Auth check for github
+  ([`d935ac7`](https://github.com/JSChronicles/anvil/commit/d935ac730ae9a079582074fca909d1db378f3a48))
+
+### Chores
+
+- Format files
+  ([`d935ac7`](https://github.com/JSChronicles/anvil/commit/d935ac730ae9a079582074fca909d1db378f3a48))
+
+- **github-actions**: Bump the github-actions group with 4 updates
+  ([#57](https://github.com/JSChronicles/anvil/pull/57),
+  [`f84a0c5`](https://github.com/JSChronicles/anvil/commit/f84a0c52838db2e0565e14eaf2a1da07462f81cb))
+
+- **pre-commit**: Bump the pre-commit group with 2 updates
+  ([#55](https://github.com/JSChronicles/anvil/pull/55),
+  [`dd94d11`](https://github.com/JSChronicles/anvil/commit/dd94d110607da59cd0c5a2b0e3fb6eb299029341))
+
+- **uv**: Bump the uv-dependencies group with 7 updates
+  ([#56](https://github.com/JSChronicles/anvil/pull/56),
+  [`57536b5`](https://github.com/JSChronicles/anvil/commit/57536b5932a722f9cafc73e83479406b87f6f553))
+
+### Features
+
+- Add Azure/GCP extras and update docs
+  ([`d935ac7`](https://github.com/JSChronicles/anvil/commit/d935ac730ae9a079582074fca909d1db378f3a48))
+
+- Add target-scoped task execution
+  ([`d935ac7`](https://github.com/JSChronicles/anvil/commit/d935ac730ae9a079582074fca909d1db378f3a48))
+
+- Github caching
+  ([`d935ac7`](https://github.com/JSChronicles/anvil/commit/d935ac730ae9a079582074fca909d1db378f3a48))
+
+- GitHub credential chain/profile model
+  ([`d935ac7`](https://github.com/JSChronicles/anvil/commit/d935ac730ae9a079582074fca909d1db378f3a48))
+
+- Require task detail docstrings and revamp examples
+  ([`d935ac7`](https://github.com/JSChronicles/anvil/commit/d935ac730ae9a079582074fca909d1db378f3a48))
+
+- Single-flight GitHub installation client builds
+  ([`d935ac7`](https://github.com/JSChronicles/anvil/commit/d935ac730ae9a079582074fca909d1db378f3a48))
+
+- Unify component discovery and remove legacy loaders
+  ([`d935ac7`](https://github.com/JSChronicles/anvil/commit/d935ac730ae9a079582074fca909d1db378f3a48))
+
+- **cli**: Remove anvil graph command
+  ([`d935ac7`](https://github.com/JSChronicles/anvil/commit/d935ac730ae9a079582074fca909d1db378f3a48))
+
+### Refactoring
+
+- **runner**: Remove legacy AWS execution path
+  ([`d935ac7`](https://github.com/JSChronicles/anvil/commit/d935ac730ae9a079582074fca909d1db378f3a48))
+
+
 ## v0.29.2 (2026-06-23)
 
 ### Bug Fixes
