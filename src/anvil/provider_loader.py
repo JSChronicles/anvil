@@ -142,7 +142,7 @@ def _provider_catalog_for_entry_points(
 
 def _provider_catalog() -> ComponentCatalog[Provider]:
     return _provider_catalog_for_entry_points(
-        tuple(entry_points(group=PROVIDER_PACKAGE_ENTRY_POINT_GROUP)),
+        tuple(entry_points(group=PROVIDER_PACKAGE_ENTRY_POINT_GROUP))
     )
 
 

@@ -47,9 +47,7 @@ def test_load_provider_rejects_duplicate_package_candidates(monkeypatch, tmp_pat
     monkeypatch.syspath_prepend(str(tmp_path))
     importlib.invalidate_caches()
     monkeypatch.setattr(
-        provider_loader,
-        "entry_points",
-        lambda *, group: [EntryPoint()],
+        provider_loader, "entry_points", lambda *, group: [EntryPoint()]
     )
 
     with pytest.raises(ValueError, match="ambiguous.*duplicate-providers.*stock"):

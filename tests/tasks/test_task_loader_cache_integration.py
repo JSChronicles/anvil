@@ -81,9 +81,7 @@ def test_run_path_reuses_cached_task_resolution(monkeypatch):
         def resolve_accounts(self):
             return []
 
-    def fake_execute_provider_targets(
-        *, target, context, execution_targets, **kwargs
-    ):
+    def fake_execute_provider_targets(*, target, context, execution_targets, **kwargs):
         observed_tasks.append([task.name for task in context.tasks])
         return results.TargetResult.create(
             config_branch=target.config_branch,

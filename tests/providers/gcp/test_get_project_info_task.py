@@ -132,9 +132,7 @@ def test_get_project_info_supports_mapping_project_response(
         "display_name": "Project B",
         "state": "DELETE_REQUESTED",
     }
-    assert actions == [
-        "Read GCP project metadata for project project-b region global"
-    ]
+    assert actions == ["Read GCP project metadata for project project-b region global"]
 
 
 def test_get_project_info_supports_enum_state(fake_gcp_resource_manager_sdk):

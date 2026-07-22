@@ -1401,8 +1401,7 @@ def main() -> None:
         nargs="+",
         type=Path,
         help=(
-            "Path(s) to YAML config file(s) to validate offline, or to use with "
-            "--auth"
+            "Path(s) to YAML config file(s) to validate offline, or to use with --auth"
         ),
     )
     validate_group = validate_parser.add_mutually_exclusive_group()

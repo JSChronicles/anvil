@@ -80,9 +80,7 @@ def test_validate_no_categories_returns_error_for_diagnostic_errors(
     monkeypatch.setattr(
         cli,
         "_diagnostic_checks",
-        lambda _: [
-            cli.DiagnosticCheck("Config", "ERROR", "missing.yaml", "not found")
-        ],
+        lambda _: [cli.DiagnosticCheck("Config", "ERROR", "missing.yaml", "not found")],
     )
 
     assert cli._cmd_validate(args) == 1
@@ -116,9 +114,7 @@ def test_diagnostic_dependency_checks_report_importable_and_missing(monkeypatch)
     cli = _import_cli_or_skip()
 
     monkeypatch.setattr(
-        cli,
-        "_module_available",
-        lambda module_name: module_name in {"boto3", "github"},
+        cli, "_module_available", lambda module_name: module_name in {"boto3", "github"}
     )
 
     checks = cli._diagnostic_dependency_checks()
@@ -145,10 +141,7 @@ def test_diagnostic_config_checks_load_config_without_auth(monkeypatch):
     cli = _import_cli_or_skip()
     config_file = Path("yaml/noop.yaml")
     loaded_config = SimpleNamespace(
-        targets=[
-            SimpleNamespace(provider="aws"),
-            SimpleNamespace(provider="github"),
-        ]
+        targets=[SimpleNamespace(provider="aws"), SimpleNamespace(provider="github")]
     )
     calls = []
     args = SimpleNamespace(config_file=[config_file], include=None, exclude=None)
@@ -173,10 +166,7 @@ def test_diagnostic_config_checks_load_config_without_auth(monkeypatch):
 
     checks = cli._diagnostic_config_checks(args)
 
-    assert calls == [
-        ("load", config_file),
-        ("overrides", loaded_config),
-    ]
+    assert calls == [("load", config_file), ("overrides", loaded_config)]
     assert checks == [
         cli.DiagnosticCheck(
             section="Config",

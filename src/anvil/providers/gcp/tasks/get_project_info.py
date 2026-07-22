@@ -131,8 +131,7 @@ def run(
         "no mutations are performed by this read-only task"
     )
     actions.record(
-        f"Read GCP project metadata for project {normalized_project_id} "
-        f"region {region}"
+        f"Read GCP project metadata for project {normalized_project_id} region {region}"
     )
 
     return result

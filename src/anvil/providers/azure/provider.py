@@ -137,6 +137,7 @@ class AzureSession:
     location: str
     credential: object
 
+
 class AzureSessionFactory:
     """Create Azure credentials lazily so provider validation has no SDK dependency."""
 

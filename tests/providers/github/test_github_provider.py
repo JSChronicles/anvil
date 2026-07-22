@@ -1065,9 +1065,7 @@ def test_cached_github_client_reuses_repo_and_organization_objects(monkeypatch):
     )
 
     raw_client = FakeGithubClient.instances[0]
-    raw_client.get_organization = FakeOrganizationClient(
-        raw_client
-    ).get_organization
+    raw_client.get_organization = FakeOrganizationClient(raw_client).get_organization
 
     assert session.client.get_repo("octo-org/example") == {"repo": "octo-org/example"}
     assert session.client.get_repo("octo-org/example") == {"repo": "octo-org/example"}

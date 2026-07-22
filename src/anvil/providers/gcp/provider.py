@@ -113,6 +113,7 @@ class GcpSession:
     credentials: object
     quota_project_id: str | None = None
 
+
 class GcpSessionFactory:
     """Create GCP credentials lazily so provider validation has no SDK dependency."""
 
