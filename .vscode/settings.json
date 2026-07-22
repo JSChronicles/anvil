@@ -31,6 +31,11 @@
 
   "yaml.validate": true,
   "yaml.hover": true,
-  "yaml.completion": true
+  "yaml.completion": true,
+  "python.testing.pytestArgs": [
+    "tests"
+  ],
+  "python.testing.unittestEnabled": false,
+  "python.testing.pytestEnabled": true
 
 }

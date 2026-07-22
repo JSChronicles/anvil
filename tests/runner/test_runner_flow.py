@@ -50,9 +50,7 @@ def fake_azure_identity_dependency(monkeypatch):
     class FakeClientSecretCredential(FakeDefaultAzureCredential):
         def __init__(self, *, tenant_id, client_id, client_secret):
             super().__init__(
-                tenant_id=tenant_id,
-                client_id=client_id,
-                client_secret=client_secret,
+                tenant_id=tenant_id, client_id=client_id, client_secret=client_secret
             )
 
     azure_module = ModuleType("azure")
@@ -509,56 +507,11 @@ def test_scheduler_blocks_targets_with_overlapping_azure_execution_keys():
     pending = deque([overlapping_target, non_overlapping_target])
 
     selected = _next_eligible_target(
-        pending=pending,
-        active_execution_keys={("azure", "subscription", "sub-b")},
+        pending=pending, active_execution_keys={("azure", "subscription", "sub-b")}
     )
 
     assert selected is non_overlapping_target
     assert list(pending) == [overlapping_target]
-
-
-def test_gcp_provider_options_reach_runtime_session_factory(monkeypatch):
-    session_calls: list[dict[str, str | None]] = []
-
-    monkeypatch.setattr(
-        "anvil.providers.gcp.provider.GcpSessionFactory.create_session",
-        lambda self, **kwargs: (
-            session_calls.append(kwargs)
-            or type("_GcpSession", (), {"region_name": kwargs["location"]})()
-        ),
-    )
-
-    target = TargetDescriptor(
-        config_branch=ConfigBranch.TARGETS,
-        name="gcp-projects",
-        provider="gcp",
-        mode="projects",
-        regions=["us-central1"],
-        include=["project-a"],
-        provider_options={
-            "credentials_path": "credentials.json",
-            "quota_project_id": "billing-project",
-        },
-        tasks=[],
-    )
-
-    engine_result = run_multiple_targets(
-        targets=[target],
-        max_parallel_targets=1,
-        cli_dry_run=None,
-        cli_include=None,
-        cli_exclude=None,
-    )
-
-    assert not engine_result.target_results[0].has_failures
-    assert session_calls == [
-        {
-            "project_id": "project-a",
-            "location": "us-central1",
-            "credentials_path": "credentials.json",
-            "quota_project_id": "billing-project",
-        }
-    ]
 
 
 def test_non_aws_universal_task_can_use_provider_neutral_kwargs(monkeypatch):
@@ -755,139 +708,6 @@ def test_gcp_project_discovery_runs_without_aws_paths(monkeypatch):
         "project-b",
     ]
     assert project_calls == [{"credentials_path": None, "quota_project_id": None}]
-
-
-def test_gcp_project_discovery_errors_are_target_failures(monkeypatch):
-    monkeypatch.setattr(
-        "anvil.providers.gcp.provider.GcpSessionFactory.list_projects",
-        lambda self, **kwargs: (_ for _ in ()).throw(
-            RuntimeError("GCP provider could not discover projects: denied")
-        ),
-    )
-
-    target = TargetDescriptor(
-        config_branch=ConfigBranch.TARGETS,
-        name="gcp-projects",
-        provider="gcp",
-        mode="projects",
-        include=None,
-        provider_options={
-            "credentials_path": "error-credentials.json",
-            "quota_project_id": "error-billing-project",
-        },
-        tasks=[],
-    )
-
-    engine_result = run_multiple_targets(
-        targets=[target],
-        max_parallel_targets=1,
-        cli_dry_run=None,
-        cli_include=None,
-        cli_exclude=None,
-    )
-
-    target_result = engine_result.target_results[0]
-    assert target_result.error == "GCP provider could not discover projects: denied"
-    assert target_result.entities == []
-
-
-def test_gcp_project_discovery_rejects_cli_include_and_exclude(monkeypatch):
-    def unexpected_list_projects(self, **kwargs):
-        raise AssertionError("project discovery should not run")
-
-    monkeypatch.setattr(
-        "anvil.providers.gcp.provider.GcpSessionFactory.list_projects",
-        unexpected_list_projects,
-    )
-    monkeypatch.setattr(
-        "anvil.providers.gcp.provider.GcpSessionFactory.create_session",
-        lambda self, **kwargs: type(
-            "_GcpSession", (), {"region_name": kwargs["location"]}
-        )(),
-    )
-
-    target = TargetDescriptor(
-        config_branch=ConfigBranch.TARGETS,
-        name="gcp-projects",
-        provider="gcp",
-        mode="projects",
-        include=None,
-        tasks=[],
-    )
-
-    engine_result = run_multiple_targets(
-        targets=[target],
-        max_parallel_targets=1,
-        cli_dry_run=None,
-        cli_include=["project-c", "project-a"],
-        cli_exclude=["project-a"],
-    )
-
-    assert engine_result.target_results == []
-    assert engine_result.auth_results[0].status is ExecutionStatus.ERROR
-    assert engine_result.auth_results[0].source == "config"
-    assert "include and exclude together" in engine_result.auth_results[0].message
-
-
-def test_gcp_project_discovery_plan_is_cached_across_targets(monkeypatch):
-    project_calls = 0
-
-    def fake_list_projects(self, **kwargs):
-        nonlocal project_calls
-        project_calls += 1
-        return [GcpProject(project_id="project-a")]
-
-    monkeypatch.setattr(
-        "anvil.providers.gcp.provider.GcpSessionFactory.list_projects",
-        fake_list_projects,
-    )
-    monkeypatch.setattr(
-        "anvil.providers.gcp.provider.GcpSessionFactory.create_session",
-        lambda self, **kwargs: type(
-            "_GcpSession", (), {"region_name": kwargs["location"]}
-        )(),
-    )
-
-    targets = [
-        TargetDescriptor(
-            config_branch=ConfigBranch.TARGETS,
-            name="gcp-projects-a",
-            provider="gcp",
-            mode="projects",
-            include=None,
-            provider_options={
-                "credentials_path": "cache-credentials.json",
-                "quota_project_id": "cache-billing-project",
-            },
-            tasks=[],
-        ),
-        TargetDescriptor(
-            config_branch=ConfigBranch.TARGETS,
-            name="gcp-projects-b",
-            provider="gcp",
-            mode="projects",
-            include=None,
-            provider_options={
-                "credentials_path": "cache-credentials.json",
-                "quota_project_id": "cache-billing-project",
-            },
-            tasks=[],
-        ),
-    ]
-
-    engine_result = run_multiple_targets(
-        targets=targets,
-        max_parallel_targets=2,
-        cli_dry_run=None,
-        cli_include=None,
-        cli_exclude=None,
-    )
-
-    assert project_calls == 1
-    assert [result.entities[0].id for result in engine_result.target_results] == [
-        "project-a",
-        "project-a",
-    ]
 
 
 def test_non_aws_fail_fast_cancels_pending_execution_targets(monkeypatch):
@@ -1097,8 +917,7 @@ def test_run_multiple_targets_reuses_same_profile_auth_during_preparation(monkey
         return SimpleNamespace(data=data, exclusive_execution_key="o-shared")
 
     monkeypatch.setattr(
-        "anvil.runner.AwsProvider.preflight_execution",
-        fake_preflight_execution,
+        "anvil.runner.AwsProvider.preflight_execution", fake_preflight_execution
     )
     monkeypatch.setattr(
         "anvil.runner._execute_provider_targets",

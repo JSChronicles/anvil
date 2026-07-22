@@ -232,7 +232,9 @@ class AwsProvider:
         session_factory = SessionFactory()
         base_session = session_factory.create_base_session(
             profile_name=target.profile,
-            region_name=self.bootstrap_region(configured_regions=target.regions),
+            region_name=self.bootstrap_region(
+                configured_regions=target.regions or list(self.metadata.default_regions)
+            ),
         )
         statuses = self.discover_region_statuses(session=base_session)
         return self._region_service.provider_regions_from_statuses(

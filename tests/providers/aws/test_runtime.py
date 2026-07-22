@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import datetime
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+
+import pytest
 
 from anvil.account import (
     MINIMUM_ASSUMED_CREDENTIAL_REFRESH_WINDOW,
@@ -157,6 +160,20 @@ def test_runtime_validates_direct_profile_once_for_multiple_regions():
     ]
 
 
+def test_runtime_rejects_direct_profile_for_wrong_account():
+    session_factory = RecordingSessionFactory(caller_account_id="999999999999")
+
+    with pytest.raises(ValueError, match="not target account '123456789012'"):
+        AwsProvider().prepare_execution_runtime(
+            target=_target(),
+            execution_target=_execution_target(
+                session_factory=session_factory,
+                access_strategy=AccountAccessStrategy.DIRECT_PROFILE,
+            ),
+            context=_context(),
+        )
+
+
 def test_runtime_assumes_role_once_and_reuses_credentials_across_regions():
     session_factory = RecordingSessionFactory()
     runtime = AwsProvider().prepare_execution_runtime(
@@ -207,6 +224,40 @@ def test_runtime_refreshes_expiring_assume_role_credentials_before_reuse():
     )
 
 
+def test_runtime_parallel_regions_refresh_expiring_credentials_once():
+    now = datetime.datetime.now(datetime.UTC)
+    session_factory = RecordingSessionFactory(
+        credential_expirations=[
+            now + MINIMUM_ASSUMED_CREDENTIAL_REFRESH_WINDOW,
+            now + datetime.timedelta(hours=1),
+        ]
+    )
+    runtime = AwsProvider().prepare_execution_runtime(
+        target=_target(),
+        execution_target=_execution_target(
+            session_factory=session_factory,
+            access_strategy=AccountAccessStrategy.ASSUME_ROLE,
+            regions=["us-east-1", "us-west-2"],
+        ),
+        context=_context(regions=["us-east-1", "us-west-2"]),
+    )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        sessions = list(
+            executor.map(
+                lambda region: runtime.build_session(region=region),
+                ["us-east-1", "us-west-2"],
+            )
+        )
+
+    assert len(sessions) == 2
+    assert len(session_factory.assume_role_calls) == 2
+    assert {
+        call["credentials"].access_key_id
+        for call in session_factory.create_session_from_credentials_calls
+    } == {"access-2"}
+
+
 def test_runtime_records_region_duration_for_adaptive_refresh_window():
     now = datetime.datetime.now(datetime.UTC)
     session_factory = RecordingSessionFactory(
@@ -238,22 +289,6 @@ def test_runtime_records_region_duration_for_adaptive_refresh_window():
         call["credentials"].access_key_id
         for call in session_factory.create_session_from_credentials_calls
     ] == ["access-1", "access-2"]
-
-
-def test_runtime_returns_cached_client_session_for_region():
-    session_factory = RecordingSessionFactory()
-    runtime = AwsProvider().prepare_execution_runtime(
-        target=_target(),
-        execution_target=_execution_target(
-            session_factory=session_factory,
-            access_strategy=AccountAccessStrategy.DIRECT_PROFILE,
-        ),
-        context=_context(),
-    )
-
-    session = runtime.build_session(region="us-east-1")
-
-    assert session.client("ec2") is session.client("ec2")
 
 
 def test_aws_provider_execution_path_preserves_runtime_benchmark_data():

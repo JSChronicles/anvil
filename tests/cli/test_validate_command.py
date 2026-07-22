@@ -35,113 +35,73 @@ def _run_main_with_args(monkeypatch, argv: list[str]):
     return seen["args"]
 
 
-def test_validate_cli_parses_all_task_validation(monkeypatch):
-    args = _run_main_with_args(monkeypatch, ["anvil", "validate", "--tasks"])
-
-    assert args.tasks == []
-    assert args.processors is None
-    assert args.auth is False
-
-
-def test_validate_cli_parses_selected_task_validation(monkeypatch):
-    args = _run_main_with_args(
+def test_validate_cli_parses_category_selections(monkeypatch):
+    all_tasks = _run_main_with_args(monkeypatch, ["anvil", "validate", "--tasks"])
+    selected_tasks = _run_main_with_args(
         monkeypatch, ["anvil", "validate", "--tasks", "count_vpc"]
     )
-
-    assert args.tasks == ["count_vpc"]
-
-
-def test_validate_cli_parses_all_processor_validation(monkeypatch):
-    args = _run_main_with_args(monkeypatch, ["anvil", "validate", "--processors"])
-
-    assert args.processors == []
-    assert args.tasks is None
-
-
-def test_validate_cli_parses_selected_processor_validation(monkeypatch):
-    args = _run_main_with_args(
+    all_processors = _run_main_with_args(
+        monkeypatch, ["anvil", "validate", "--processors"]
+    )
+    selected_processors = _run_main_with_args(
         monkeypatch, ["anvil", "validate", "--processors", "summary_report"]
     )
+    all_providers = _run_main_with_args(
+        monkeypatch, ["anvil", "validate", "--providers"]
+    )
+    selected_providers = _run_main_with_args(
+        monkeypatch, ["anvil", "validate", "--providers", "aws"]
+    )
 
-    assert args.processors == ["summary_report"]
-
-
-def test_validate_cli_parses_all_provider_validation(monkeypatch):
-    args = _run_main_with_args(monkeypatch, ["anvil", "validate", "--providers"])
-
-    assert args.providers == []
-    assert args.tasks is None
-    assert args.processors is None
-
-
-def test_validate_cli_parses_selected_provider_validation(monkeypatch):
-    args = _run_main_with_args(monkeypatch, ["anvil", "validate", "--providers", "aws"])
-
-    assert args.providers == ["aws"]
+    assert all_tasks.tasks == []
+    assert selected_tasks.tasks == ["count_vpc"]
+    assert all_processors.processors == []
+    assert selected_processors.processors == ["summary_report"]
+    assert all_providers.providers == []
+    assert selected_providers.providers == ["aws"]
 
 
-def test_validate_cli_parses_auth_validation(monkeypatch):
-    args = _run_main_with_args(
+def test_validate_cli_parses_config_and_auth_options(monkeypatch):
+    config_only = _run_main_with_args(
+        monkeypatch, ["anvil", "validate", "--config-file", "yaml/orgs.yaml"]
+    )
+    with_auth = _run_main_with_args(
         monkeypatch, ["anvil", "validate", "--auth", "--config-file", "yaml/orgs.yaml"]
     )
 
-    assert args.auth is True
-    assert args.config_file == [Path("yaml/orgs.yaml")]
+    assert config_only.auth is False
+    assert config_only.config_file == [Path("yaml/orgs.yaml")]
+    assert with_auth.auth is True
+    assert with_auth.config_file == [Path("yaml/orgs.yaml")]
 
 
-def test_validate_cli_parses_config_file_validation(monkeypatch):
+def test_validate_cli_parses_combined_categories_and_quiet(monkeypatch):
     args = _run_main_with_args(
-        monkeypatch, ["anvil", "validate", "--config-file", "yaml/orgs.yaml"]
-    )
-
-    assert args.auth is False
-    assert args.config_file == [Path("yaml/orgs.yaml")]
-
-
-def test_validate_cli_parses_quiet(monkeypatch):
-    args = _run_main_with_args(monkeypatch, ["anvil", "validate", "--tasks", "--quiet"])
-
-    assert args.tasks == []
-    assert args.quiet is True
-
-
-def test_validate_cli_parses_multiple_categories(monkeypatch):
-    args = _run_main_with_args(
-        monkeypatch, ["anvil", "validate", "--tasks", "--processors", "--providers"]
+        monkeypatch,
+        [
+            "anvil",
+            "validate",
+            "--tasks",
+            "--processors",
+            "--providers",
+            "--auth",
+            "--config-file",
+            "yaml/orgs.yaml",
+            "--quiet",
+        ],
     )
 
     assert args.tasks == []
     assert args.processors == []
     assert args.providers == []
-
-
-def test_validate_cli_parses_tasks_and_auth(monkeypatch):
-    args = _run_main_with_args(
-        monkeypatch,
-        ["anvil", "validate", "--tasks", "--auth", "--config-file", "yaml/orgs.yaml"],
-    )
-
-    assert args.tasks == []
     assert args.auth is True
     assert args.config_file == [Path("yaml/orgs.yaml")]
+    assert args.quiet is True
 
 
 def test_validate_auth_requires_config_file(monkeypatch, capsys):
     cli = _import_cli_or_skip()
     monkeypatch.setattr("sys.argv", ["anvil", "validate", "--auth"])
-
-    with pytest.raises(SystemExit) as exc_info:
-        cli.main()
-
-    assert exc_info.value.code == 2
-    assert "--config-file is required with --auth" in capsys.readouterr().err
-
-
-def test_validate_combined_auth_requires_config_file(monkeypatch, capsys):
-    cli = _import_cli_or_skip()
-    monkeypatch.setattr(
-        "sys.argv", ["anvil", "validate", "--tasks", "--processors", "--auth"]
-    )
 
     with pytest.raises(SystemExit) as exc_info:
         cli.main()

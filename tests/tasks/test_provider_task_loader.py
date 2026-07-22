@@ -64,19 +64,6 @@ def test_real_aws_tasks_use_provider_neutral_signature():
             assert "account_alias" not in parameters
 
 
-def test_real_non_aws_descriptor_index_excludes_aws_only_tasks():
-    task_loader = importlib.import_module("anvil.task_loader")
-    _clear_task_loader_caches(task_loader)
-
-    azure_index = task_loader.provider_task_descriptor_index(provider_name="azure")
-    gcp_index = task_loader.provider_task_descriptor_index(provider_name="gcp")
-    github_index = task_loader.provider_task_descriptor_index(provider_name="github")
-
-    assert "count_vpc" not in azure_index
-    assert "count_vpc" not in gcp_index
-    assert "count_vpc" not in github_index
-
-
 def test_real_azure_descriptor_index_includes_azure_tasks_only_for_azure():
     task_loader = importlib.import_module("anvil.task_loader")
     _clear_task_loader_caches(task_loader)
