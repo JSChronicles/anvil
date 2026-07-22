@@ -5,7 +5,11 @@
 <!-- PROJECT LOGO -->
 <br />
 <div align="center">
-    <img src="../../images/logo.png" alt="Logo" width="256" height="256">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../../images/anvil-logo-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="../../images/anvil-logo-light.png">
+    <img src="../../images/anvil-logo-light.png" alt="Anvil logo" width="420">
+  </picture>
   </a>
 
   <h3 align="center">README</h3>
@@ -193,7 +197,7 @@ The returned value appears in the task result:
 Returned data is also available in the flattened JSONL query artifact:
 
 ```console
-anvil results --type task --task function_returned_results --fields target,account_id,region,status,result --json
+anvil results --type task --task function_returned_results --fields target,entity_id,region,status,result --json
 ```
 
 ## Recorded Actions

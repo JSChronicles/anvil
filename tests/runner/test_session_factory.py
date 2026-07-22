@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+
 import pytest
 from botocore.exceptions import ClientError
 
@@ -93,6 +95,43 @@ def test_get_worker_session_caches_by_profile_and_region(monkeypatch):
     assert [session.kwargs for session in FakeBotoSession.created] == [
         {"profile_name": "profile-a", "region_name": "us-east-1"},
         {"profile_name": "profile-a", "region_name": "us-west-2"},
+    ]
+
+
+def test_get_worker_session_cache_is_thread_local(monkeypatch):
+    FakeBotoSession.created = []
+    monkeypatch.setattr(session_module.boto3, "Session", FakeBotoSession)
+
+    factory = SessionFactory()
+    barrier = threading.Barrier(3)
+    sessions: list[object] = []
+    sessions_lock = threading.Lock()
+
+    def get_session_twice() -> None:
+        barrier.wait()
+        first = factory.get_worker_session(
+            profile_name="profile-a", region_name="us-east-1"
+        )
+        second = factory.get_worker_session(
+            profile_name="profile-a", region_name="us-east-1"
+        )
+        assert first is second
+        with sessions_lock:
+            sessions.append(first)
+
+    threads = [threading.Thread(target=get_session_twice) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+
+    barrier.wait()
+    for thread in threads:
+        thread.join()
+
+    assert len(sessions) == 2
+    assert sessions[0] is not sessions[1]
+    assert [session.kwargs for session in FakeBotoSession.created] == [
+        {"profile_name": "profile-a", "region_name": "us-east-1"},
+        {"profile_name": "profile-a", "region_name": "us-east-1"},
     ]
 
 

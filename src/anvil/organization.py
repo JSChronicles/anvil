@@ -8,7 +8,7 @@ from boto3.session import Session
 from anvil.account import Account, AccountAccessStrategy
 from anvil.descriptors import TargetDescriptor
 from anvil.execution_context import ExecutionContext
-from anvil.regions import get_bootstrap_region, resolve_region_selectors
+from anvil.providers.aws.regions import AwsRegionService
 from anvil.session import BOTO_CONFIG, SessionFactory
 
 __LOGGER__ = logging.getLogger(__name__)
@@ -36,6 +36,7 @@ class OrganizationResolver:
         self._management_account_id: str | None = management_account_id
         self._base_session_account_id: str | None = base_session_account_id
         self._session_factory = session_factory or SessionFactory()
+        self._region_service = AwsRegionService()
         self._base_session = base_session
         self._discovered_accounts = discovered_accounts
         self._region_statuses = region_statuses
@@ -48,7 +49,9 @@ class OrganizationResolver:
 
         base_session = self._base_session or self._session_factory.create_base_session(
             profile_name=self.descriptor.profile,
-            region_name=get_bootstrap_region(self.context.regions),
+            region_name=self._region_service.bootstrap_region(
+                configured_regions=self.context.regions
+            ),
         )
 
         effective_regions = self._get_effective_regions(
@@ -158,26 +161,6 @@ class OrganizationResolver:
 
         return accounts
 
-    @staticmethod
-    def discover_region_statuses(session: boto3.Session) -> dict[str, str]:
-        """
-        Discover AWS region opt-in statuses available to this organization context.
-        """
-        account_client = session.client("account", config=BOTO_CONFIG)
-        paginator = account_client.get_paginator("list_regions")
-
-        region_statuses: dict[str, str] = {}
-
-        for page in paginator.paginate():
-            for region in page.get("Regions", []):
-                region_name = region.get("RegionName")
-                region_status = region.get("RegionOptStatus")
-
-                if region_name and region_status:
-                    region_statuses[region_name] = region_status
-
-        return dict(sorted(region_statuses.items()))
-
     def _filter_accounts(
         self, all_accounts: dict[str, dict[str, str]]
     ) -> dict[str, dict[str, str]]:
@@ -216,9 +199,11 @@ class OrganizationResolver:
         Resolve configured regions and selectors against discovered region statuses.
         """
         if region_statuses is None:
-            region_statuses = self.discover_region_statuses(session)
+            region_statuses = self._region_service.discover_region_statuses(
+                session=session
+            )
 
-        return resolve_region_selectors(
+        return self._region_service.resolve_regions(
             target_name=self.descriptor.name,
             configured_regions=list(self.context.regions),
             region_statuses=region_statuses,

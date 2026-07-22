@@ -1,102 +1,97 @@
-schema_version: 1
+schema_version: 2
 max_parallel_targets: 4
-
-organizations:
-  - name: root
-    profile: root
-    regions:
-      - us-east-1
-    tasks:
-      - name: list_lambdas_by_runtime
-    max_workers: 10
-    metadata:
-      runtimes:
-        # --- Starting deprecation this year ---
-        # (.NET 9 is container-only; no managed Lambda runtime identifier)
-        - python3.10
-        - nodejs20.x
-        - dotnet8
-        # --- Full deprecation this year ---
-        # (.NET 7 is container-only; no managed Lambda runtime identifier)
-        - python3.9
-        - python3.8
-        - python3.7
-        - python3.6
-        - nodejs18.x
-        - nodejs16.x
-        - nodejs14.x
-        - nodejs12.x
-        - nodejs10.x
-        - dotnet6
-        - dotnet5.0
-        - dotnetcore3.1
-        - dotnetcore2.1
-        - go1.x
-
-
-  - name: root2
-    profile: root2
-    regions:
-      - us-east-1
-      - us-east-2
-    tasks:
-      - name: list_lambdas_by_runtime
-    max_workers: 10
-    metadata:
-      runtimes:
-        # --- Starting deprecation this year ---
-        # (.NET 9 is container-only; no managed Lambda runtime identifier)
-        - python3.10
-        - nodejs20.x
-        - dotnet8
-        # --- Full deprecation this year ---
-        # (.NET 7 is container-only; no managed Lambda runtime identifier)
-        - python3.9
-        - python3.8
-        - python3.7
-        - python3.6
-        - nodejs18.x
-        - nodejs16.x
-        - nodejs14.x
-        - nodejs12.x
-        - nodejs10.x
-        - dotnet6
-        - dotnet5.0
-        - dotnetcore3.1
-        - dotnetcore2.1
-        - go1.x
-
-
-  - name: root3
-    profile: root3
-    regions:
-      - us-east-1
-      - us-east-2
-      - us-west-1
-      - us-west-2
-    tasks:
-      - name: list_lambdas_by_runtime
-    max_workers: 10
-    metadata:
-      runtimes:
-        # --- Starting deprecation this year ---
-        # (.NET 9 is container-only; no managed Lambda runtime identifier)
-        - python3.10
-        - nodejs20.x
-        - dotnet8
-        # --- Full deprecation this year ---
-        # (.NET 7 is container-only; no managed Lambda runtime identifier)
-        - python3.9
-        - python3.8
-        - python3.7
-        - python3.6
-        - nodejs18.x
-        - nodejs16.x
-        - nodejs14.x
-        - nodejs12.x
-        - nodejs10.x
-        - dotnet6
-        - dotnet5.0
-        - dotnetcore3.1
-        - dotnetcore2.1
-        - go1.x
+targets:
+- name: root
+  provider:
+    name: aws
+    mode: organization
+    options:
+      profile: root
+  regions:
+    - us-east-1
+  tasks:
+    - name: list_lambdas_by_runtime
+  max_workers: 10
+  metadata:
+    runtimes:
+      - python3.10
+      - nodejs20.x
+      - dotnet8
+      - python3.9
+      - python3.8
+      - python3.7
+      - python3.6
+      - nodejs18.x
+      - nodejs16.x
+      - nodejs14.x
+      - nodejs12.x
+      - nodejs10.x
+      - dotnet6
+      - dotnet5.0
+      - dotnetcore3.1
+      - dotnetcore2.1
+      - go1.x
+- name: root2
+  provider:
+    name: aws
+    mode: organization
+    options:
+      profile: root2
+  regions:
+    - us-east-1
+    - us-east-2
+  tasks:
+    - name: list_lambdas_by_runtime
+  max_workers: 10
+  metadata:
+    runtimes:
+      - python3.10
+      - nodejs20.x
+      - dotnet8
+      - python3.9
+      - python3.8
+      - python3.7
+      - python3.6
+      - nodejs18.x
+      - nodejs16.x
+      - nodejs14.x
+      - nodejs12.x
+      - nodejs10.x
+      - dotnet6
+      - dotnet5.0
+      - dotnetcore3.1
+      - dotnetcore2.1
+      - go1.x
+- name: root3
+  provider:
+    name: aws
+    mode: organization
+    options:
+      profile: root3
+  regions:
+    - us-east-1
+    - us-east-2
+    - us-west-1
+    - us-west-2
+  tasks:
+    - name: list_lambdas_by_runtime
+  max_workers: 10
+  metadata:
+    runtimes:
+      - python3.10
+      - nodejs20.x
+      - dotnet8
+      - python3.9
+      - python3.8
+      - python3.7
+      - python3.6
+      - nodejs18.x
+      - nodejs16.x
+      - nodejs14.x
+      - nodejs12.x
+      - nodejs10.x
+      - dotnet6
+      - dotnet5.0
+      - dotnetcore3.1
+      - dotnetcore2.1
+      - go1.x

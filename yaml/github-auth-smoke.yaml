@@ -1,0 +1,19 @@
+schema_version: 2
+targets:
+- name: github-repo-code-search
+  provider:
+    name: github
+    mode: repositories
+    options:
+      token_env: GITHUB_TOKEN
+  regions:
+  - global
+  include:
+  - JSChronicles/anvil
+  dry_run: true
+  tasks:
+  - name: search_code
+
+  metadata:
+    query: TargetDescriptor
+    max_results: 10

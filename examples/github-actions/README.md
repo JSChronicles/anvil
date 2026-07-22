@@ -4,7 +4,7 @@ This directory contains a complete GitHub Actions workflow for running Anvil
 across multiple AWS Organizations with separate AWS credential profiles:
 
 - [anvil-multi-oidc-run.yaml](./anvil-multi-oidc-run.yaml)
-- [noop-multi-org.yaml](./noop-multi-org.yaml)
+- [noop-multi-oidc.yaml](./noop-multi-oidc.yaml)
 - [anvil-single-oidc-run.yaml](./anvil-single-oidc-run.yaml)
 - [noop-single-oidc.yaml](./noop-single-oidc.yaml)
 
@@ -20,7 +20,8 @@ There are two workflow patterns in this directory.
 [anvil-single-oidc-run.yaml](./anvil-single-oidc-run.yaml) is the standard
 GitHub OIDC pattern. It configures one AWS role with
 `aws-actions/configure-aws-credentials`, exports short-lived AWS credentials into
-the job environment, and runs Anvil with a config that does not set `profile`.
+the job environment, and runs Anvil with a config that does not set
+`provider.options.profile`.
 
 Use this when one AWS entry role can reach every organization and account Anvil
 needs to process.
@@ -39,9 +40,9 @@ which gives the Anvil process one active AWS identity. That works when one entry
 role can reach every configured AWS Organization. This example uses
 `aws-profile` instead because each organization has its own entry role. The
 workflow authenticates each profile through GitHub OIDC, and Anvil selects the
-right profile through its native per-organization `profile` field. That keeps
-credentials explicit while still letting Anvil own parallel organization
-execution through `max_parallel_targets`.
+right profile through `provider.options.profile` on each AWS organization
+target. That keeps credentials explicit while still letting Anvil own parallel
+target execution through `max_parallel_targets`.
 
 ## Credential Profiles
 
@@ -59,7 +60,8 @@ The workflow creates these AWS profiles:
 ```
 
 Add or remove profile setup steps to match the AWS Organizations you want Anvil
-to run. Profile names must match the `profile` values in the Anvil YAML.
+to run. Profile names must match the `provider.options.profile` values in the
+Anvil YAML.
 
 The workflow sets `AWS_SHARED_CREDENTIALS_FILE` and `AWS_CONFIG_FILE` to files
 under `runner.temp` before configuring profiles. That keeps the named profiles
@@ -115,18 +117,22 @@ YAML, for example `OrganizationAccountAccessRole`.
 
 ## Anvil config shape
 
-For the single-OIDC workflow, leave `profile` unset so boto3 uses the
+For the single-OIDC workflow, omit `provider.options.profile` so boto3 uses the
 environment credentials exported by `aws-actions/configure-aws-credentials`:
 
 ```yaml
-schema_version: 1
+schema_version: 2
 max_parallel_targets: 1
 
-organizations:
+targets:
   - name: single-oidc-org
+    provider:
+      name: aws
+      mode: organization
+      options:
+        role_name: OrganizationAccountAccessRole
     regions:
       - us-east-1
-    role_name: OrganizationAccountAccessRole
     max_workers: 10
     fail_fast: false
     dry_run: true
@@ -138,15 +144,19 @@ The included no-op config has multiple organizations in one file. Each
 organization points at one named AWS profile:
 
 ```yaml
-schema_version: 1
+schema_version: 2
 max_parallel_targets: 3
 
-organizations:
+targets:
   - name: production
-    profile: production
+    provider:
+      name: aws
+      mode: organization
+      options:
+        profile: production
+        role_name: OrganizationAccountAccessRole
     regions:
       - us-east-1
-    role_name: OrganizationAccountAccessRole
     max_workers: 10
     fail_fast: false
     dry_run: true
@@ -154,10 +164,14 @@ organizations:
       - name: noop
 
   - name: security
-    profile: security
+    provider:
+      name: aws
+      mode: organization
+      options:
+        profile: security
+        role_name: OrganizationAccountAccessRole
     regions:
       - us-east-1
-    role_name: OrganizationAccountAccessRole
     max_workers: 10
     fail_fast: false
     dry_run: true

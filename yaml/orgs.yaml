@@ -1,8 +1,11 @@
-schema_version: 1
-
-organizations:
+schema_version: 2
+targets:
   - name: org1
-    profile: root1
+    provider:
+      name: aws
+      mode: organization
+      options:
+        profile: root1
     regions:
       - us-east-1
     tasks:
@@ -12,19 +15,19 @@ organizations:
         optional: true
     dry_run: true
     max_workers: 5
-
     metadata:
       user_name: migration
-
   - name: org2
-    profile: root2
+    provider:
+      name: aws
+      mode: organization
+      options:
+        profile: root2
     regions:
       - us-east-1
     tasks:
       - name: remove_iam_user
-        #depends_on: ["discover"]
     dry_run: true
     max_workers: 5
-
     metadata:
-      user_name: "migration"
+      user_name: migration

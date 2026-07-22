@@ -5,6 +5,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from anvil.providers.base import ProviderMetadata
+
 
 def _import_cli_or_skip():
     try:
@@ -33,71 +35,68 @@ def _run_main_with_args(monkeypatch, argv: list[str]):
     return seen["args"]
 
 
-def test_validate_cli_parses_all_task_validation(monkeypatch):
-    args = _run_main_with_args(monkeypatch, ["anvil", "validate", "--tasks"])
-
-    assert args.tasks == []
-    assert args.processors is None
-    assert args.auth is False
-
-
-def test_validate_cli_parses_selected_task_validation(monkeypatch):
-    args = _run_main_with_args(
+def test_validate_cli_parses_category_selections(monkeypatch):
+    all_tasks = _run_main_with_args(monkeypatch, ["anvil", "validate", "--tasks"])
+    selected_tasks = _run_main_with_args(
         monkeypatch, ["anvil", "validate", "--tasks", "count_vpc"]
     )
-
-    assert args.tasks == ["count_vpc"]
-
-
-def test_validate_cli_parses_all_processor_validation(monkeypatch):
-    args = _run_main_with_args(monkeypatch, ["anvil", "validate", "--processors"])
-
-    assert args.processors == []
-    assert args.tasks is None
-
-
-def test_validate_cli_parses_selected_processor_validation(monkeypatch):
-    args = _run_main_with_args(
+    all_processors = _run_main_with_args(
+        monkeypatch, ["anvil", "validate", "--processors"]
+    )
+    selected_processors = _run_main_with_args(
         monkeypatch, ["anvil", "validate", "--processors", "summary_report"]
     )
+    all_providers = _run_main_with_args(
+        monkeypatch, ["anvil", "validate", "--providers"]
+    )
+    selected_providers = _run_main_with_args(
+        monkeypatch, ["anvil", "validate", "--providers", "aws"]
+    )
 
-    assert args.processors == ["summary_report"]
+    assert all_tasks.tasks == []
+    assert selected_tasks.tasks == ["count_vpc"]
+    assert all_processors.processors == []
+    assert selected_processors.processors == ["summary_report"]
+    assert all_providers.providers == []
+    assert selected_providers.providers == ["aws"]
 
 
-def test_validate_cli_parses_auth_validation(monkeypatch):
-    args = _run_main_with_args(
+def test_validate_cli_parses_config_and_auth_options(monkeypatch):
+    config_only = _run_main_with_args(
+        monkeypatch, ["anvil", "validate", "--config-file", "yaml/orgs.yaml"]
+    )
+    with_auth = _run_main_with_args(
         monkeypatch, ["anvil", "validate", "--auth", "--config-file", "yaml/orgs.yaml"]
     )
 
-    assert args.auth is True
-    assert args.config_file == [Path("yaml/orgs.yaml")]
+    assert config_only.auth is False
+    assert config_only.config_file == [Path("yaml/orgs.yaml")]
+    assert with_auth.auth is True
+    assert with_auth.config_file == [Path("yaml/orgs.yaml")]
 
 
-def test_validate_cli_parses_quiet(monkeypatch):
-    args = _run_main_with_args(monkeypatch, ["anvil", "validate", "--tasks", "--quiet"])
-
-    assert args.tasks == []
-    assert args.quiet is True
-
-
-def test_validate_cli_parses_multiple_categories(monkeypatch):
+def test_validate_cli_parses_combined_categories_and_quiet(monkeypatch):
     args = _run_main_with_args(
-        monkeypatch, ["anvil", "validate", "--tasks", "--processors"]
+        monkeypatch,
+        [
+            "anvil",
+            "validate",
+            "--tasks",
+            "--processors",
+            "--providers",
+            "--auth",
+            "--config-file",
+            "yaml/orgs.yaml",
+            "--quiet",
+        ],
     )
 
     assert args.tasks == []
     assert args.processors == []
-
-
-def test_validate_cli_parses_tasks_and_auth(monkeypatch):
-    args = _run_main_with_args(
-        monkeypatch,
-        ["anvil", "validate", "--tasks", "--auth", "--config-file", "yaml/orgs.yaml"],
-    )
-
-    assert args.tasks == []
+    assert args.providers == []
     assert args.auth is True
     assert args.config_file == [Path("yaml/orgs.yaml")]
+    assert args.quiet is True
 
 
 def test_validate_auth_requires_config_file(monkeypatch, capsys):
@@ -111,25 +110,12 @@ def test_validate_auth_requires_config_file(monkeypatch, capsys):
     assert "--config-file is required with --auth" in capsys.readouterr().err
 
 
-def test_validate_combined_auth_requires_config_file(monkeypatch, capsys):
-    cli = _import_cli_or_skip()
-    monkeypatch.setattr(
-        "sys.argv", ["anvil", "validate", "--tasks", "--processors", "--auth"]
-    )
-
-    with pytest.raises(SystemExit) as exc_info:
-        cli.main()
-
-    assert exc_info.value.code == 2
-    assert "--config-file is required with --auth" in capsys.readouterr().err
-
-
 def test_validate_selected_tasks_validates_all_when_no_names(monkeypatch):
     cli = _import_cli_or_skip()
     seen = {}
 
     def fake_load_task_callable(task_name):
-        def run(*, account_id, account_alias, session, dry_run, metadata, actions):
+        def run(**kwargs):
             return None
 
         seen.setdefault("loaded", []).append(task_name)
@@ -172,7 +158,7 @@ def test_validate_selected_tasks_validates_selected_names(monkeypatch):
     seen = {}
 
     def fake_load_task_callable(task_name):
-        def run(*, account_id, account_alias, session, dry_run, metadata, actions):
+        def run(**kwargs):
             return None
 
         seen.setdefault("loaded", []).append(task_name)
@@ -208,6 +194,55 @@ def test_validate_selected_tasks_validates_selected_names(monkeypatch):
 
     assert seen["loaded"] == ["noop"]
     assert seen["validated"] == ["noop"]
+
+
+def test_validate_all_tasks_reports_duplicate_provider_task_names(monkeypatch):
+    cli = _import_cli_or_skip()
+
+    def valid_run(**kwargs):
+        return None
+
+    monkeypatch.setattr(
+        cli,
+        "discover_tasks",
+        lambda: SimpleNamespace(
+            tasks=[
+                cli.TaskDescriptor(
+                    name="shared", load=lambda: valid_run, source="universal"
+                ),
+                cli.TaskDescriptor(name="shared", load=lambda: valid_run, source="aws"),
+            ],
+            issues=[],
+        ),
+    )
+
+    with pytest.raises(ValueError, match="duplicate task name: shared"):
+        cli._validate_selected_tasks([])
+
+
+def test_validate_selected_tasks_reports_duplicate_provider_task_names(monkeypatch):
+    cli = _import_cli_or_skip()
+
+    def valid_run(**kwargs):
+        return None
+
+    monkeypatch.setattr(
+        cli,
+        "discover_tasks",
+        lambda: SimpleNamespace(
+            tasks=[
+                cli.TaskDescriptor(
+                    name="shared", load=lambda: valid_run, source="universal"
+                ),
+                cli.TaskDescriptor(name="shared", load=lambda: valid_run, source="aws"),
+                cli.TaskDescriptor(name="other", load=lambda: valid_run, source="aws"),
+            ],
+            issues=[],
+        ),
+    )
+
+    with pytest.raises(ValueError, match="duplicate task name: shared"):
+        cli._validate_selected_tasks(["shared"])
 
 
 def test_validate_selected_tasks_reports_unknown_names(monkeypatch):
@@ -443,11 +478,135 @@ def test_validate_selected_known_processor_ignores_unrelated_discovery_issues(
     cli._validate_selected_processors(["summary_report"])
 
 
+def test_validate_selected_providers_validates_all_when_no_names(monkeypatch):
+    cli = _import_cli_or_skip()
+    seen = {}
+
+    class Provider:
+        metadata = ProviderMetadata(name="aws", display_name="AWS")
+
+        def validate_target(self, target):
+            return None
+
+        def default_regions(self, target):
+            return []
+
+        def auth_cache_key(self, target):
+            return None
+
+        def auth_check(self, target):
+            return None
+
+        def discover_regions(self, target):
+            return []
+
+        def resolve_execution_targets(self, *, target, regions, include, exclude):
+            return None
+
+        def prepare_execution_runtime(self, *, target, execution_target, context):
+            return None
+
+    def load_provider():
+        seen.setdefault("loaded", []).append("aws")
+        return Provider()
+
+    monkeypatch.setattr(
+        cli,
+        "discover_providers",
+        lambda: SimpleNamespace(
+            providers=[
+                cli.ProviderDescriptor(
+                    name="aws", display_name="AWS", load=load_provider, source="stock"
+                )
+            ],
+            issues=[],
+        ),
+    )
+
+    cli._validate_selected_providers([])
+
+    assert seen["loaded"] == ["aws"]
+
+
+def test_validate_selected_providers_does_not_call_cloud_discovery(monkeypatch):
+    cli = _import_cli_or_skip()
+
+    monkeypatch.setattr(
+        "anvil.providers.azure.provider.AzureSessionFactory.list_subscriptions",
+        lambda self, **kwargs: (_ for _ in ()).throw(
+            AssertionError(
+                "provider validation should not discover Azure subscriptions"
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "anvil.providers.gcp.provider.GcpSessionFactory.list_projects",
+        lambda self, **kwargs: (_ for _ in ()).throw(
+            AssertionError("provider validation should not discover GCP projects")
+        ),
+    )
+
+    cli._validate_selected_providers(["azure", "gcp"])
+
+
+def test_validate_selected_providers_reports_unknown_names(monkeypatch):
+    cli = _import_cli_or_skip()
+    monkeypatch.setattr(
+        cli,
+        "discover_providers",
+        lambda: SimpleNamespace(
+            providers=[
+                cli.ProviderDescriptor(
+                    name="aws", display_name="AWS", load=lambda: None, source="stock"
+                )
+            ],
+            issues=[],
+        ),
+    )
+
+    with pytest.raises(ValueError, match="Unknown provider"):
+        cli._validate_selected_providers(["missing"])
+
+
+def test_validate_selected_providers_reports_contract_member(monkeypatch):
+    cli = _import_cli_or_skip()
+
+    class BrokenProvider:
+        metadata = ProviderMetadata(name="broken", display_name="Broken")
+
+        def validate_target(self, target):
+            return None
+
+    monkeypatch.setattr(
+        cli,
+        "discover_providers",
+        lambda: SimpleNamespace(
+            providers=[
+                cli.ProviderDescriptor(
+                    name="broken",
+                    display_name="Broken",
+                    load=lambda: BrokenProvider(),
+                    source="plugin: broken-provider",
+                )
+            ],
+            issues=[],
+        ),
+    )
+
+    with pytest.raises(ValueError) as exc_info:
+        cli._validate_selected_providers(["broken"])
+
+    error = str(exc_info.value)
+    assert "broken (plugin: broken-provider)" in error
+    assert "auth_cache_key" in error
+
+
 def test_validate_aggregates_failures_and_successes(monkeypatch, capsys):
     cli = _import_cli_or_skip()
     args = SimpleNamespace(
         tasks=[],
         processors=[],
+        providers=[],
         auth=True,
         config_file=[Path("yaml/orgs.yaml")],
         include=None,
@@ -465,17 +624,89 @@ def test_validate_aggregates_failures_and_successes(monkeypatch, capsys):
         raise ValueError("processor failed")
 
     monkeypatch.setattr(cli, "_validate_selected_processors", fail_processors)
+    monkeypatch.setattr(
+        cli, "_validate_selected_providers", lambda _: calls.append("providers")
+    )
     monkeypatch.setattr(cli, "_cmd_validate_auth", lambda _: calls.append("auth") or 0)
 
     assert cli._cmd_validate(args) == 1
-    assert calls == ["tasks", "processors", "auth"]
+    assert calls == ["tasks", "processors", "providers", "auth"]
 
     output = capsys.readouterr().out
     assert "Validation Summary" not in output
     assert "[OK]     Tasks" in output
     assert "[ERROR]  Processors" in output
+    assert "[OK]     Providers" in output
     assert "[OK]     Authentication" in output
     assert "Result:" not in output
+
+
+def test_validate_config_file_alone_runs_offline_config_validation(monkeypatch, capsys):
+    cli = _import_cli_or_skip()
+    args = SimpleNamespace(
+        tasks=None,
+        processors=None,
+        providers=None,
+        auth=False,
+        config_file=[Path("yaml/noop.yaml")],
+        include=None,
+        exclude=None,
+        quiet=False,
+    )
+
+    calls = []
+    loaded_config = SimpleNamespace(branch=cli.ConfigBranch.TARGETS, targets=[])
+    monkeypatch.setattr(
+        cli,
+        "_load_targets_from_config_file",
+        lambda path: calls.append(("load", path)) or loaded_config,
+    )
+    monkeypatch.setattr(
+        cli,
+        "_validate_cli_overrides",
+        lambda **kwargs: calls.append(("overrides", kwargs["loaded_config"])),
+    )
+    monkeypatch.setattr(
+        cli,
+        "_cmd_validate_auth",
+        lambda _: (_ for _ in ()).throw(
+            AssertionError("config validation should not run auth checks")
+        ),
+    )
+
+    assert cli._cmd_validate(args) == 0
+    assert calls == [("load", Path("yaml/noop.yaml")), ("overrides", loaded_config)]
+    assert "[OK]     Config" in capsys.readouterr().out
+
+
+def test_validate_config_file_with_auth_uses_auth_validation_only(monkeypatch, capsys):
+    cli = _import_cli_or_skip()
+    args = SimpleNamespace(
+        tasks=None,
+        processors=None,
+        providers=None,
+        auth=True,
+        config_file=[Path("yaml/noop.yaml")],
+        include=None,
+        exclude=None,
+        quiet=False,
+    )
+
+    calls = []
+    monkeypatch.setattr(cli, "_cmd_validate_auth", lambda _: calls.append("auth") or 0)
+    monkeypatch.setattr(
+        cli,
+        "_validate_config_files",
+        lambda _: (_ for _ in ()).throw(
+            AssertionError("auth validation loads and validates config itself")
+        ),
+    )
+
+    assert cli._cmd_validate(args) == 0
+    assert calls == ["auth"]
+    output = capsys.readouterr().out
+    assert "[OK]     Authentication" in output
+    assert "Config" not in output
 
 
 def test_validate_treats_nonzero_auth_exit_code_as_failure(monkeypatch, capsys):
@@ -483,6 +714,7 @@ def test_validate_treats_nonzero_auth_exit_code_as_failure(monkeypatch, capsys):
     args = SimpleNamespace(
         tasks=None,
         processors=None,
+        providers=None,
         auth=True,
         config_file=[Path("yaml/orgs.yaml")],
         include=None,
@@ -503,6 +735,7 @@ def test_validate_combined_categories_report_auth_failure(monkeypatch, capsys):
     args = SimpleNamespace(
         tasks=[],
         processors=[],
+        providers=None,
         auth=True,
         config_file=[Path("yaml/noop.yaml")],
         include=None,
@@ -528,6 +761,7 @@ def test_validate_tasks_and_processors_report_success(monkeypatch, capsys):
     args = SimpleNamespace(
         tasks=[],
         processors=[],
+        providers=[],
         auth=False,
         config_file=None,
         include=None,
@@ -537,11 +771,13 @@ def test_validate_tasks_and_processors_report_success(monkeypatch, capsys):
 
     monkeypatch.setattr(cli, "_validate_selected_tasks", lambda _: None)
     monkeypatch.setattr(cli, "_validate_selected_processors", lambda _: None)
+    monkeypatch.setattr(cli, "_validate_selected_providers", lambda _: None)
 
     assert cli._cmd_validate(args) == 0
     output = capsys.readouterr().out
     assert "[OK]     Tasks" in output
     assert "[OK]     Processors" in output
+    assert "[OK]     Providers" in output
     assert "Result:" not in output
 
 
@@ -550,6 +786,7 @@ def test_validate_task_failure_reports_failed_result(monkeypatch, capsys):
     args = SimpleNamespace(
         tasks=[],
         processors=None,
+        providers=None,
         auth=False,
         config_file=None,
         include=None,
@@ -594,6 +831,7 @@ def test_validate_quiet_suppresses_success_output(monkeypatch, capsys):
     args = SimpleNamespace(
         tasks=[],
         processors=[],
+        providers=None,
         auth=False,
         config_file=None,
         include=None,
@@ -634,6 +872,7 @@ def test_validate_returns_success_when_all_categories_pass(monkeypatch, capsys):
     args = SimpleNamespace(
         tasks=["count_vpc"],
         processors=["summary_report"],
+        providers=["aws"],
         auth=False,
         config_file=None,
         include=None,
@@ -643,6 +882,7 @@ def test_validate_returns_success_when_all_categories_pass(monkeypatch, capsys):
 
     monkeypatch.setattr(cli, "_validate_selected_tasks", lambda _: None)
     monkeypatch.setattr(cli, "_validate_selected_processors", lambda _: None)
+    monkeypatch.setattr(cli, "_validate_selected_providers", lambda _: None)
 
     assert cli._cmd_validate(args) == 0
     assert "Result:" not in capsys.readouterr().out

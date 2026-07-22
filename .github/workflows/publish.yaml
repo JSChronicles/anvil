@@ -3,7 +3,6 @@ name: "Publish"
 on:
   push:
     tags:
-      # Publish on any tag starting with a `v`, e.g., v0.1.0
       - v*
 
   workflow_dispatch:
@@ -24,10 +23,8 @@ on:
 jobs:
   pypi-publish:
     runs-on: ubuntu-latest
-    container:
-      image: python:3.14-slim
     environment:
-      name: testpypi
+      name: pypi
     permissions:
       id-token: write
       contents: read
@@ -51,4 +48,4 @@ jobs:
       #   run: uv run --isolated --no-project --with dist/*.tar.gz tests/smoke_test.py
 
       # - name: Publish
-      #   run: uv publish --publish-url "https://test.pypi.org/legacy/"
+        # run: uv publish

@@ -1,0 +1,32 @@
+schema_version: 2
+max_parallel_targets: 2
+targets:
+- name: gcp-platform-projects
+  provider:
+    name: gcp
+    mode: projects
+    options:
+      quota_project_id: anvil-billing-project
+  regions:
+  - us-central1
+  include:
+  - anvil-platform-dev
+  - anvil-platform-prod
+  dry_run: true
+  tasks:
+  - name: get_project_info
+
+- name: gcp-application-projects
+  provider:
+    name: gcp
+    mode: projects
+    options:
+      quota_project_id: anvil-billing-project
+  regions:
+  - us-east1
+  include:
+  - anvil-app-dev
+  - anvil-app-prod
+  dry_run: true
+  tasks:
+  - name: get_project_info

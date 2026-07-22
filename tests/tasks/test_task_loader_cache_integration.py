@@ -3,18 +3,17 @@ from __future__ import annotations
 import importlib
 from types import SimpleNamespace
 
+from anvil.task_loader import TaskDescriptor
 
-def test_graph_and_run_paths_behave_the_same_with_cached_resolution(
-    monkeypatch, capsys
-):
+
+def test_run_path_reuses_cached_task_resolution(monkeypatch):
     task_loader = importlib.import_module("anvil.task_loader")
-    graph = importlib.import_module("anvil.graph")
     runner = importlib.import_module("anvil.runner")
     descriptors = importlib.import_module("anvil.descriptors")
     results = importlib.import_module("anvil.results")
 
     task_loader._resolve_tasks_cached.cache_clear()
-    task_loader._load_task_callable.cache_clear()
+    task_loader._clear_task_caches()
 
     def alpha_run(**kwargs):
         return "alpha"
@@ -22,22 +21,22 @@ def test_graph_and_run_paths_behave_the_same_with_cached_resolution(
     def beta_run(**kwargs):
         return "beta"
 
-    def fake_load(task_name: str):
-        return {"alpha": alpha_run, "beta": beta_run}[task_name]
-
-    monkeypatch.setattr(task_loader, "_load_task_callable", fake_load)
+    monkeypatch.setattr(
+        task_loader,
+        "_provider_task_descriptor_index",
+        lambda provider_name: {
+            "alpha": (TaskDescriptor("alpha", lambda: alpha_run, "aws"),),
+            "beta": (TaskDescriptor("beta", lambda: beta_run, "aws"),),
+        },
+    )
+    task_loader._load_provider_task_callable.cache_clear()
+    task_loader._resolve_tasks_cached.cache_clear()
 
     target = descriptors.TargetDescriptor(
-        config_branch=descriptors.ConfigBranch.ORGANIZATIONS,
+        config_branch=descriptors.ConfigBranch.TARGETS,
         name="demo-org",
         tasks=[{"name": "alpha"}, {"name": "beta", "depends_on": ["alpha"]}],
     )
-
-    graph.render_graph(targets=[target], output_json=True)
-    graph_output = capsys.readouterr().out
-    assert '"organization": "demo-org"' in graph_output
-    assert '"name": "alpha"' in graph_output
-    assert '"name": "beta"' in graph_output
 
     monkeypatch.setattr(
         runner,
@@ -56,15 +55,19 @@ def test_graph_and_run_paths_behave_the_same_with_cached_resolution(
         runner, "infer_auth_source", lambda profile: SimpleNamespace(value="test")
     )
     monkeypatch.setattr(
-        runner,
-        "_preflight_organization",
-        lambda **kwargs: (
-            object(),
-            "o-example",
-            "123456789012",
-            "123456789012",
-            {},
-            ["us-east-1"],
+        runner.AwsProvider,
+        "preflight_execution",
+        lambda self, **kwargs: SimpleNamespace(
+            data=SimpleNamespace(
+                session_factory=kwargs["session_factory"],
+                base_session=object(),
+                organization_id="o-example",
+                management_account_id="123456789012",
+                base_session_account_id="123456789012",
+                discovered_accounts={},
+                region_statuses={"us-east-1": "ENABLED_BY_DEFAULT"},
+            ),
+            exclusive_execution_key="o-example",
         ),
     )
 
@@ -78,19 +81,19 @@ def test_graph_and_run_paths_behave_the_same_with_cached_resolution(
         def resolve_accounts(self):
             return []
 
-    def fake_execute_accounts(
-        *, name, config_branch, max_workers, context, accounts, **kwargs
-    ):
+    def fake_execute_provider_targets(*, target, context, execution_targets, **kwargs):
         observed_tasks.append([task.name for task in context.tasks])
         return results.TargetResult.create(
-            config_branch=config_branch,
-            target_name=name,
+            config_branch=target.config_branch,
+            target_name=target.name,
             dry_run=context.dry_run,
-            account_results=[],
+            entities=[],
         )
 
     monkeypatch.setattr(runner, "OrganizationResolver", FakeResolver)
-    monkeypatch.setattr(runner, "execute_accounts", fake_execute_accounts)
+    monkeypatch.setattr(
+        runner, "_execute_provider_targets", fake_execute_provider_targets
+    )
 
     engine_result = runner.run_multiple_targets(
         targets=[target, target],

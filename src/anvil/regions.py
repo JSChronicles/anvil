@@ -56,63 +56,96 @@ def resolve_region_selectors(
     Raises:
         ValueError: If a selector matches no known region or no enabled regions remain.
     """
-    known_regions = sorted(region_statuses)
-    selected_regions: set[str] = set()
+    return resolve_location_selectors(
+        target_name=target_name,
+        configured_locations=configured_regions,
+        location_statuses=region_statuses,
+        available_statuses=ENABLED_REGION_STATUSES,
+        label="region",
+    )
+
+
+def resolve_location_selectors(
+    *,
+    target_name: str,
+    configured_locations: list[str],
+    location_statuses: dict[str, str],
+    available_statuses: set[str],
+    label: str = "location",
+) -> list[str]:
+    """Resolve location selectors to concrete available provider locations.
+
+    Args:
+        target_name: Target name for log and error messages.
+        configured_locations: Locations or selectors from YAML.
+        location_statuses: Location name to provider-owned availability status.
+        available_statuses: Status values considered executable.
+        label: Human-readable location kind for messages.
+
+    Returns:
+        Concrete available locations to execute.
+
+    Raises:
+        ValueError: If a selector matches no known location or no available
+            locations remain.
+    """
+    known_locations = sorted(location_statuses)
+    selected_locations: set[str] = set()
     selected_order: list[str] = []
     unmatched_selectors: list[str] = []
 
-    def add_region(region: str) -> None:
-        if region in selected_regions:
+    def add_location(location: str) -> None:
+        if location in selected_locations:
             return
 
-        selected_regions.add(region)
-        selected_order.append(region)
+        selected_locations.add(location)
+        selected_order.append(location)
 
-    if configured_regions == [ALL_REGION_SELECTOR]:
-        for region in known_regions:
-            add_region(region)
+    if configured_locations == [ALL_REGION_SELECTOR]:
+        for location in known_locations:
+            add_location(location)
     else:
-        for configured_region in configured_regions:
-            if is_region_glob(configured_region):
+        for configured_location in configured_locations:
+            if is_region_glob(configured_location):
                 matches = [
-                    region
-                    for region in known_regions
-                    if fnmatch.fnmatchcase(region, configured_region)
+                    location
+                    for location in known_locations
+                    if fnmatch.fnmatchcase(location, configured_location)
                 ]
                 if not matches:
-                    unmatched_selectors.append(configured_region)
+                    unmatched_selectors.append(configured_location)
                     continue
 
-                for region in matches:
-                    add_region(region)
+                for location in matches:
+                    add_location(location)
                 continue
 
-            add_region(configured_region)
+            add_location(configured_location)
 
     if unmatched_selectors:
         raise ValueError(
-            f"Target '{target_name}' region selector(s) matched no known regions: "
+            f"Target '{target_name}' {label} selector(s) matched no known {label}s: "
             f"{', '.join(unmatched_selectors)}"
         )
 
-    unavailable_regions = sorted(
-        region
-        for region in selected_regions
-        if region_statuses.get(region) not in ENABLED_REGION_STATUSES
+    unavailable_locations = sorted(
+        location
+        for location in selected_locations
+        if location_statuses.get(location) not in available_statuses
     )
-    if unavailable_regions:
+    if unavailable_locations:
         __LOGGER__.warning(
-            f"Target '{target_name}' configured unavailable regions: "
-            f"{', '.join(unavailable_regions)}"
+            f"Target '{target_name}' configured unavailable {label}s: "
+            f"{', '.join(unavailable_locations)}"
         )
 
-    effective_regions = [
-        region
-        for region in selected_order
-        if region_statuses.get(region) in ENABLED_REGION_STATUSES
+    effective_locations = [
+        location
+        for location in selected_order
+        if location_statuses.get(location) in available_statuses
     ]
 
-    if not effective_regions:
-        raise ValueError("No effective configured regions remain after validation.")
+    if not effective_locations:
+        raise ValueError(f"No effective configured {label}s remain after validation.")
 
-    return effective_regions
+    return effective_locations

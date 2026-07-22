@@ -7,12 +7,15 @@ It does not execute tasks or perform any AWS interactions.
 
 from __future__ import annotations
 
-from inspect import Parameter, signature
+from inspect import Parameter, getdoc, getmodule, signature
 
-# Required keyword arguments for all task run() functions
+# Required keyword arguments for all task run() functions.
 REQUIRED_RUN_KWARGS: set[str] = {
-    "account_id",
-    "account_alias",
+    "provider",
+    "execution_target_id",
+    "execution_target_name",
+    "execution_target_type",
+    "region",
     "session",
     "dry_run",
     "metadata",
@@ -52,6 +55,7 @@ def task_validation_errors(tasks: list) -> list[str]:
                 raise TaskValidationError(f"task '{task.name}'.run is not callable")
 
             _validate_task_run_signature(task)
+            _validate_task_detail_docstring(task)
 
         except TaskValidationError as exc:
             errors.append(str(exc))
@@ -72,13 +76,13 @@ def _validate_task_run_signature(task) -> None:
     accepts_extra_kwargs = any(
         param.kind is Parameter.VAR_KEYWORD for param in parameters.values()
     )
-    missing = REQUIRED_RUN_KWARGS - set(parameters)
-    if missing:
-        if not accepts_extra_kwargs:
-            raise TaskValidationError(
-                f"task '{task.name}' is missing required run() parameters: "
-                f"{sorted(missing)}"
-            )
+    parameter_names = set(parameters)
+    missing = REQUIRED_RUN_KWARGS - parameter_names
+    if missing and not accepts_extra_kwargs:
+        raise TaskValidationError(
+            f"task '{task.name}' is missing required run() parameters: "
+            f"{sorted(missing)}"
+        )
 
     for param in parameters.values():
         if param.kind is Parameter.POSITIONAL_ONLY:
@@ -86,3 +90,17 @@ def _validate_task_run_signature(task) -> None:
                 f"task '{task.name}' uses positional-only parameter "
                 f"'{param.name}', which is not supported"
             )
+
+
+def _validate_task_detail_docstring(task) -> None:
+    doc = getdoc(task.run)
+    if doc is None:
+        module = getmodule(task.run)
+        if module is not None:
+            doc = getdoc(module)
+
+    if doc is None:
+        raise TaskValidationError(
+            f"task '{task.name}' is missing detail documentation; add a "
+            "Google-style run() docstring for 'anvil list --tasks --detail'"
+        )

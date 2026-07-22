@@ -19,7 +19,7 @@ def _context(*, role_name: str | None = None) -> ExecutionContext:
 
 def test_resolve_accounts_uses_assume_role_strategy_when_role_name_is_configured():
     descriptor = TargetDescriptor(
-        config_branch=ConfigBranch.ACCOUNTS,
+        config_branch=ConfigBranch.TARGETS,
         name="selected",
         profile="tooling",
         role_name="SecurityAccessRole",
@@ -43,7 +43,7 @@ def test_resolve_accounts_uses_assume_role_strategy_when_role_name_is_configured
 
 def test_resolve_accounts_uses_direct_profile_strategy_without_role_name():
     descriptor = TargetDescriptor(
-        config_branch=ConfigBranch.ACCOUNTS,
+        config_branch=ConfigBranch.TARGETS,
         name="current",
         profile="dev-admin",
         include=["111111111111"],

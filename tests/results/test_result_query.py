@@ -12,12 +12,14 @@ from anvil.result_query import (
     filter_records,
     format_records_jsonl,
     format_records_table,
+    iter_result_records,
     limit_records,
     load_result_records,
     parse_fields,
     project_records,
+    query_result_records,
 )
-from anvil.results import AccountResult, ExecutionStatus, TargetResult, TaskResult
+from anvil.results import EntityResult, ExecutionStatus, TargetResult, TaskResult
 
 
 def _task_result(
@@ -37,13 +39,14 @@ def _task_result(
 
 def _target_result() -> TargetResult:
     return TargetResult.create(
-        config_branch=ConfigBranch.ORGANIZATIONS,
+        config_branch=ConfigBranch.TARGETS,
         target_name="engineering",
         dry_run=True,
-        account_results=[
-            AccountResult(
-                account_id="111111111111",
-                account_alias="dev",
+        entities=[
+            EntityResult(
+                id="111111111111",
+                name="dev",
+                type="account",
                 status=ExecutionStatus.ERROR,
                 started_at="2026-04-30T00:00:00+00:00",
                 ended_at="2026-04-30T00:00:02+00:00",
@@ -67,12 +70,14 @@ def _target_result() -> TargetResult:
     )
 
 
-def test_build_jsonl_records_flattens_accounts_and_tasks():
+def test_build_jsonl_records_flattens_entities_and_tasks():
     records = build_jsonl_records_for_target(_target_result())
 
-    assert [record["record_type"] for record in records] == ["account", "task", "task"]
-    assert records[0]["organization"] == "engineering"
-    assert records[1]["account_id"] == "111111111111"
+    assert [record["record_type"] for record in records] == ["entity", "task", "task"]
+    assert records[0]["target"] == "engineering"
+    assert records[1]["entity_id"] == "111111111111"
+    assert records[1]["entity_name"] == "dev"
+    assert records[1]["entity_type"] == "account"
     assert records[1]["task"] == "count_vpcs"
     assert records[1]["region"] == "us-east-1"
     assert records[1]["status"] == "error"
@@ -100,7 +105,7 @@ def test_filter_records_supports_failed_status_alias_and_common_fields():
         filters=ResultFilters(
             status="failed",
             target="engineering",
-            account="dev",
+            entity="dev",
             region="us-east-1",
             task="count_vpcs",
         ),
@@ -112,36 +117,36 @@ def test_filter_records_supports_failed_status_alias_and_common_fields():
 
 def test_filter_records_failed_status_matches_any_non_success_status():
     records = [
-        {"record_type": "account", "status": "success", "account_id": "111"},
-        {"record_type": "account", "status": "error", "account_id": "222"},
-        {"record_type": "account", "status": "interrupted", "account_id": "333"},
+        {"record_type": "entity", "status": "success", "entity_id": "111"},
+        {"record_type": "entity", "status": "error", "entity_id": "222"},
+        {"record_type": "entity", "status": "interrupted", "entity_id": "333"},
     ]
 
     matches = filter_records(records, filters=ResultFilters(status="failed"))
 
-    assert [record["account_id"] for record in matches] == ["222", "333"]
+    assert [record["entity_id"] for record in matches] == ["222", "333"]
 
 
 def test_filter_records_supports_record_type_filter():
     records = build_jsonl_records_for_target(_target_result())
 
-    matches = filter_records(records, filters=ResultFilters(record_type="account"))
+    matches = filter_records(records, filters=ResultFilters(record_type="entity"))
 
-    assert [record["record_type"] for record in matches] == ["account"]
+    assert [record["record_type"] for record in matches] == ["entity"]
 
 
-def test_failure_records_include_account_and_task_failures():
+def test_failure_records_include_entity_and_task_failures():
     records = build_jsonl_records_for_target(_target_result())
 
     failures = failure_records(records)
 
-    assert [record["record_type"] for record in failures] == ["account", "task"]
+    assert [record["record_type"] for record in failures] == ["entity", "task"]
 
 
 def test_failure_records_include_any_non_success_status():
     records = [
-        {"record_type": "account", "status": "success"},
-        {"record_type": "account", "status": "interrupted"},
+        {"record_type": "entity", "status": "success"},
+        {"record_type": "entity", "status": "interrupted"},
         {"record_type": "task", "status": "cancelled"},
     ]
 
@@ -181,11 +186,12 @@ def test_build_rerun_targets_includes_interrupted_task_dependencies():
     from anvil.descriptors import LoadedConfig, TargetDescriptor
 
     loaded_config = LoadedConfig(
-        branch=ConfigBranch.ORGANIZATIONS,
+        branch=ConfigBranch.TARGETS,
         targets=[
             TargetDescriptor(
-                config_branch=ConfigBranch.ORGANIZATIONS,
+                config_branch=ConfigBranch.TARGETS,
                 name="org-a",
+                mode="organization",
                 regions=["us-east-1", "us-west-2"],
                 tasks=[
                     {"name": "inventory"},
@@ -201,7 +207,7 @@ def test_build_rerun_targets_includes_interrupted_task_dependencies():
             {
                 "record_type": "task",
                 "target": "org-a",
-                "account_id": "111111111111",
+                "entity_id": "111111111111",
                 "region": "us-west-2",
                 "task": "cleanup",
                 "status": "interrupted",
@@ -219,15 +225,15 @@ def test_build_rerun_targets_includes_interrupted_task_dependencies():
 
 
 def test_parse_fields_validates_known_fields():
-    assert parse_fields("account_id, region,task") == ["account_id", "region", "task"]
+    assert parse_fields("entity_id, region,task") == ["entity_id", "region", "task"]
 
 
 def test_parse_fields_rejects_unknown_fields():
     try:
-        parse_fields("account_id,nope")
+        parse_fields("entity_id,nope")
     except ValueError as error:
         assert "Unknown result field: nope" in str(error)
-        assert "account_id" in str(error)
+        assert "entity_id" in str(error)
     else:
         raise AssertionError("parse_fields should reject unknown fields")
 
@@ -242,12 +248,12 @@ def test_limit_records_applies_after_filtering():
 def test_project_records_keeps_requested_fields_in_order():
     records = build_jsonl_records_for_target(_target_result())
 
-    projected = project_records(records, fields=["account_id", "region", "task"])
+    projected = project_records(records, fields=["entity_id", "region", "task"])
 
-    assert list(projected[0]) == ["account_id", "region", "task"]
-    assert projected[0] == {"account_id": "111111111111", "region": None, "task": None}
+    assert list(projected[0]) == ["entity_id", "region", "task"]
+    assert projected[0] == {"entity_id": "111111111111", "region": None, "task": None}
     assert projected[1] == {
-        "account_id": "111111111111",
+        "entity_id": "111111111111",
         "region": "us-east-1",
         "task": "count_vpcs",
     }
@@ -257,27 +263,27 @@ def test_format_records_table_uses_default_and_selected_fields():
     records = build_jsonl_records_for_target(_target_result())
 
     default_table = format_records_table(records)
-    selected_table = format_records_table(records, fields=["account_id", "task"])
+    selected_table = format_records_table(records, fields=["entity_id", "task"])
 
     assert "type" in default_table
-    assert "alias" in default_table
-    assert "account_id" in selected_table
+    assert "entity_name" in default_table
+    assert "entity_id" in selected_table
     assert "count_vpcs" in selected_table
-    assert "alias" not in selected_table
+    assert "entity_name" not in selected_table
 
 
 def test_format_records_jsonl_outputs_one_json_object_per_line():
     records = project_records(
         build_jsonl_records_for_target(_target_result())[:2],
-        fields=["account_id", "task"],
+        fields=["entity_id", "task"],
     )
 
     output = format_records_jsonl(records)
     lines = output.splitlines()
 
     assert len(lines) == 2
-    assert json.loads(lines[0]) == {"account_id": "111111111111", "task": None}
-    assert json.loads(lines[1]) == {"account_id": "111111111111", "task": "count_vpcs"}
+    assert json.loads(lines[0]) == {"entity_id": "111111111111", "task": None}
+    assert json.loads(lines[1]) == {"entity_id": "111111111111", "task": "count_vpcs"}
 
 
 def test_load_result_records_discovers_nested_results_jsonl():
@@ -291,11 +297,11 @@ def test_load_result_records_discovers_nested_results_jsonl():
 
     try:
         run_dir.mkdir(parents=True)
-        results_file.write_text('{"record_type":"account","status":"success"}\n')
+        results_file.write_text('{"record_type":"entity","status":"success"}\n')
 
         records = load_result_records(results_dir=results_dir, files=None)
 
-        assert records == [{"record_type": "account", "status": "success"}]
+        assert records == [{"record_type": "entity", "status": "success"}]
     finally:
         results_file.unlink(missing_ok=True)
         if run_dir.exists():
@@ -306,3 +312,66 @@ def test_load_result_records_discovers_nested_results_jsonl():
             results_dir.rmdir()
         if scratch_dir.exists():
             scratch_dir.rmdir()
+
+
+def test_iter_result_records_preserves_explicit_file_order(tmp_path):
+    first_file = tmp_path / "first.jsonl"
+    second_file = tmp_path / "second.jsonl"
+    first_file.write_text('{"entity_id":"first"}\n', encoding="utf-8")
+    second_file.write_text('{"entity_id":"second"}\n', encoding="utf-8")
+
+    records = list(
+        iter_result_records(results_dir=tmp_path, files=[second_file, first_file])
+    )
+
+    assert [record["entity_id"] for record in records] == ["second", "first"]
+
+
+def test_load_result_records_rejects_invalid_json(tmp_path):
+    results_file = tmp_path / "results.jsonl"
+    results_file.write_text('{"record_type":"entity"}\nnot-json\n', encoding="utf-8")
+
+    try:
+        load_result_records(results_dir=tmp_path, files=[results_file])
+    except ValueError as error:
+        assert f"Invalid JSONL in {results_file} on line 2" in str(error)
+    else:
+        raise AssertionError("invalid JSONL should fail")
+
+
+def test_load_result_records_rejects_non_object_records(tmp_path):
+    results_file = tmp_path / "results.jsonl"
+    results_file.write_text('["not", "object"]\n', encoding="utf-8")
+
+    try:
+        load_result_records(results_dir=tmp_path, files=[results_file])
+    except ValueError as error:
+        assert f"Invalid JSONL in {results_file} on line 1" in str(error)
+        assert "expected object" in str(error)
+    else:
+        raise AssertionError("non-object JSONL should fail")
+
+
+def test_query_result_records_applies_limit_after_filters_and_stops_reading(tmp_path):
+    results_file = tmp_path / "results.jsonl"
+    results_file.write_text(
+        "\n".join(
+            [
+                '{"record_type":"task","status":"success","entity_id":"skip"}',
+                '{"record_type":"task","status":"error","entity_id":"match-1"}',
+                '{"record_type":"entity","status":"error","entity_id":"skip-type"}',
+                '{"record_type":"task","status":"interrupted","entity_id":"match-2"}',
+                "not-json",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    records = query_result_records(
+        results_dir=tmp_path,
+        files=[results_file],
+        filters=ResultFilters(record_type="task", status="failed"),
+        limit=2,
+    )
+
+    assert [record["entity_id"] for record in records] == ["match-1", "match-2"]

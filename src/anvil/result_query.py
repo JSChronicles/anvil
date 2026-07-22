@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import json
 from collections import defaultdict
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from dataclasses import replace
 from pathlib import Path
 
 from anvil.descriptors import ConfigBranch, LoadedConfig, TargetDescriptor
-from anvil.results import AccountResult, TargetResult, TaskResult
+from anvil.results import EntityResult, TargetResult, TaskResult
 
 
 JSONL_FILENAME = "results.jsonl"
@@ -15,25 +16,25 @@ DEFAULT_TABLE_FIELDS = [
     "record_type",
     "status",
     "target",
-    "account_id",
-    "account_alias",
+    "entity_id",
+    "entity_name",
+    "entity_type",
     "region",
     "task",
     "error",
 ]
-FIELD_HEADERS = {"record_type": "type", "account_alias": "alias"}
+FIELD_HEADERS = {"record_type": "type"}
 AVAILABLE_FIELDS = [
-    "account_alias",
-    "account_group",
-    "account_id",
     "config_file",
     "config_file_resolved",
     "dry_run",
     "duration_seconds",
     "ended_at",
+    "entity_id",
+    "entity_name",
+    "entity_type",
     "error",
     "generated_at",
-    "organization",
     "record_type",
     "region",
     "result",
@@ -50,7 +51,7 @@ class ResultFilters:
     record_type: str | None = None
     status: str | None = None
     target: str | None = None
-    account: str | None = None
+    entity: str | None = None
     region: str | None = None
     task: str | None = None
 
@@ -63,30 +64,30 @@ def jsonl_path_for_run(*, run_dir: Path) -> Path:
 def build_jsonl_records_for_target(
     target_result: TargetResult, *, config_file: Path | None = None
 ) -> list[dict[str, object]]:
-    """Build flattened account and task records for a target result."""
+    """Build flattened entity and task records for a target result."""
     target_type = _target_type(target_result.config_branch)
     records: list[dict[str, object]] = []
 
-    for account_result in target_result.account_results:
-        account_record = _base_account_record(
+    for entity_result in target_result.entities:
+        entity_record = _base_entity_record(
             target_result=target_result,
             target_type=target_type,
-            account_result=account_result,
+            entity_result=entity_result,
             config_file=config_file,
         )
         records.append(
             {
-                **account_record,
-                "record_type": "account",
-                **_timed_status_record(account_result),
-                "error": account_result.error,
+                **entity_record,
+                "record_type": "entity",
+                **_timed_status_record(entity_result),
+                "error": entity_result.error,
             }
         )
 
-        for task_result in account_result.tasks:
+        for task_result in entity_result.tasks:
             records.append(
                 {
-                    **account_record,
+                    **entity_record,
                     "record_type": "task",
                     "task": task_result.task_name,
                     "region": task_result.region,
@@ -120,8 +121,14 @@ def load_result_records(
     *, results_dir: Path, files: list[Path] | None
 ) -> list[dict[str, object]]:
     """Load result records from explicit files or the default results directory."""
+    return list(iter_result_records(results_dir=results_dir, files=files))
+
+
+def iter_result_records(
+    *, results_dir: Path, files: list[Path] | None
+) -> Iterator[dict[str, object]]:
+    """Yield result records from explicit files or the default results directory."""
     paths = files if files else sorted(results_dir.glob(f"**/{JSONL_FILENAME}"))
-    records: list[dict[str, object]] = []
 
     for path in paths:
         with path.open("r", encoding="utf-8") as handle:
@@ -143,36 +150,63 @@ def load_result_records(
                         "expected object"
                     )
                     raise ValueError(message)
-                records.append(payload)
-
-    return records
+                yield payload
 
 
 def filter_records(
     records: list[dict[str, object]], *, filters: ResultFilters
 ) -> list[dict[str, object]]:
     """Return records matching all supplied filters."""
+    return list(iter_filtered_records(records, filters=filters))
+
+
+def iter_filtered_records(
+    records: Iterable[dict[str, object]], *, filters: ResultFilters
+) -> Iterator[dict[str, object]]:
+    """Yield records matching all supplied filters."""
     status_filter = _normalize_status_filter(filters.status)
 
-    return [
-        record
-        for record in records
-        if _matches(record, "record_type", filters.record_type)
-        and _matches_status(record, status_filter)
-        and _matches(record, "target", filters.target)
-        and _matches_account(record, filters.account)
-        and _matches(record, "region", filters.region)
-        and _matches(record, "task", filters.task)
-    ]
+    for record in records:
+        if (
+            _matches(record, "record_type", filters.record_type)
+            and _matches_status(record, status_filter)
+            and _matches(record, "target", filters.target)
+            and _matches_entity(record, filters.entity)
+            and _matches(record, "region", filters.region)
+            and _matches(record, "task", filters.task)
+        ):
+            yield record
+
+
+def query_result_records(
+    *,
+    results_dir: Path,
+    files: list[Path] | None,
+    filters: ResultFilters,
+    limit: int | None = None,
+) -> list[dict[str, object]]:
+    """Return filtered result records, stopping after limit matching records."""
+    if limit is not None and limit <= 0:
+        return []
+
+    records: list[dict[str, object]] = []
+    for record in iter_filtered_records(
+        iter_result_records(results_dir=results_dir, files=files), filters=filters
+    ):
+        records.append(record)
+        if limit is not None and len(records) >= limit:
+            break
+
+    return records
 
 
 def failure_records(records: list[dict[str, object]]) -> list[dict[str, object]]:
-    """Return account and task records that represent unsuccessful work."""
+    """Return entity and task records that represent unsuccessful work."""
     return [
         record
         for record in records
         if _record_is_unsuccessful(record)
-        and record.get("record_type") in {"account", "task"}
+        and record.get("record_type") in {"entity", "task"}
     ]
 
 
@@ -278,13 +312,12 @@ def format_records_table(
 
 
 def _target_type(config_branch: ConfigBranch) -> str:
-    if config_branch is ConfigBranch.ACCOUNTS:
-        return "account_group"
+    if config_branch is not ConfigBranch.TARGETS:
+        raise ValueError(f"Unsupported config branch: {config_branch}")
+    return "target"
 
-    return "organization"
 
-
-def _timed_status_record(result: AccountResult | TaskResult) -> dict[str, object]:
+def _timed_status_record(result: EntityResult | TaskResult) -> dict[str, object]:
     return {
         "status": result.status.value,
         "started_at": result.started_at,
@@ -293,11 +326,11 @@ def _timed_status_record(result: AccountResult | TaskResult) -> dict[str, object
     }
 
 
-def _base_account_record(
+def _base_entity_record(
     *,
     target_result: TargetResult,
     target_type: str,
-    account_result: AccountResult,
+    entity_result: EntityResult,
     config_file: Path | None,
 ) -> dict[str, object]:
     record: dict[str, object] = {
@@ -306,8 +339,9 @@ def _base_account_record(
         "target": target_result.target_name,
         "generated_at": target_result.generated_at,
         "dry_run": target_result.dry_run,
-        "account_id": account_result.account_id,
-        "account_alias": account_result.account_alias,
+        "entity_id": entity_result.id,
+        "entity_name": entity_result.name,
+        "entity_type": entity_result.type,
     }
     if config_file is not None:
         record["config_file"] = config_file.as_posix()
@@ -385,25 +419,25 @@ def _expand_task_names_with_dependencies(
     ]
 
 
-def _narrow_target_for_failed_account(
+def _narrow_target_for_failed_entity(
     *, target: TargetDescriptor, records: list[dict[str, object]]
 ) -> TargetDescriptor:
-    failed_account_ids = {
-        account_id
-        for account_id in (record.get("account_id") for record in records)
-        if isinstance(account_id, str) and account_id
+    failed_entity_ids = {
+        entity_id
+        for entity_id in (record.get("entity_id") for record in records)
+        if isinstance(entity_id, str) and entity_id
     }
     task_records = [
         record
         for record in records
         if record.get("record_type") == "task" and _record_is_unsuccessful(record)
     ]
-    task_failed_account_ids = {
-        account_id
-        for account_id in (record.get("account_id") for record in task_records)
-        if isinstance(account_id, str) and account_id
+    task_failed_entity_ids = {
+        entity_id
+        for entity_id in (record.get("entity_id") for record in task_records)
+        if isinstance(entity_id, str) and entity_id
     }
-    account_level_failure_exists = bool(failed_account_ids - task_failed_account_ids)
+    entity_level_failure_exists = bool(failed_entity_ids - task_failed_entity_ids)
 
     failed_regions = {
         region
@@ -417,37 +451,39 @@ def _narrow_target_for_failed_account(
     }
 
     regions = target.regions
-    if failed_regions and not account_level_failure_exists:
-        regions = [region for region in target.regions if region in failed_regions]
+    if failed_regions and not entity_level_failure_exists:
+        regions = [
+            region for region in target.regions or [] if region in failed_regions
+        ]
         if not regions:
             regions = sorted(failed_regions)
 
     tasks = target.tasks
-    if failed_task_names and not account_level_failure_exists:
+    if failed_task_names and not entity_level_failure_exists:
         tasks = _expand_task_names_with_dependencies(
             selected_names=failed_task_names, tasks=target.tasks
         )
         if not tasks:
             tasks = target.tasks
 
-    failed_account_id = sorted(failed_account_ids)[0]
+    failed_entity_id = sorted(failed_entity_ids)[0]
     return replace(
-        target, include=[failed_account_id], exclude=None, regions=regions, tasks=tasks
+        target, include=[failed_entity_id], exclude=None, regions=regions, tasks=tasks
     )
 
 
 def _narrow_target_for_failure_records(
     *, target: TargetDescriptor, records: list[dict[str, object]]
 ) -> list[TargetDescriptor]:
-    records_by_account: dict[str, list[dict[str, object]]] = defaultdict(list)
+    records_by_entity: dict[str, list[dict[str, object]]] = defaultdict(list)
     for record in records:
-        account_id = record.get("account_id")
-        if isinstance(account_id, str) and account_id:
-            records_by_account[account_id].append(record)
+        entity_id = record.get("entity_id")
+        if isinstance(entity_id, str) and entity_id:
+            records_by_entity[entity_id].append(record)
 
     return [
-        _narrow_target_for_failed_account(target=target, records=account_records)
-        for _, account_records in sorted(records_by_account.items())
+        _narrow_target_for_failed_entity(target=target, records=entity_records)
+        for _, entity_records in sorted(records_by_entity.items())
     ]
 
 
@@ -459,12 +495,12 @@ def _matches(record: dict[str, object], key: str, expected: str | None) -> bool:
     return isinstance(actual, str) and actual.lower() == expected.lower()
 
 
-def _matches_account(record: dict[str, object], expected: str | None) -> bool:
+def _matches_entity(record: dict[str, object], expected: str | None) -> bool:
     if expected is None:
         return True
 
     expected_lower = expected.lower()
-    for key in ("account_id", "account_alias"):
+    for key in ("entity_id", "entity_name"):
         actual = record.get(key)
         if isinstance(actual, str) and actual.lower() == expected_lower:
             return True

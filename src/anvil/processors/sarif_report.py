@@ -20,7 +20,29 @@ VALID_LEVELS = {"none", "note", "warning", "error"}
 def run(
     *, context: ProcessorRunContext, output: str | None, metadata: dict[str, object]
 ) -> dict[str, object]:
-    """Write a SARIF 2.1.0 report from explicit task sarif_findings records."""
+    """Write a SARIF 2.1.0 report from task `sarif_findings` records.
+
+    The processor scans task results for explicit `sarif_findings` payloads and
+    converts them into a SARIF report suitable for code scanning and security
+    tooling.
+
+    Metadata:
+        tool_name: Optional SARIF tool driver name. Defaults to `Anvil`.
+        automation_category: Optional SARIF automation details ID.
+
+    Args:
+        context: Completed run context provided by the Anvil processor runner.
+        output: Optional output path. Defaults to `reports/anvil.sarif` under
+            the run directory.
+        metadata: Processor metadata containing optional SARIF settings.
+
+    Returns:
+        A payload containing the written output path, finding count, and rule
+        count.
+
+    Raises:
+        RuntimeError: If any `sarif_findings` record is malformed.
+    """
     output_path = Path(output) if output is not None else _default_output_path(context)
     sarif_results, rules = _collect_sarif_results(context=context)
     payload = _build_sarif(metadata=metadata, rules=rules, results=sarif_results)
@@ -46,8 +68,8 @@ def _collect_sarif_results(
     rules: dict[str, dict[str, object]] = {}
 
     for target_result in _target_result_dicts(context=context):
-        for account_result in _account_results(target_result=target_result):
-            for task_result in _task_results(account_result=account_result):
+        for entity_result in _entity_results(target_result=target_result):
+            for task_result in _task_results(entity_result=entity_result):
                 result = task_result.get("result")
                 if not isinstance(result, dict) or "sarif_findings" not in result:
                     continue
@@ -67,7 +89,7 @@ def _collect_sarif_results(
                     sarif_result, rule = _convert_finding(
                         finding=raw_finding,
                         target_result=target_result,
-                        account_result=account_result,
+                        entity_result=entity_result,
                         task_result=task_result,
                         config_branch=context.config_branch,
                     )
@@ -102,16 +124,16 @@ def _target_result_dict(
     return target_result
 
 
-def _account_results(*, target_result: dict[str, object]) -> list[dict[str, object]]:
-    account_results = target_result.get("account_results", [])
-    if not isinstance(account_results, list):
+def _entity_results(*, target_result: dict[str, object]) -> list[dict[str, object]]:
+    entities = target_result.get("entities", [])
+    if not isinstance(entities, list):
         return []
 
-    return [item for item in account_results if isinstance(item, dict)]
+    return [item for item in entities if isinstance(item, dict)]
 
 
-def _task_results(*, account_result: dict[str, object]) -> list[dict[str, object]]:
-    task_results = account_result.get("tasks", [])
+def _task_results(*, entity_result: dict[str, object]) -> list[dict[str, object]]:
+    task_results = entity_result.get("tasks", [])
     if not isinstance(task_results, list):
         return []
 
@@ -122,7 +144,7 @@ def _convert_finding(
     *,
     finding: dict[str, object],
     target_result: dict[str, object],
-    account_result: dict[str, object],
+    entity_result: dict[str, object],
     task_result: dict[str, object],
     config_branch: ConfigBranch,
 ) -> tuple[dict[str, object], dict[str, object]]:
@@ -141,7 +163,7 @@ def _convert_finding(
         "properties": _result_properties(
             finding=finding,
             target_result=target_result,
-            account_result=account_result,
+            entity_result=entity_result,
             task_result=task_result,
             config_branch=config_branch,
         ),
@@ -248,19 +270,20 @@ def _result_properties(
     *,
     finding: dict[str, object],
     target_result: dict[str, object],
-    account_result: dict[str, object],
+    entity_result: dict[str, object],
     task_result: dict[str, object],
     config_branch: ConfigBranch,
 ) -> dict[str, object]:
-    target_key = "account_group"
-    if config_branch is ConfigBranch.ORGANIZATIONS:
-        target_key = "organization"
+    if config_branch is not ConfigBranch.TARGETS:
+        raise ValueError(f"Unsupported config branch: {config_branch}")
+    target_key = "target"
 
     properties: dict[str, object] = {
         "target_type": target_key,
         "target": target_result.get(target_key) or target_result.get("target"),
-        "account_id": account_result.get("account_id"),
-        "account_alias": account_result.get("account_alias"),
+        "entity_id": entity_result.get("id"),
+        "entity_name": entity_result.get("name"),
+        "entity_type": entity_result.get("type"),
         "region": task_result.get("region"),
         "task": task_result.get("task"),
     }

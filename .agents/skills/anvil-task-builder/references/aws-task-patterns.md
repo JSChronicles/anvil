@@ -34,8 +34,11 @@ def cleanup_user_resources(iam_client, user_name: str, dry_run: bool) -> None:
 
 def run(
     *,
-    account_id: str,
-    account_alias: str,
+    provider: str,
+    execution_target_id: str,
+    execution_target_name: str,
+    execution_target_type: str,
+    region: str,
     session,
     dry_run: bool,
     metadata: dict[str, object],

@@ -10,70 +10,81 @@ def _import_validators_or_skip():
     return validators
 
 
-def test_load_config_descriptors_defaults_max_parallel_targets():
-    validators = _import_validators_or_skip()
+def _target(*, provider_name: str, mode: str, **overrides):
+    target = {
+        "name": f"{provider_name}-{mode}",
+        "provider": {"name": provider_name, "mode": mode, "options": {}},
+        "regions": [
+            "global"
+            if provider_name in {"gcp", "github"}
+            else "eastus"
+            if provider_name == "azure"
+            else "us-east-1"
+        ],
+        "tasks": [{"name": "noop"}],
+    }
+    target.update(overrides)
+    return target
 
-    loaded = validators.load_config_descriptors(
-        config={"schema_version": 1, "organizations": [{"name": "org-a"}]}
+
+def test_target_descriptor_distinguishes_omitted_and_explicit_regions():
+    validators = _import_validators_or_skip()
+    omitted = _target(provider_name="azure", mode="subscriptions")
+    omitted.pop("regions")
+    omitted["include"] = ["subscription-omitted"]
+    explicit = _target(
+        provider_name="azure",
+        mode="subscriptions",
+        name="azure-explicit",
+        regions=["us-east-1"],
+        include=["subscription-explicit"],
     )
 
-    assert loaded.max_parallel_targets == 1
+    loaded = validators.load_config_descriptors(
+        config={"schema_version": 2, "targets": [omitted, explicit]}
+    )
+
+    assert loaded.targets[0].regions is None
+    assert loaded.targets[1].regions == ["us-east-1"]
 
 
-def test_load_config_descriptors_reads_max_parallel_targets():
+def test_schema_rejects_explicit_empty_regions():
+    validators = _import_validators_or_skip()
+    config = {
+        "schema_version": 2,
+        "targets": [_target(provider_name="aws", mode="organization", regions=[])],
+    }
+
+    with pytest.raises(ValueError, match="regions"):
+        validators.validate_config_schema(config=config)
+
+
+def test_load_config_descriptors_reads_run_controls_and_post_run():
     validators = _import_validators_or_skip()
 
     loaded = validators.load_config_descriptors(
         config={
-            "schema_version": 1,
+            "schema_version": 2,
             "max_parallel_targets": 3,
-            "accounts": [{"name": "group-a", "include": ["111111111111"]}],
-        }
-    )
-
-    assert loaded.max_parallel_targets == 3
-
-
-def test_load_config_descriptors_reads_max_parallel_regions():
-    validators = _import_validators_or_skip()
-
-    loaded = validators.load_config_descriptors(
-        config={
-            "schema_version": 1,
-            "accounts": [
-                {
-                    "name": "group-a",
-                    "include": ["111111111111"],
-                    "max_parallel_regions": 4,
-                }
-            ],
-        }
-    )
-
-    assert loaded.targets[0].max_parallel_regions == 4
-
-
-def test_load_config_descriptors_reads_post_run_processors():
-    validators = _import_validators_or_skip()
-
-    loaded = validators.load_config_descriptors(
-        config={
-            "schema_version": 1,
-            "organizations": [
-                {
-                    "name": "org-a",
-                    "post_run": [
+            "targets": [
+                _target(
+                    provider_name="aws",
+                    mode="organization",
+                    max_parallel_regions=4,
+                    post_run=[
                         {
                             "processor": "security_summary",
                             "output": "reports/security.md",
                             "metadata": {"severity_threshold": "medium"},
                         }
                     ],
-                }
+                )
             ],
         }
     )
 
+    assert loaded.max_parallel_targets == 3
+    assert loaded.targets[0].max_parallel_regions == 4
     assert loaded.targets[0].post_run == [
         {
             "processor": "security_summary",
@@ -83,152 +94,277 @@ def test_load_config_descriptors_reads_post_run_processors():
     ]
 
 
-def test_validate_config_schema_accepts_max_parallel_targets_for_organizations():
+def test_schema_accepts_multicloud_target_shapes():
     validators = _import_validators_or_skip()
 
-    validators.validate_config_schema(
-        config={
-            "schema_version": 1,
-            "max_parallel_targets": 4,
-            "organizations": [{"name": "org-a"}],
-        }
-    )
+    config = {
+        "schema_version": 2,
+        "targets": [
+            _target(
+                provider_name="aws",
+                mode="organization",
+                name="aws-org",
+                provider={
+                    "name": "aws",
+                    "mode": "organization",
+                    "options": {
+                        "profile": "prod",
+                        "role_name": "OrganizationAccountAccessRole",
+                    },
+                },
+                include=["111111111111"],
+                tasks=[{"name": "count_vpc"}],
+            ),
+            _target(
+                provider_name="aws",
+                mode="accounts",
+                name="aws-accounts",
+                provider={
+                    "name": "aws",
+                    "mode": "accounts",
+                    "options": {"profile": "prod", "role_name": "AuditRole"},
+                },
+                include=["111111111111"],
+                tasks=[{"name": "count_vpc"}],
+            ),
+            _target(
+                provider_name="azure",
+                mode="tenant",
+                name="azure-tenant",
+                provider={
+                    "name": "azure",
+                    "mode": "tenant",
+                    "options": {
+                        "tenant_id": "${AZURE_TENANT_ID}",
+                        "client_id": "${AZURE_CLIENT_ID}",
+                        "client_secret": "${AZURE_CLIENT_SECRET}",
+                    },
+                },
+                exclude=["00000000-0000-0000-0000-000000000000"],
+                tasks=[{"name": "count_resource_groups"}],
+            ),
+            _target(
+                provider_name="azure",
+                mode="subscriptions",
+                name="azure-subscriptions",
+                include=["00000000-0000-0000-0000-000000000000"],
+                tasks=[{"name": "count_resource_groups"}],
+            ),
+            _target(
+                provider_name="gcp",
+                mode="organization",
+                name="gcp-org",
+                provider={
+                    "name": "gcp",
+                    "mode": "organization",
+                    "options": {
+                        "organization_id": "123456789012",
+                        "quota_project_id": "billing-project",
+                    },
+                },
+                include=["my-project"],
+                tasks=[{"name": "get_project_info"}],
+            ),
+            _target(
+                provider_name="gcp",
+                mode="projects",
+                name="gcp-projects",
+                provider={
+                    "name": "gcp",
+                    "mode": "projects",
+                    "options": {"credentials_path": "./gcp.json"},
+                },
+                include=["my-project"],
+                tasks=[{"name": "get_project_info"}],
+            ),
+            _target(
+                provider_name="github",
+                mode="organizations",
+                name="github-organizations",
+                provider={
+                    "name": "github",
+                    "mode": "organizations",
+                    "options": {
+                        "api_url": "https://api.github.com",
+                        "api_version": "2022-11-28",
+                        "token_env": "GITHUB_TOKEN",
+                    },
+                },
+                include=["octo-org"],
+            ),
+            _target(
+                provider_name="github",
+                mode="repositories",
+                name="github-repositories",
+                provider={
+                    "name": "github",
+                    "mode": "repositories",
+                    "options": {
+                        "app_id": "12345",
+                        "private_key_env": "GITHUB_PRIVATE_KEY",
+                    },
+                },
+                include=["octo-org/example"],
+            ),
+        ],
+    }
+
+    validators.validate_config_schema(config=config)
+    loaded = validators.load_config_descriptors(config=config)
+
+    assert loaded.branch.value == "targets"
+    assert [(target.provider, target.mode) for target in loaded.targets] == [
+        ("aws", "organization"),
+        ("aws", "accounts"),
+        ("azure", "tenant"),
+        ("azure", "subscriptions"),
+        ("gcp", "organization"),
+        ("gcp", "projects"),
+        ("github", "organizations"),
+        ("github", "repositories"),
+    ]
+    assert loaded.targets[3].provider_options == {}
+    assert loaded.targets[5].provider_options == {"credentials_path": "./gcp.json"}
+    assert loaded.targets[6].provider_options["token_env"] == "GITHUB_TOKEN"
+    assert loaded.targets[7].provider_options["app_id"] == "12345"
 
 
-def test_validate_config_schema_accepts_max_parallel_targets_for_accounts():
+@pytest.mark.parametrize("provider", [{}, {"mode": "accounts"}, {"name": "aws"}])
+def test_schema_rejects_provider_missing_name_or_mode(provider):
     validators = _import_validators_or_skip()
 
-    validators.validate_config_schema(
-        config={
-            "schema_version": 1,
-            "max_parallel_targets": 2,
-            "accounts": [{"name": "group-a", "include": ["111111111111"]}],
-        }
-    )
-
-
-def test_validate_config_schema_accepts_max_parallel_regions_for_organizations():
-    validators = _import_validators_or_skip()
-
-    validators.validate_config_schema(
-        config={
-            "schema_version": 1,
-            "organizations": [{"name": "org-a", "max_parallel_regions": 4}],
-        }
-    )
-
-
-def test_validate_config_schema_accepts_max_parallel_regions_for_accounts():
-    validators = _import_validators_or_skip()
-
-    validators.validate_config_schema(
-        config={
-            "schema_version": 1,
-            "accounts": [
-                {
-                    "name": "group-a",
-                    "include": ["111111111111"],
-                    "max_parallel_regions": 2,
-                }
-            ],
-        }
-    )
-
-
-def test_validate_config_schema_rejects_assume_role_in_management_for_organizations():
-    validators = _import_validators_or_skip()
-
-    with pytest.raises(ValueError, match="assume_role_in_management"):
+    with pytest.raises(ValueError, match="provider"):
         validators.validate_config_schema(
             config={
-                "schema_version": 1,
-                "organizations": [{"name": "org-a", "assume_role_in_management": True}],
+                "schema_version": 2,
+                "targets": [{"name": "bad", "provider": provider}],
             }
         )
 
 
-def test_validate_config_schema_rejects_assume_role_in_management_for_accounts():
+@pytest.mark.parametrize(
+    ("provider", "mode"),
+    [
+        ("aws", "organization"),
+        ("azure", "tenant"),
+        ("gcp", "organization"),
+        ("github", "organizations"),
+        ("aws", "accounts"),
+        ("azure", "subscriptions"),
+        ("gcp", "projects"),
+        ("github", "repositories"),
+    ],
+)
+def test_schema_rejects_include_and_exclude_together_for_all_modes(provider, mode):
     validators = _import_validators_or_skip()
 
-    with pytest.raises(ValueError, match="assume_role_in_management"):
+    with pytest.raises(ValueError, match="include|exclude"):
         validators.validate_config_schema(
             config={
-                "schema_version": 1,
-                "accounts": [
-                    {
-                        "name": "group-a",
-                        "include": ["111111111111"],
-                        "assume_role_in_management": True,
-                    }
+                "schema_version": 2,
+                "targets": [
+                    _target(
+                        provider_name=provider,
+                        mode=mode,
+                        include=["111111111111" if provider == "aws" else "target-a"],
+                        exclude=["222222222222" if provider == "aws" else "target-b"],
+                    )
                 ],
             }
         )
 
 
-def test_validate_config_schema_accepts_post_run_for_organizations():
+@pytest.mark.parametrize(
+    ("provider", "mode"),
+    [("aws", "organization"), ("azure", "tenant"), ("gcp", "organization")],
+)
+def test_discovery_modes_allow_omitted_include(provider, mode):
     validators = _import_validators_or_skip()
 
-    validators.validate_config_schema(
-        config={
-            "schema_version": 1,
-            "organizations": [
-                {
-                    "name": "org-a",
-                    "post_run": [
-                        {
-                            "processor": "summary_markdown",
-                            "output": "reports/summary.md",
-                            "metadata": {"include_passed": False},
-                        }
-                    ],
-                }
-            ],
-        }
+    config = {
+        "schema_version": 2,
+        "targets": [_target(provider_name=provider, mode=mode)],
+    }
+
+    validators.validate_config_schema(config=config)
+    loaded = validators.load_config_descriptors(config=config)
+
+    assert loaded.targets[0].include is None
+    assert loaded.targets[0].exclude is None
+
+
+@pytest.mark.parametrize(
+    ("provider", "mode"),
+    [
+        ("aws", "accounts"),
+        ("azure", "subscriptions"),
+        ("gcp", "projects"),
+        ("github", "organizations"),
+        ("github", "repositories"),
+    ],
+)
+def test_explicit_modes_require_include_and_reject_exclude(provider, mode):
+    validators = _import_validators_or_skip()
+
+    with pytest.raises(ValueError, match="include"):
+        validators.validate_config_schema(
+            config={
+                "schema_version": 2,
+                "targets": [_target(provider_name=provider, mode=mode)],
+            }
+        )
+
+    with pytest.raises(ValueError, match="exclude"):
+        validators.validate_config_schema(
+            config={
+                "schema_version": 2,
+                "targets": [
+                    _target(
+                        provider_name=provider,
+                        mode=mode,
+                        include=["111111111111" if provider == "aws" else "target-a"],
+                        exclude=["222222222222" if provider == "aws" else "target-b"],
+                    )
+                ],
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    ("mode", "include"),
+    [("organizations", ["octo-org/example"]), ("repositories", ["example"])],
+)
+def test_github_modes_validate_include_shape(mode, include):
+    validators = _import_validators_or_skip()
+
+    with pytest.raises(ValueError, match="include"):
+        validators.validate_config_schema(
+            config={
+                "schema_version": 2,
+                "targets": [
+                    _target(provider_name="github", mode=mode, include=include)
+                ],
+            }
+        )
+
+
+@pytest.mark.parametrize("field_name", ["provider_options", "profile", "role_name"])
+def test_schema_rejects_provider_fields_outside_provider_options(field_name):
+    validators = _import_validators_or_skip()
+    target = _target(provider_name="aws", mode="accounts", include=["111111111111"])
+    target[field_name] = (
+        {"role_name": "AuditRole"} if field_name == "provider_options" else "invalid"
     )
 
+    with pytest.raises(ValueError, match=field_name):
+        validators.validate_config_schema(
+            config={"schema_version": 2, "targets": [target]}
+        )
 
-def test_validate_config_schema_accepts_post_run_run_on_failure():
+
+def test_validate_config_schema_reuses_cached_targets_schema(monkeypatch):
     validators = _import_validators_or_skip()
-
-    validators.validate_config_schema(
-        config={
-            "schema_version": 1,
-            "organizations": [
-                {
-                    "name": "org-a",
-                    "post_run": [
-                        {
-                            "processor": "html_report",
-                            "output": "reports/status.html",
-                            "run_on_failure": True,
-                        }
-                    ],
-                }
-            ],
-        }
-    )
-
-
-def test_validate_config_schema_accepts_post_run_for_accounts():
-    validators = _import_validators_or_skip()
-
-    validators.validate_config_schema(
-        config={
-            "schema_version": 1,
-            "accounts": [
-                {
-                    "name": "group-a",
-                    "include": ["111111111111"],
-                    "post_run": [{"processor": "summary_json"}],
-                }
-            ],
-        }
-    )
-
-
-def test_validate_config_schema_reuses_cached_branch_schema(monkeypatch):
-    validators = _import_validators_or_skip()
-    validators._load_branch_schema.cache_clear()
+    validators._load_targets_schema.cache_clear()
 
     load_calls: list[str] = []
     original_load_schema_file = validators._load_schema_file
@@ -239,11 +375,14 @@ def test_validate_config_schema_reuses_cached_branch_schema(monkeypatch):
 
     monkeypatch.setattr(validators, "_load_schema_file", recording_load_schema_file)
 
-    config = {"schema_version": 1, "organizations": [{"name": "org-a"}]}
+    config = {
+        "schema_version": 2,
+        "targets": [_target(provider_name="aws", mode="organization")],
+    }
     validators.validate_config_schema(config=config)
     validators.validate_config_schema(config=config)
 
-    assert load_calls.count("orgs.schema.v1.json") == 1
+    assert load_calls.count("targets.schema.v2.json") == 1
 
 
 def test_validate_config_schema_rejects_invalid_max_parallel_targets():
@@ -252,9 +391,9 @@ def test_validate_config_schema_rejects_invalid_max_parallel_targets():
     with pytest.raises(ValueError, match="max_parallel_targets"):
         validators.validate_config_schema(
             config={
-                "schema_version": 1,
+                "schema_version": 2,
                 "max_parallel_targets": 0,
-                "organizations": [{"name": "org-a"}],
+                "targets": [_target(provider_name="aws", mode="organization")],
             }
         )
 
@@ -265,31 +404,13 @@ def test_validate_config_schema_rejects_invalid_post_run_output():
     with pytest.raises(ValueError, match="post_run"):
         validators.validate_config_schema(
             config={
-                "schema_version": 1,
-                "organizations": [
-                    {
-                        "name": "org-a",
-                        "post_run": [{"processor": "summary_json", "output": False}],
-                    }
-                ],
-            }
-        )
-
-
-def test_validate_config_schema_rejects_invalid_post_run_run_on_failure():
-    validators = _import_validators_or_skip()
-
-    with pytest.raises(ValueError, match="post_run"):
-        validators.validate_config_schema(
-            config={
-                "schema_version": 1,
-                "organizations": [
-                    {
-                        "name": "org-a",
-                        "post_run": [
-                            {"processor": "html_report", "run_on_failure": "yes"}
-                        ],
-                    }
+                "schema_version": 2,
+                "targets": [
+                    _target(
+                        provider_name="aws",
+                        mode="organization",
+                        post_run=[{"processor": "summary_json", "output": False}],
+                    )
                 ],
             }
         )
@@ -304,9 +425,13 @@ def test_validate_config_schema_rejects_invalid_max_parallel_regions(
     with pytest.raises(ValueError, match="max_parallel_regions"):
         validators.validate_config_schema(
             config={
-                "schema_version": 1,
-                "organizations": [
-                    {"name": "org-a", "max_parallel_regions": max_parallel_regions}
+                "schema_version": 2,
+                "targets": [
+                    _target(
+                        provider_name="aws",
+                        mode="organization",
+                        max_parallel_regions=max_parallel_regions,
+                    )
                 ],
             }
         )

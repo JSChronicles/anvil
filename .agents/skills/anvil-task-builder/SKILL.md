@@ -12,27 +12,33 @@ Use this skill to create Anvil tasks that satisfy the runtime contract, behave s
 1. Decide whether the task is a stock task or plugin task.
 2. Create or edit the task module.
 3. Implement the Anvil `run()` contract.
-4. Follow Anvil task conventions for dry-run behavior, logging, actions, and returned data.
-5. Apply normal Python and AWS implementation hygiene.
-6. Add or update YAML examples that reference the task when useful.
-7. Run `uv run anvil tasks validate`.
+4. Add useful Google-style docstrings, especially on `run()`, so `anvil list --tasks <task_name> --detail` explains the task.
+5. Follow Anvil task conventions for dry-run behavior, logging, actions, and returned data.
+6. Apply normal Python and provider-specific implementation hygiene.
+7. Add or update YAML examples that reference the task when useful.
+8. Run `uv run anvil validate --tasks`.
 
 ## Core Rules
 
-- Stock task modules live under `src/anvil/tasks/<task_name>.py`.
+- Universal stock task modules live under `src/anvil/providers/tasks/<task_name>.py`.
+- Provider-specific stock task modules live under `src/anvil/providers/<provider>/tasks/<task_name>.py`.
 - YAML task names must match task module filenames.
-- Plugin task packages must be exposed through the `anvil.tasks` entry-point group.
+- Plugin task packages must be exposed through provider-owned task entry-point groups:
+  `anvil.providers.tasks`, `anvil.providers.aws.tasks`,
+  `anvil.providers.azure.tasks`, `anvil.providers.gcp.tasks`, or
+  `anvil.providers.github.tasks`.
 - Every task module must define a callable keyword-only `run()` function.
-- The provided boto3 `session` is already scoped to the target account and region.
+- Every task `run()` function must have a useful Google-style docstring. Include a short summary plus `Args:`, `Returns:`, and `Raises:` sections when applicable; document required `metadata` keys explicitly.
+- The provided `session` is already scoped to the provider target and region.
 - Check `dry_run` before every mutating API call.
 - Prefix dry-run log and action messages with `(dry-run)` for planned work.
 - Use logger calls for task-specific progress and troubleshooting details.
 - Use `actions.record(...)` for concise audit-level planned or completed actions.
 - Return task-specific JSON-serializable data only.
 - Do not duplicate execution context already included by the engine unless the task needs a transformed value.
-- Keep task modules import-safe. Do not make AWS calls at import time.
+- Keep task modules import-safe. Do not make provider SDK calls at import time.
 - Validate required `metadata` values before use and raise clear `RuntimeError` messages.
-- Prefer AWS paginators for list and describe APIs that can paginate.
+- Prefer provider SDK pagination helpers for list and describe APIs that can paginate.
 
 ## Reference Loading
 
@@ -42,11 +48,12 @@ Load only the reference files needed for the current task:
 - For dry-run behavior, action recording, logging, and result shape, read `references/dry-run-and-actions.md`.
 - For task granularity, inventory task boundaries, performance, and region concurrency, read `references/task-granularity.md`.
 - For AWS read-only and mutating task implementation patterns, read `references/aws-task-patterns.md`.
+- For GitHub REST task helpers, repository target rules, and metadata helpers, read `references/github-task-patterns.md`.
 - For SARIF-compatible `detect_` tasks and `sarif_findings` output, read `references/sarif-detection-tasks.md`.
 - For YAML examples, dependencies, optional tasks, and validation commands, read `references/yaml-and-validation.md`.
 
 ## Review Behavior
 
-When reviewing Anvil tasks, prioritize runtime contract violations, missing dry-run guards, unsafe AWS mutation behavior, invalid metadata handling, missing task discovery wiring, and validation gaps.
+When reviewing Anvil tasks, prioritize runtime contract violations, missing or weak `run()` docstrings for `--detail`, missing dry-run guards, unsafe provider mutation behavior, invalid metadata handling, missing task discovery wiring, and validation gaps.
 
 If no issues are found, say so directly and mention any commands that were not run.

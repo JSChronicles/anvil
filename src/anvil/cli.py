@@ -1,49 +1,54 @@
 """
-CLI entrypoint for Anvil config-driven AWS account processing.
+CLI entrypoint for Anvil config-driven provider target processing.
 """
 
 from __future__ import annotations
 
 import argparse
 import datetime
+import inspect
 import json
 import logging
+import os
 import shlex
-from collections.abc import Sequence
+import shutil
+import sys
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from importlib import metadata as importlib_metadata
+from importlib import util as importlib_util
 from pathlib import Path
 from typing import Protocol
 
 import yaml
 
-from anvil._loader_utils import DiscoveryIssue
+from anvil._components import DiscoveryIssue as DiscoveryIssue
 from anvil.benchmark import BenchmarkRecorder
 from anvil.descriptors import ConfigBranch, LoadedConfig
-from anvil.graph import render_graph
 from anvil.processor_loader import (
     ProcessorDescriptor,
     ProcessorSpec,
     discover_processors,
     list_processors,
-    load_historical_run_context,
+    load_completed_run_context,
     resolve_processor_output_path,
     run_configured_post_processors,
     run_processors,
 )
 from anvil.processor_validation import processor_validation_errors
+from anvil.provider_loader import ProviderDescriptor, discover_providers, list_providers
+from anvil.providers.base import validate_provider_contract
 from anvil.result_query import (
     ResultFilters,
     build_rerun_targets,
     config_file_for_failure_records,
     failure_records,
-    filter_records,
     format_records_jsonl,
     format_records_table,
     jsonl_path_for_run,
-    limit_records,
-    load_result_records,
     parse_fields,
     project_records,
+    query_result_records,
     write_jsonl_records,
 )
 from anvil.results import EngineResult, EngineState
@@ -77,11 +82,40 @@ class ValidationResult:
     error: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class DiagnosticCheck:
+    """One offline diagnostic line emitted by default validation."""
+
+    section: str
+    status: str
+    label: str
+    detail: str | None = None
+
+
 class ListableDescriptor(Protocol):
     """Descriptor fields needed for grouped CLI listing."""
 
     name: str
     source: str
+
+
+class DetailDescriptor(ListableDescriptor, Protocol):
+    """Descriptor fields needed for CLI detail output."""
+
+    load: Callable[[], Callable]
+
+
+class DiscoveryIssueDescriptor(Protocol):
+    """Diagnostic fields shared by all component discovery issues."""
+
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def source(self) -> object: ...
+
+    @property
+    def error(self) -> str: ...
 
 
 def _load_targets_from_config_file(path: Path) -> LoadedConfig:
@@ -106,10 +140,16 @@ def _validate_cli_overrides(
     """
     Validate branch-specific CLI override semantics.
     """
-    if loaded_config.branch.value == "accounts" and args.exclude is not None:
-        raise ValueError(
-            "CLI --exclude is not supported for account-group config files"
-        )
+    if loaded_config.branch is ConfigBranch.TARGETS and args.exclude is not None:
+        explicit_targets = [
+            target for target in loaded_config.targets if target.is_explicit_mode
+        ]
+        if explicit_targets:
+            target_names = ", ".join(target.name for target in explicit_targets)
+            raise ValueError(
+                "CLI --exclude is not supported for explicit provider modes; "
+                f"target(s): {target_names}"
+            )
 
 
 def _add_common_config_args(parser: argparse.ArgumentParser) -> None:
@@ -119,8 +159,7 @@ def _add_common_config_args(parser: argparse.ArgumentParser) -> None:
         nargs="+",
         type=Path,
         help=(
-            "Path(s) to YAML config file(s) defining organizations or explicit "
-            "account groups"
+            "Path(s) to schema_version: 2 YAML config file(s) defining provider targets"
         ),
     )
 
@@ -128,12 +167,18 @@ def _add_common_config_args(parser: argparse.ArgumentParser) -> None:
     group.add_argument(
         "--include",
         nargs="+",
-        help="Narrow the configured target set to specific account IDs",
+        help=(
+            "Narrow the configured target set to specific provider target IDs; "
+            "mutually exclusive with --exclude"
+        ),
     )
     group.add_argument(
         "--exclude",
         nargs="+",
-        help="Organization-config only: exclude discovered account IDs",
+        help=(
+            "Discovery-config only: exclude discovered provider target IDs; "
+            "mutually exclusive with --include"
+        ),
     )
 
 
@@ -148,10 +193,9 @@ def _create_results_run_dir(*, config_file: Path) -> Path:
 
 
 def _target_results_dir_name(config_branch: ConfigBranch) -> str:
-    if config_branch is ConfigBranch.ACCOUNTS:
-        return "account-groups"
-
-    return "organizations"
+    if config_branch is not ConfigBranch.TARGETS:
+        raise ValueError(f"Unsupported config branch: {config_branch}")
+    return "targets"
 
 
 def _safe_result_filename(name: str) -> str:
@@ -245,8 +289,8 @@ def _write_run_results(
 
 def _summary_has_queryable_failures(summary: dict[str, object]) -> bool:
     for key in (
-        "total_failed_accounts",
-        "total_interrupted_accounts",
+        "total_failed_entities",
+        "total_interrupted_entities",
         "total_failed_tasks",
     ):
         value = summary.get(key)
@@ -272,7 +316,7 @@ def _print_failure_followups(*, results_file: Path) -> None:
     print("View failures:")
     print(f"  anvil results --status failed --results-file {results_path}")
     print()
-    print("Rerun failed accounts:")
+    print("Rerun failed entities:")
     print(f"  anvil results --status failed --results-file {results_path} --rerun")
 
 
@@ -356,6 +400,15 @@ def _cmd_validate_auth(args: argparse.Namespace) -> int:
     return _cmd_auth_check(auth_args)
 
 
+def _validate_config_files(args: argparse.Namespace) -> None:
+    if args.config_file is None:
+        raise ValueError("--config-file is required for config validation")
+
+    for config_file in args.config_file:
+        loaded_config = _load_targets_from_config_file(config_file)
+        _validate_cli_overrides(loaded_config=loaded_config, args=args)
+
+
 def _print_grouped_listing(
     *, label: str, descriptors: Sequence[ListableDescriptor]
 ) -> None:
@@ -374,18 +427,87 @@ def _print_grouped_listing(
         print(f"  - {descriptor.name}")
 
 
+def _detail_text(*, descriptor: DetailDescriptor) -> str:
+    try:
+        run = descriptor.load()
+    except Exception as exc:
+        raise ValueError(f"{descriptor.name} ({descriptor.source}): {exc}") from exc
+
+    doc = inspect.getdoc(run)
+    if doc is None:
+        module = inspect.getmodule(run)
+        if module is not None:
+            doc = inspect.getdoc(module)
+
+    if doc is None:
+        raise ValueError(
+            f"No detail available for {descriptor.name} ({descriptor.source})"
+        )
+
+    return f"{descriptor.name} ({descriptor.source})\n\n{doc}"
+
+
+def _select_detail_descriptor(
+    *, descriptors: Sequence[DetailDescriptor], name: str, label: str
+) -> DetailDescriptor:
+    matches = [descriptor for descriptor in descriptors if descriptor.name == name]
+    if not matches:
+        available_display = ", ".join(
+            sorted({descriptor.name for descriptor in descriptors})
+        )
+        raise ValueError(
+            f"Unknown {label}: {name}. Available {label}s: {available_display}"
+        )
+
+    if len(matches) > 1:
+        source_display = ", ".join(descriptor.source for descriptor in matches)
+        raise ValueError(
+            f"{label.capitalize()} '{name}' is ambiguous; found in multiple "
+            f"sources: {source_display}"
+        )
+
+    return matches[0]
+
+
+def _print_single_detail(
+    *, descriptors: Sequence[DetailDescriptor], name: str, label: str
+) -> None:
+    descriptor = _select_detail_descriptor(
+        descriptors=descriptors, name=name, label=label
+    )
+    print(_detail_text(descriptor=descriptor))
+
+
 def _cmd_list(args: argparse.Namespace) -> int:
     _validate_list_args(args)
 
-    if args.tasks:
+    if args.tasks is not None:
+        if args.detail:
+            _print_single_detail(
+                descriptors=discover_tasks().tasks, name=args.tasks[0], label="task"
+            )
+            return 0
+
         _print_grouped_listing(label="tasks", descriptors=list_tasks())
+        return 0
+
+    if getattr(args, "providers", False):
+        _print_grouped_listing(label="providers", descriptors=list_providers())
+        return 0
+
+    if args.detail:
+        _print_single_detail(
+            descriptors=discover_processors().processors,
+            name=args.processors[0],
+            label="processor",
+        )
         return 0
 
     _print_grouped_listing(label="processors", descriptors=list_processors())
     return 0
 
 
-def _discovery_issue_messages(issues: list[DiscoveryIssue]) -> list[str]:
+def _discovery_issue_messages(issues: Sequence[DiscoveryIssueDescriptor]) -> list[str]:
     return [f"{issue.name} ({issue.source}): {issue.error}" for issue in issues]
 
 
@@ -397,17 +519,20 @@ def _raise_validation_errors(errors: list[str]) -> None:
 def _select_task_descriptors(
     *, descriptors: list[TaskDescriptor], task_names: list[str]
 ) -> list[TaskDescriptor]:
-    descriptor_by_name = {descriptor.name: descriptor for descriptor in descriptors}
-    unknown_names = [name for name in task_names if name not in descriptor_by_name]
+    available_names = {descriptor.name for descriptor in descriptors}
+    unknown_names = [name for name in task_names if name not in available_names]
 
     if unknown_names:
-        available_names = ", ".join(sorted(descriptor_by_name))
+        available_display = ", ".join(sorted(available_names))
         unknown_display = ", ".join(unknown_names)
         raise ValueError(
-            f"Unknown task(s): {unknown_display}. Available tasks: {available_names}"
+            f"Unknown task(s): {unknown_display}. Available tasks: {available_display}"
         )
 
-    return [descriptor_by_name[name] for name in task_names]
+    requested_names = set(task_names)
+    return [
+        descriptor for descriptor in descriptors if descriptor.name in requested_names
+    ]
 
 
 def _select_tasks(task_names: list[str]) -> list[TaskDescriptor]:
@@ -496,6 +621,56 @@ def _validate_selected_processors(processor_names: list[str] | None) -> None:
     _raise_validation_errors(errors)
 
 
+def _select_provider_descriptors(
+    *, descriptors: list[ProviderDescriptor], provider_names: list[str]
+) -> list[ProviderDescriptor]:
+    descriptor_by_name = {descriptor.name: descriptor for descriptor in descriptors}
+    unknown_names = [name for name in provider_names if name not in descriptor_by_name]
+
+    if unknown_names:
+        available_names = ", ".join(sorted(descriptor_by_name))
+        unknown_display = ", ".join(unknown_names)
+        raise ValueError(
+            f"Unknown provider(s): {unknown_display}. "
+            f"Available providers: {available_names}"
+        )
+
+    return [descriptor_by_name[name] for name in provider_names]
+
+
+def _validate_selected_providers(provider_names: list[str] | None) -> None:
+    discovery = discover_providers()
+    errors: list[str] = []
+    providers = discovery.providers
+
+    if provider_names:
+        requested_names = set(provider_names)
+        errors.extend(
+            _discovery_issue_messages(
+                [issue for issue in discovery.issues if issue.name in requested_names]
+            )
+        )
+        try:
+            providers = _select_provider_descriptors(
+                descriptors=discovery.providers, provider_names=provider_names
+            )
+        except ValueError as exc:
+            errors.append(str(exc))
+            errors.extend(_discovery_issue_messages(discovery.issues))
+            _raise_validation_errors(errors)
+    else:
+        errors.extend(_discovery_issue_messages(discovery.issues))
+
+    for descriptor in providers:
+        try:
+            provider = descriptor.load()
+            validate_provider_contract(provider)
+        except Exception as exc:
+            errors.append(f"{descriptor.name} ({descriptor.source}): {exc}")
+
+    _raise_validation_errors(errors)
+
+
 def _validation_result(label: str, callback) -> ValidationResult:
     try:
         result = callback()
@@ -521,6 +696,11 @@ def _print_validation_summary(results: list[ValidationResult]) -> None:
 def _cmd_validate(args: argparse.Namespace) -> int:
     results: list[ValidationResult] = []
 
+    if args.config_file is not None and not args.auth:
+        results.append(
+            _validation_result("Config", lambda: _validate_config_files(args))
+        )
+
     if args.tasks is not None:
         results.append(
             _validation_result("Tasks", lambda: _validate_selected_tasks(args.tasks))
@@ -533,47 +713,307 @@ def _cmd_validate(args: argparse.Namespace) -> int:
             )
         )
 
+    if getattr(args, "providers", None) is not None:
+        results.append(
+            _validation_result(
+                "Providers", lambda: _validate_selected_providers(args.providers)
+            )
+        )
+
     if args.auth:
         results.append(
             _validation_result("Authentication", lambda: _cmd_validate_auth(args))
         )
 
     if not results:
-        raise ValueError(
-            "at least one validation category is required: "
-            "--tasks, --processors, or --auth"
-        )
+        checks = _diagnostic_checks(args)
+        if not args.quiet:
+            _print_diagnostic_checks(checks)
+        return 1 if any(check.status == "ERROR" for check in checks) else 0
 
     if not args.quiet:
         _print_validation_summary(results)
     return 0 if all(result.succeeded for result in results) else 1
 
 
-def _cmd_graph(args: argparse.Namespace) -> int:
+def _package_version(distribution_name: str) -> str:
+    try:
+        return importlib_metadata.version(distribution_name)
+    except importlib_metadata.PackageNotFoundError:
+        return "unknown"
+
+
+def _module_available(module_name: str) -> bool:
+    try:
+        return importlib_util.find_spec(module_name) is not None
+    except ModuleNotFoundError:
+        return False
+
+
+def _diagnostic_dependency_checks() -> list[DiagnosticCheck]:
+    dependencies = [
+        ("aws", "boto3", "boto3"),
+        ("azure", "azure.identity", "azure-identity"),
+        ("gcp", "google.auth", "google-auth"),
+        ("github", "github", "PyGithub"),
+    ]
+
+    checks: list[DiagnosticCheck] = []
+    for provider_name, module_name, package_name in dependencies:
+        if _module_available(module_name):
+            checks.append(
+                DiagnosticCheck(
+                    section="Optional Dependencies",
+                    status="OK",
+                    label=provider_name,
+                    detail=f"{package_name} importable",
+                )
+            )
+        else:
+            checks.append(
+                DiagnosticCheck(
+                    section="Optional Dependencies",
+                    status="WARN",
+                    label=provider_name,
+                    detail=f"{package_name} not importable",
+                )
+            )
+
+    return checks
+
+
+def _diagnostic_discovery_checks() -> list[DiagnosticCheck]:
+    checks: list[DiagnosticCheck] = []
+
+    provider_discovery = discover_providers()
+    provider_names = ", ".join(
+        descriptor.name for descriptor in provider_discovery.providers
+    )
+    checks.append(
+        DiagnosticCheck(
+            section="Discovery",
+            status="OK",
+            label="providers",
+            detail=provider_names or "none",
+        )
+    )
+    for issue in provider_discovery.issues:
+        checks.append(
+            DiagnosticCheck(
+                section="Discovery",
+                status="WARN",
+                label=f"provider {issue.name}",
+                detail=f"{issue.source}: {issue.error}",
+            )
+        )
+
+    task_discovery = discover_tasks()
+    checks.append(
+        DiagnosticCheck(
+            section="Discovery",
+            status="OK" if not task_discovery.issues else "WARN",
+            label="tasks",
+            detail=f"{len(task_discovery.tasks)} discovered",
+        )
+    )
+    for issue in task_discovery.issues:
+        checks.append(
+            DiagnosticCheck(
+                section="Discovery",
+                status="WARN",
+                label=f"task {issue.name}",
+                detail=f"{issue.source}: {issue.error}",
+            )
+        )
+
+    processor_discovery = discover_processors()
+    checks.append(
+        DiagnosticCheck(
+            section="Discovery",
+            status="OK" if not processor_discovery.issues else "WARN",
+            label="processors",
+            detail=f"{len(processor_discovery.processors)} discovered",
+        )
+    )
+    for issue in processor_discovery.issues:
+        checks.append(
+            DiagnosticCheck(
+                section="Discovery",
+                status="WARN",
+                label=f"processor {issue.name}",
+                detail=f"{issue.source}: {issue.error}",
+            )
+        )
+
+    return checks
+
+
+def _env_present(name: str) -> bool:
+    return bool(os.environ.get(name))
+
+
+def _diagnostic_auth_source_checks() -> list[DiagnosticCheck]:
+    home = Path.home()
+    aws_config_path = home / ".aws" / "config"
+    checks = [
+        DiagnosticCheck(
+            section="Auth Sources",
+            status="OK" if _env_present("AWS_PROFILE") else "WARN",
+            label="AWS_PROFILE",
+            detail="set" if _env_present("AWS_PROFILE") else "not set",
+        ),
+        DiagnosticCheck(
+            section="Auth Sources",
+            status="OK" if aws_config_path.exists() else "WARN",
+            label="AWS config",
+            detail=str(aws_config_path) if aws_config_path.exists() else "not found",
+        ),
+        DiagnosticCheck(
+            section="Auth Sources",
+            status="OK" if _env_present("GOOGLE_APPLICATION_CREDENTIALS") else "WARN",
+            label="GOOGLE_APPLICATION_CREDENTIALS",
+            detail=(
+                "set" if _env_present("GOOGLE_APPLICATION_CREDENTIALS") else "not set"
+            ),
+        ),
+        DiagnosticCheck(
+            section="Auth Sources",
+            status="OK" if _env_present("GITHUB_TOKEN") else "WARN",
+            label="GITHUB_TOKEN",
+            detail="set" if _env_present("GITHUB_TOKEN") else "not set",
+        ),
+        DiagnosticCheck(
+            section="Auth Sources",
+            status="OK" if _env_present("ANVIL_GITHUB_CONFIG") else "WARN",
+            label="ANVIL_GITHUB_CONFIG",
+            detail="set" if _env_present("ANVIL_GITHUB_CONFIG") else "not set",
+        ),
+    ]
+
+    for executable_name in ("aws", "az", "gcloud", "gh"):
+        executable_path = shutil.which(executable_name)
+        checks.append(
+            DiagnosticCheck(
+                section="Auth Sources",
+                status="OK" if executable_path else "WARN",
+                label=f"{executable_name} executable",
+                detail=executable_path or "not found on PATH",
+            )
+        )
+
+    return checks
+
+
+def _diagnostic_path_checks() -> list[DiagnosticCheck]:
+    cwd = Path.cwd()
+    results_dir = cwd / "results"
+    return [
+        DiagnosticCheck(
+            section="Environment",
+            status="OK",
+            label="Python",
+            detail=sys.version.split()[0],
+        ),
+        DiagnosticCheck(
+            section="Environment",
+            status="OK",
+            label="Anvil",
+            detail=_package_version("anvil"),
+        ),
+        DiagnosticCheck(
+            section="Environment",
+            status="OK",
+            label="Working directory",
+            detail=str(cwd),
+        ),
+        DiagnosticCheck(
+            section="Environment",
+            status="OK" if results_dir.exists() else "WARN",
+            label="Results directory",
+            detail=str(results_dir) if results_dir.exists() else "not created yet",
+        ),
+    ]
+
+
+def _diagnostic_config_checks(args: argparse.Namespace) -> list[DiagnosticCheck]:
+    checks: list[DiagnosticCheck] = []
+    if args.config_file is None:
+        return checks
 
     for config_file in args.config_file:
-        loaded_config = _load_targets_from_config_file(config_file)
-        _validate_cli_overrides(loaded_config=loaded_config, args=args)
-        render_graph(targets=loaded_config.targets, output_json=args.json)
+        try:
+            loaded_config = _load_targets_from_config_file(config_file)
+            _validate_cli_overrides(loaded_config=loaded_config, args=args)
+        except Exception as error:
+            checks.append(
+                DiagnosticCheck(
+                    section="Config",
+                    status="ERROR",
+                    label=str(config_file),
+                    detail=str(error),
+                )
+            )
+            continue
 
-    return 0
+        provider_names = sorted({target.provider for target in loaded_config.targets})
+        checks.append(
+            DiagnosticCheck(
+                section="Config",
+                status="OK",
+                label=str(config_file),
+                detail=(
+                    f"{len(loaded_config.targets)} target(s); "
+                    f"providers: {', '.join(provider_names) or 'none'}"
+                ),
+            )
+        )
+
+    return checks
 
 
-def _load_filtered_result_records(args: argparse.Namespace) -> list[dict[str, object]]:
-    records = load_result_records(
-        results_dir=Path.cwd() / "results", files=args.results_file
+def _diagnostic_checks(args: argparse.Namespace) -> list[DiagnosticCheck]:
+    return [
+        *_diagnostic_path_checks(),
+        *_diagnostic_dependency_checks(),
+        *_diagnostic_discovery_checks(),
+        *_diagnostic_auth_source_checks(),
+        *_diagnostic_config_checks(args),
+    ]
+
+
+def _print_diagnostic_checks(checks: list[DiagnosticCheck]) -> None:
+    print("Anvil Validation Diagnostics")
+
+    current_section: str | None = None
+    for check in checks:
+        if check.section != current_section:
+            print()
+            print(check.section)
+            current_section = check.section
+
+        detail = f" {check.detail}" if check.detail else ""
+        print(f"[{check.status}] {check.label}{detail}")
+
+
+def _result_filters_from_args(args: argparse.Namespace) -> ResultFilters:
+    return ResultFilters(
+        record_type=args.type,
+        status=args.status,
+        target=args.target,
+        entity=args.entity,
+        region=args.region,
+        task=args.task,
     )
 
-    return filter_records(
-        records,
-        filters=ResultFilters(
-            record_type=args.type,
-            status=args.status,
-            target=args.target,
-            account=args.account,
-            region=args.region,
-            task=args.task,
-        ),
+
+def _load_filtered_result_records(
+    args: argparse.Namespace, *, limit: int | None = None
+) -> list[dict[str, object]]:
+    return query_result_records(
+        results_dir=Path.cwd() / "results",
+        files=args.results_file,
+        filters=_result_filters_from_args(args),
+        limit=limit,
     )
 
 
@@ -603,7 +1043,6 @@ def _emit_result_records(
     args: argparse.Namespace, records: list[dict[str, object]]
 ) -> None:
     fields = parse_fields(args.fields)
-    records = limit_records(records, limit=args.limit)
     _print_query_payload(
         records, fields=fields, output_json=args.json, output_jsonl=args.jsonl
     )
@@ -629,7 +1068,6 @@ def _validate_results_rerun_args(
         rejected_flags.append("--processor")
     if getattr(args, "output", None) is not None:
         rejected_flags.append("--output")
-
     if rejected_flags:
         rejected = ", ".join(rejected_flags)
         message = f"{rejected} cannot be used with --rerun"
@@ -652,8 +1090,8 @@ def _validate_results_processor_args(
         rejected_flags.append("--status")
     if getattr(args, "target", None) is not None:
         rejected_flags.append("--target")
-    if getattr(args, "account", None) is not None:
-        rejected_flags.append("--account")
+    if getattr(args, "entity", None) is not None:
+        rejected_flags.append("--entity")
     if getattr(args, "region", None) is not None:
         rejected_flags.append("--region")
     if getattr(args, "task", None) is not None:
@@ -699,13 +1137,13 @@ def _cmd_results(args: argparse.Namespace) -> int:
         _validate_results_rerun_args(args)
         return _cmd_results_rerun(args)
 
-    records = _load_filtered_result_records(args)
+    records = _load_filtered_result_records(args, limit=args.limit)
     _emit_result_records(args, records)
     return 0
 
 
 def _cmd_results_processor(args: argparse.Namespace) -> int:
-    context = load_historical_run_context(results_dir=args.results_dir)
+    context = load_completed_run_context(results_dir=args.results_dir)
     output = (
         str(resolve_processor_output_path(run_dir=context.run_dir, output=args.output))
         if args.output is not None
@@ -781,10 +1219,10 @@ def _add_results_query_args(parser: argparse.ArgumentParser) -> None:
         "--status", help="Filter by status: success, error, interrupted, or failed"
     )
     parser.add_argument(
-        "--type", choices=["account", "task"], help="Filter by result record type"
+        "--type", choices=["entity", "task"], help="Filter by result record type"
     )
-    parser.add_argument("--target", help="Filter by organization or account-group name")
-    parser.add_argument("--account", help="Filter by account ID or account alias")
+    parser.add_argument("--target", help="Filter by target name")
+    parser.add_argument("--entity", help="Filter by entity ID or entity name")
     parser.add_argument("--region", help="Filter by AWS region")
     parser.add_argument("--task", help="Filter by task name")
     parser.add_argument(
@@ -815,14 +1253,45 @@ def _add_log_level_arg(parser: argparse.ArgumentParser) -> None:
 def _validate_list_args(
     args: argparse.Namespace, *, parser: argparse.ArgumentParser | None = None
 ) -> None:
-    if args.tasks and args.processors:
-        message = "--tasks and --processors cannot be used together"
+    selectors = [
+        flag_name
+        for flag_name in ("tasks", "processors", "providers")
+        if (
+            getattr(args, flag_name, False)
+            if flag_name == "providers"
+            else getattr(args, flag_name, None) is not None
+        )
+    ]
+    if len(selectors) > 1:
+        selector_display = ", ".join(f"--{selector}" for selector in selectors)
+        message = f"{selector_display} cannot be used together"
         if parser is not None:
             parser.error(message)
         raise ValueError(message)
 
-    if not args.tasks and not args.processors:
-        message = "One of --tasks or --processors is required."
+    detail = getattr(args, "detail", False)
+    selected_names = args.tasks if args.tasks is not None else args.processors
+
+    if detail and args.providers:
+        message = "--detail cannot be used with --providers"
+        if parser is not None:
+            parser.error(message)
+        raise ValueError(message)
+
+    if detail and selected_names is not None and len(selected_names) != 1:
+        message = "--detail requires exactly one task or processor name"
+        if parser is not None:
+            parser.error(message)
+        raise ValueError(message)
+
+    if not detail and selected_names:
+        message = "task and processor names require --detail"
+        if parser is not None:
+            parser.error(message)
+        raise ValueError(message)
+
+    if not selectors:
+        message = "One of --tasks, --processors, or --providers is required."
         if parser is not None:
             parser.error(message)
         raise ValueError(message)
@@ -830,13 +1299,13 @@ def _validate_list_args(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Anvil config-driven AWS account processing runner"
+        description="Anvil config-driven provider target processing runner"
     )
 
     subparsers = parser.add_subparsers(dest="command", required=False)
 
     run_parser = subparsers.add_parser(
-        "run", help="Execute tasks from an organization or account-group config"
+        "run", help="Execute tasks from an organization or provider target config"
     )
     _add_common_config_args(run_parser)
     _add_log_level_arg(run_parser)
@@ -861,15 +1330,33 @@ def main() -> None:
     )
     _add_log_level_arg(list_parser)
     list_parser.add_argument(
-        "--tasks", action="store_true", help="List available tasks"
+        "--tasks",
+        nargs="*",
+        default=None,
+        metavar="TASK",
+        help="List available tasks, or show detail for one task with --detail",
     )
     list_parser.add_argument(
-        "--processors", action="store_true", help="List available processors"
+        "--processors",
+        nargs="*",
+        default=None,
+        metavar="PROCESSOR",
+        help=(
+            "List available processors, or show detail for one processor with --detail"
+        ),
+    )
+    list_parser.add_argument(
+        "--providers", action="store_true", help="List available providers"
+    )
+    list_parser.add_argument(
+        "--detail",
+        action="store_true",
+        help="Show detailed documentation for one task or processor",
     )
     list_parser.set_defaults(func=_cmd_list)
 
     validate_parser = subparsers.add_parser(
-        "validate", help="Validate tasks, processors, and AWS authentication"
+        "validate", help="Validate tasks, processors, providers, and authentication"
     )
     _add_log_level_arg(validate_parser)
     validate_parser.add_argument(
@@ -890,9 +1377,19 @@ def main() -> None:
         ),
     )
     validate_parser.add_argument(
+        "--providers",
+        nargs="*",
+        default=None,
+        metavar="PROVIDER",
+        help=(
+            "Validate all discovered providers, or only the named providers "
+            "when provided"
+        ),
+    )
+    validate_parser.add_argument(
         "--auth",
         action="store_true",
-        help="Validate AWS authentication for configured targets",
+        help="Validate authentication for configured runnable targets",
     )
     validate_parser.add_argument(
         "--quiet",
@@ -903,31 +1400,28 @@ def main() -> None:
         "--config-file",
         nargs="+",
         type=Path,
-        help="Path(s) to YAML config file(s) required with --auth",
+        help=(
+            "Path(s) to YAML config file(s) to validate offline, or to use with --auth"
+        ),
     )
     validate_group = validate_parser.add_mutually_exclusive_group()
     validate_group.add_argument(
         "--include",
         nargs="+",
-        help="Narrow authentication targets to specific account IDs",
+        help=(
+            "Narrow authentication targets to specific provider target IDs; "
+            "mutually exclusive with --exclude"
+        ),
     )
     validate_group.add_argument(
         "--exclude",
         nargs="+",
-        help="Organization-config only: exclude discovered account IDs",
+        help=(
+            "Discovery-config only: exclude discovered provider target IDs; "
+            "mutually exclusive with --include"
+        ),
     )
     validate_parser.set_defaults(func=_cmd_validate)
-
-    graph_parser = subparsers.add_parser(
-        "graph",
-        help="Show task dependency graph for configured organizations or account groups",
-    )
-    _add_common_config_args(graph_parser)
-    _add_log_level_arg(graph_parser)
-    graph_parser.add_argument(
-        "--json", action="store_true", help="Output graph as JSON"
-    )
-    graph_parser.set_defaults(func=_cmd_graph)
 
     results_parser = subparsers.add_parser(
         "results", help="Query flattened run results"
@@ -937,7 +1431,7 @@ def main() -> None:
     results_parser.add_argument(
         "--rerun",
         action="store_true",
-        help="Rerun failed targets narrowed to failed accounts, regions, and tasks",
+        help="Rerun failed targets narrowed to failed entities, regions, and tasks",
     )
     results_parser.add_argument(
         "--dry-run",
@@ -957,10 +1451,10 @@ def main() -> None:
     results_parser.add_argument(
         "--results-dir",
         type=Path,
-        help="Historical results run directory to process with --processor",
+        help="Completed results run directory to process with --processor",
     )
     results_parser.add_argument(
-        "--processor", help="Run a processor against a historical results directory"
+        "--processor", help="Run a processor against a completed results directory"
     )
     results_parser.add_argument(
         "--output", help="Optional processor-owned output destination"
@@ -987,17 +1481,6 @@ def main() -> None:
         results_parser.error("--output requires --processor")
     if args.command == "validate" and args.auth and args.config_file is None:
         validate_parser.error("--config-file is required with --auth")
-    if (
-        args.command == "validate"
-        and args.tasks is None
-        and args.processors is None
-        and not args.auth
-    ):
-        validate_parser.error(
-            "at least one validation category is required: "
-            "--tasks, --processors, or --auth"
-        )
-
     log_level = (
         "CRITICAL"
         if args.command == "validate" and getattr(args, "quiet", False)
@@ -1009,6 +1492,9 @@ def main() -> None:
     )
     # Suppress repeated botocore SSO cache reads at INFO while keeping Anvil INFO logs.
     logging.getLogger("botocore.tokens").setLevel(logging.WARNING)
+    # Provider SDK INFO logs include credential probing and HTTP request details.
+    for sdk_logger_name in ("azure", "github", "google"):
+        logging.getLogger(sdk_logger_name).setLevel(logging.WARNING)
 
     try:
         exit_code = args.func(args)

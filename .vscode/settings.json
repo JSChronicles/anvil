@@ -19,24 +19,23 @@
     "editor.defaultFormatter": "charliermarsh.ruff"
   },
 
-  // YAML schema associations for organization and explicit-account configs
+
   "yaml.schemas": {
-    "src/anvil/schemas/orgs.schema.v1.json": [
+    "src/anvil/schemas/targets.schema.v2.json": [
       "yaml/*.yaml",
       "yaml/*.yml",
-      "examples/0*.yaml",
-      "examples/0*.yml",
-      "examples/1[0-2]-*.yaml",
-      "examples/1[0-2]-*.yml"
-    ],
-    "src/anvil/schemas/accounts.schema.v1.json": [
-      "examples/13-*.yaml",
-      "examples/13-*.yml"
+      "examples/*.yaml",
+      "examples/*.yml"
     ]
   },
 
   "yaml.validate": true,
   "yaml.hover": true,
-  "yaml.completion": true
+  "yaml.completion": true,
+  "python.testing.pytestArgs": [
+    "tests"
+  ],
+  "python.testing.unittestEnabled": false,
+  "python.testing.pytestEnabled": true
 
 }

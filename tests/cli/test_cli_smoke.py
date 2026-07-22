@@ -79,22 +79,22 @@ def test_write_run_results_uses_config_stem_and_run_id_directories(monkeypatch):
     cli = _import_cli_or_skip()
     scratch_dir = (Path("tests") / "_tmp" / "cli-smoke").resolve()
     run_dir = scratch_dir / "results" / "orgs" / "2026-05-01T120000Z"
-    target_dir = run_dir / "organizations"
+    target_dir = run_dir / "targets"
     summary_path = run_dir / "summary.json"
     target_path = target_dir / "org2.json"
     jsonl_path = run_dir / "results.jsonl"
 
     engine_result = SimpleNamespace(
-        config_branch=ConfigBranch.ORGANIZATIONS,
+        config_branch=ConfigBranch.TARGETS,
         benchmark=None,
         target_results=[
             SimpleNamespace(
-                config_branch=ConfigBranch.ORGANIZATIONS,
+                config_branch=ConfigBranch.TARGETS,
                 target_name="org2",
                 generated_at="2026-04-30T00:00:00+00:00",
                 dry_run=True,
-                account_results=[],
-                to_dict=lambda: {"name": "org2"},
+                entities=[],
+                to_dict=lambda: {"target": "org2"},
             )
         ],
         build_summary=lambda: {"state": "completed_success"},
@@ -237,16 +237,17 @@ def test_print_failure_followups_uses_results_file_command(capsys, monkeypatch):
             scratch_dir.rmdir()
 
 
-def test_build_rerun_targets_narrows_accounts_regions_and_task_dependencies():
+def test_build_rerun_targets_narrows_entities_regions_and_task_dependencies():
     from anvil.descriptors import ConfigBranch, LoadedConfig, TargetDescriptor
     from anvil.result_query import build_rerun_targets
 
     loaded_config = LoadedConfig(
-        branch=ConfigBranch.ORGANIZATIONS,
+        branch=ConfigBranch.TARGETS,
         targets=[
             TargetDescriptor(
-                config_branch=ConfigBranch.ORGANIZATIONS,
+                config_branch=ConfigBranch.TARGETS,
                 name="org-a",
+                mode="organization",
                 regions=["us-east-1", "us-west-2"],
                 include=["111111111111", "222222222222"],
                 tasks=[
@@ -256,8 +257,9 @@ def test_build_rerun_targets_narrows_accounts_regions_and_task_dependencies():
                 ],
             ),
             TargetDescriptor(
-                config_branch=ConfigBranch.ORGANIZATIONS,
+                config_branch=ConfigBranch.TARGETS,
                 name="org-b",
+                mode="organization",
                 regions=["us-east-1"],
                 tasks=[{"name": "inventory"}],
             ),
@@ -268,23 +270,23 @@ def test_build_rerun_targets_narrows_accounts_regions_and_task_dependencies():
         loaded_config=loaded_config,
         failures=[
             {
-                "record_type": "account",
+                "record_type": "entity",
                 "target": "org-a",
-                "account_id": "111111111111",
+                "entity_id": "111111111111",
                 "status": "error",
             },
             {
                 "record_type": "task",
                 "target": "org-a",
-                "account_id": "111111111111",
+                "entity_id": "111111111111",
                 "region": "us-west-2",
                 "task": "cleanup",
                 "status": "error",
             },
             {
-                "record_type": "account",
+                "record_type": "entity",
                 "target": "org-a",
-                "account_id": "222222222222",
+                "entity_id": "222222222222",
                 "status": "interrupted",
             },
         ],
@@ -308,7 +310,7 @@ def test_build_rerun_targets_narrows_accounts_regions_and_task_dependencies():
     ]
 
 
-def test_cmd_results_filters_account_type_status_and_outputs_json(capsys):
+def test_cmd_results_filters_entity_type_status_and_outputs_json(capsys):
     from pathlib import Path
     from types import SimpleNamespace
 
@@ -322,20 +324,20 @@ def test_cmd_results_filters_account_type_status_and_outputs_json(capsys):
             "\n".join(
                 [
                     (
-                        '{"record_type":"account","target":"org-a","account_id":'
-                        '"111111111111","account_alias":"dev","status":"error"}'
+                        '{"record_type":"entity","target":"org-a","entity_id":'
+                        '"111111111111","entity_name":"dev","status":"error"}'
                     ),
                     (
-                        '{"record_type":"account","target":"org-a","account_id":'
-                        '"222222222222","account_alias":"prod","status":"success"}'
+                        '{"record_type":"entity","target":"org-a","entity_id":'
+                        '"222222222222","entity_name":"prod","status":"success"}'
                     ),
                     (
-                        '{"record_type":"account","target":"org-a","account_id":'
-                        '"333333333333","account_alias":"qa","status":"interrupted"}'
+                        '{"record_type":"entity","target":"org-a","entity_id":'
+                        '"333333333333","entity_name":"qa","status":"interrupted"}'
                     ),
                     (
-                        '{"record_type":"task","target":"org-a","account_id":'
-                        '"444444444444","account_alias":"ops","status":"error"}'
+                        '{"record_type":"task","target":"org-a","entity_id":'
+                        '"444444444444","entity_name":"ops","status":"error"}'
                     ),
                 ]
             ),
@@ -344,10 +346,10 @@ def test_cmd_results_filters_account_type_status_and_outputs_json(capsys):
 
         args = SimpleNamespace(
             results_file=[Path(jsonl_path)],
-            type="account",
+            type="entity",
             status="failed",
             target=None,
-            account=None,
+            entity=None,
             region=None,
             task=None,
             fields=None,
@@ -360,10 +362,10 @@ def test_cmd_results_filters_account_type_status_and_outputs_json(capsys):
         assert cli._cmd_results(args) == 0
         output = capsys.readouterr().out
 
-        assert '"account_id": "111111111111"' in output
-        assert '"account_id": "222222222222"' not in output
-        assert '"account_id": "333333333333"' in output
-        assert '"account_id": "444444444444"' not in output
+        assert '"entity_id": "111111111111"' in output
+        assert '"entity_id": "222222222222"' not in output
+        assert '"entity_id": "333333333333"' in output
+        assert '"entity_id": "444444444444"' not in output
     finally:
         jsonl_path.unlink(missing_ok=True)
         if scratch_dir.exists():
@@ -384,13 +386,13 @@ def test_cmd_results_outputs_jsonl_with_fields_and_limit(capsys):
             "\n".join(
                 [
                     (
-                        '{"record_type":"task","target":"org-a","account_id":'
-                        '"111111111111","account_alias":"dev","region":"us-east-1",'
+                        '{"record_type":"task","target":"org-a","entity_id":'
+                        '"111111111111","entity_name":"dev","region":"us-east-1",'
                         '"task":"count_vpcs","status":"error","error":"boom"}'
                     ),
                     (
-                        '{"record_type":"task","target":"org-a","account_id":'
-                        '"222222222222","account_alias":"prod","region":"us-west-2",'
+                        '{"record_type":"task","target":"org-a","entity_id":'
+                        '"222222222222","entity_name":"prod","region":"us-west-2",'
                         '"task":"count_vpcs","status":"error","error":"nope"}'
                     ),
                 ]
@@ -403,10 +405,10 @@ def test_cmd_results_outputs_jsonl_with_fields_and_limit(capsys):
             type="task",
             status="failed",
             target=None,
-            account=None,
+            entity=None,
             region=None,
             task="count_vpcs",
-            fields="account_id,region,error",
+            fields="entity_id,region,error",
             limit=1,
             json=False,
             jsonl=True,
@@ -417,7 +419,7 @@ def test_cmd_results_outputs_jsonl_with_fields_and_limit(capsys):
         output = capsys.readouterr().out
 
         assert output.count("\n") == 1
-        assert '"account_id":"111111111111"' in output
+        assert '"entity_id":"111111111111"' in output
         assert '"region":"us-east-1"' in output
         assert '"task"' not in output
         assert "222222222222" not in output
@@ -427,12 +429,63 @@ def test_cmd_results_outputs_jsonl_with_fields_and_limit(capsys):
             scratch_dir.rmdir()
 
 
+def test_cmd_results_limit_stops_after_enough_filtered_records(capsys, tmp_path):
+    from types import SimpleNamespace
+
+    cli = _import_cli_or_skip()
+    jsonl_path = tmp_path / "results.jsonl"
+    jsonl_path.write_text(
+        "\n".join(
+            [
+                (
+                    '{"record_type":"task","target":"org-a","entity_id":'
+                    '"000000000000","entity_name":"skip","region":"us-east-1",'
+                    '"task":"count_vpcs","status":"success"}'
+                ),
+                (
+                    '{"record_type":"task","target":"org-a","entity_id":'
+                    '"111111111111","entity_name":"dev","region":"us-east-1",'
+                    '"task":"count_vpcs","status":"error","error":"boom"}'
+                ),
+                (
+                    '{"record_type":"task","target":"org-a","entity_id":'
+                    '"222222222222","entity_name":"prod","region":"us-west-2",'
+                    '"task":"count_vpcs","status":"error","error":"nope"}'
+                ),
+                "not-json",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    args = SimpleNamespace(
+        results_file=[jsonl_path],
+        type="task",
+        status="failed",
+        target=None,
+        entity=None,
+        region=None,
+        task="count_vpcs",
+        fields="entity_id",
+        limit=1,
+        json=False,
+        jsonl=True,
+        rerun=False,
+    )
+
+    assert cli._cmd_results(args) == 0
+    output = capsys.readouterr().out
+
+    assert '"entity_id":"111111111111"' in output
+    assert "222222222222" not in output
+
+
 def test_cmd_results_rerun_rejects_report_only_flags():
     from types import SimpleNamespace
 
     cli = _import_cli_or_skip()
     args = SimpleNamespace(
-        rerun=True, type="account", fields="account_id", limit=1, json=True, jsonl=False
+        rerun=True, type="entity", fields="entity_id", limit=1, json=True, jsonl=False
     )
 
     with pytest.raises(ValueError, match="--type, --fields, --limit, --json"):
@@ -449,7 +502,7 @@ def test_run_configured_post_processors_runs_successful_targets(monkeypatch):
     seen = {}
 
     target = TargetDescriptor(
-        config_branch=ConfigBranch.ORGANIZATIONS,
+        config_branch=ConfigBranch.TARGETS,
         name="org-a",
         metadata={"team": "security"},
         post_run=[
@@ -460,16 +513,14 @@ def test_run_configured_post_processors_runs_successful_targets(monkeypatch):
             }
         ],
     )
-    loaded_config = LoadedConfig(branch=ConfigBranch.ORGANIZATIONS, targets=[target])
+    loaded_config = LoadedConfig(branch=ConfigBranch.TARGETS, targets=[target])
     target_result = SimpleNamespace(target_name="org-a", has_failures=False)
     engine_result = SimpleNamespace(target_results=[target_result])
     written_results = SimpleNamespace(
         run_dir=Path("results/orgs/run"),
         summary_path=Path("results/orgs/run/summary.json"),
         summary={"state": "completed_success"},
-        target_result_paths={
-            "org-a": Path("results/orgs/run/organizations/org-a.json")
-        },
+        target_result_paths={"org-a": Path("results/orgs/run/targets/org-a.json")},
     )
 
     def fake_run_processors(*, specs, context):
@@ -506,11 +557,11 @@ def test_run_configured_post_processors_skips_failed_targets(monkeypatch):
     import anvil.processor_loader as processor_loader
 
     target = TargetDescriptor(
-        config_branch=ConfigBranch.ORGANIZATIONS,
+        config_branch=ConfigBranch.TARGETS,
         name="org-a",
         post_run=[{"processor": "summary_markdown"}],
     )
-    loaded_config = LoadedConfig(branch=ConfigBranch.ORGANIZATIONS, targets=[target])
+    loaded_config = LoadedConfig(branch=ConfigBranch.TARGETS, targets=[target])
     engine_result = SimpleNamespace(
         target_results=[SimpleNamespace(target_name="org-a", has_failures=True)]
     )
@@ -546,7 +597,7 @@ def test_run_configured_post_processors_runs_failure_opt_in(monkeypatch):
 
     seen = {}
     target = TargetDescriptor(
-        config_branch=ConfigBranch.ORGANIZATIONS,
+        config_branch=ConfigBranch.TARGETS,
         name="org-a",
         post_run=[
             {"processor": "success_only"},
@@ -557,15 +608,13 @@ def test_run_configured_post_processors_runs_failure_opt_in(monkeypatch):
             },
         ],
     )
-    loaded_config = LoadedConfig(branch=ConfigBranch.ORGANIZATIONS, targets=[target])
+    loaded_config = LoadedConfig(branch=ConfigBranch.TARGETS, targets=[target])
     target_result = SimpleNamespace(target_name="org-a", has_failures=True)
     written_results = SimpleNamespace(
         run_dir=Path("results/orgs/run"),
         summary_path=Path("results/orgs/run/summary.json"),
         summary={"state": "completed_with_failures"},
-        target_result_paths={
-            "org-a": Path("results/orgs/run/organizations/org-a.json")
-        },
+        target_result_paths={"org-a": Path("results/orgs/run/targets/org-a.json")},
     )
 
     def fake_run_processors(*, specs, context):
@@ -592,15 +641,15 @@ def test_run_configured_post_processors_runs_failure_opt_in(monkeypatch):
     assert seen["context"].target_result is target_result
 
 
-def test_cmd_results_processor_runs_historical_context(monkeypatch):
+def test_cmd_results_processor_runs_completed_results_context(monkeypatch):
     from pathlib import Path
     from types import SimpleNamespace
 
     cli = _import_cli_or_skip()
     seen = {}
-    context = SimpleNamespace(run_dir=Path("results/orgs/run"))
+    context = SimpleNamespace(run_dir=Path("results/smoke/run"))
 
-    monkeypatch.setattr(cli, "load_historical_run_context", lambda **_: context)
+    monkeypatch.setattr(cli, "load_completed_run_context", lambda **_: context)
 
     def fake_run_processors(*, specs, context):
         seen["specs"] = specs
@@ -609,7 +658,7 @@ def test_cmd_results_processor_runs_historical_context(monkeypatch):
     monkeypatch.setattr(cli, "run_processors", fake_run_processors)
 
     args = SimpleNamespace(
-        results_dir=Path("results/orgs/run"),
+        results_dir=Path("results/smoke/run"),
         processor="summary_json",
         output="reports/summary.json",
         rerun=False,
@@ -617,7 +666,7 @@ def test_cmd_results_processor_runs_historical_context(monkeypatch):
         type=None,
         status=None,
         target=None,
-        account=None,
+        entity=None,
         region=None,
         task=None,
         fields=None,
@@ -631,4 +680,6 @@ def test_cmd_results_processor_runs_historical_context(monkeypatch):
     assert cli._cmd_results(args) == 0
     assert seen["context"] is context
     assert seen["specs"][0].processor == "summary_json"
-    assert seen["specs"][0].output == str(Path("results/orgs/run/reports/summary.json"))
+    assert seen["specs"][0].output == str(
+        Path("results/smoke/run/reports/summary.json")
+    )

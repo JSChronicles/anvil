@@ -31,11 +31,9 @@ def test_run_single_config_file_passes_run_controls(
 
     cli = _import_cli_or_skip()
 
-    target = TargetDescriptor(config_branch=ConfigBranch.ORGANIZATIONS, name="target-a")
+    target = TargetDescriptor(config_branch=ConfigBranch.TARGETS, name="target-a")
     loaded_config = SimpleNamespace(
-        branch=SimpleNamespace(value="organizations"),
-        targets=[target],
-        max_parallel_targets=4,
+        branch=ConfigBranch.TARGETS, targets=[target], max_parallel_targets=4
     )
     seen = {}
 
@@ -68,3 +66,27 @@ def test_run_single_config_file_passes_run_controls(
     assert exit_code == 0
     assert seen["kwargs"]["max_parallel_targets"] == 4
     assert seen["kwargs"]["benchmark_enabled"] is expected_benchmark
+
+
+def test_validate_cli_overrides_rejects_explicit_mode_exclude():
+    from anvil.descriptors import ConfigBranch, LoadedConfig, TargetDescriptor
+
+    cli = _import_cli_or_skip()
+    loaded_config = LoadedConfig(
+        branch=ConfigBranch.TARGETS,
+        targets=[
+            TargetDescriptor(
+                config_branch=ConfigBranch.TARGETS,
+                name="aws-accounts",
+                provider="aws",
+                mode="accounts",
+                provider_options={"role_name": "AuditRole"},
+                include=["111111111111"],
+            )
+        ],
+    )
+
+    with pytest.raises(ValueError, match="explicit provider modes.*aws-accounts"):
+        cli._validate_cli_overrides(
+            loaded_config=loaded_config, args=SimpleNamespace(exclude=["111111111111"])
+        )

@@ -12,7 +12,11 @@
 <!-- PROJECT LOGO -->
 <br />
 <div align="center">
-    <img src="images/logo.png" alt="Logo" width="256" height="256">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="images/anvil-logo-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="images/anvil-logo-light.png">
+    <img src="images/anvil-logo-light.png" alt="Anvil logo" width="236">
+  </picture>
 
   <h3 align="center">README</h3>
 
@@ -27,41 +31,54 @@
 
 ## Introduction
 
-Anvil is a declarative AWS execution engine for running Python tasks across large account and region fleets. Describe the work in YAML, keep task logic in plain Python modules, and let the engine handle authentication, role assumption, dependency ordering, bounded concurrency, and structured results so repeatable AWS work can run faster without turning orchestration into custom scripts.
+Anvil is a declarative provider-aware execution engine for running Python tasks across cloud target and region fleets. Describe the work in YAML, keep task logic in plain Python modules, and let the engine handle authentication, target resolution, dependency ordering, bounded concurrency, and structured results. The current runtime preserves the AWS organization/account behavior and optimizations from earlier releases while adding explicit Azure subscription and GCP project target support.
 
 For more, see the [documentation](https://opsfoundry.dev/).
 
 ### Why Anvil?
 
-Anvil is built for teams that need repeatable AWS workflows, such as inventory, validation, enforcement, cleanup, and reporting, to run consistently across organizations, accounts, and regions.
+Anvil is built for teams that need repeatable cloud workflows, such as inventory, validation, enforcement, cleanup, and reporting, to run consistently across provider targets and regions.
 
 - Declarative orchestration
   - Define execution in reusable YAML instead of one-off scripts.
-  - Configure organizations, account lists, regions, tasks, task dependencies, dry runs, fail-fast behavior, and concurrency in one place.
-- Multi-account and multi-organization by default
-  - Discover active accounts and enabled regions, support include/exclude filtering
+  - Configure provider targets, regions, tasks, task dependencies, dry runs, fail-fast behavior, and concurrency in one place.
+- Multi-target by default
+  - AWS can discover active organization accounts and enabled regions, with include/exclude filtering.
+  - Azure subscriptions and GCP projects can run from explicit IDs or provider
+    discovery.
 - Parallel execution and caching
   - Control concurrency at the target, account, and region levels. See [Caching and reuse](https://opsfoundry.dev/anvil/execution-model/#cache-and-reuse-boundaries).
 - Shared discovery and session reuse
-  - Validate the organization, discover accounts, and check enabled regions, only once, before execution.
+  - Validate targets, discover supported provider metadata, and reuse session/runtime state before execution.
 - Task isolation
   - Write tasks as simple Python files with a `run(...)` function.
-- Built-in and custom tasks
-  - Use stock tasks for common AWS operations.
-  - Add project-local tasks for team-specific work.
-  - Extend the task set without changing the execution engine.
+- Built-in tasks
+  - Use provider-package tasks for common AWS operations and universal tasks
+    where they apply.
+  - Provider-owned task plugin entry points can add universal tasks or
+    provider-specific AWS, Azure, and GCP tasks.
 - Structured output and safer operations
-  - Record structured results at task, account, target, and engine levels.
+  - Record structured results at task, account/target, target group, and engine levels.
 
 ## Usage
 > [!TIP]
 > It is recommended to use the [foundry-anvil-template](https://github.com/JSChronicles/foundry-anvil-template).
 >
-> The template exposes project-local tasks and processors without forking Anvil.
+> The template exposes project-local processors without forking Anvil.
 >
 > If you do not need/want the full Anvil framework and only want a simple starting point for small AWS Organization tasks, see: [`templates/aws_multi_account_template.py`](https://opsfoundry.dev/anvil/examples/#standalone-multi-account-script-template)
 
 
+1. Install Anvil with the provider SDKs you need:
+   1. Installed package users can choose provider extras with pip. Base installs
+      include AWS support and the default CLI behavior:
+      `pip install anvil`
+   1. Azure users should install the Azure extra:
+      `pip install "anvil[azure]"`
+   1. GCP users should install the GCP extra:
+      `pip install "anvil[gcp]"`
+   1. Source checkout users should sync the matching uv extra instead:
+      `uv sync --extra azure` or `uv sync --extra gcp`
 1. When using the uv tool, there are several ways to run and install dependencies. Here are only a couple examples:
 1. uv sync:
    1. Sync the project's dependencies with the environment: uv sync
@@ -74,10 +91,9 @@ Anvil is built for teams that need repeatable AWS workflows, such as inventory, 
 
 There are multiple global commands:
 ```console
-anvil graph     # Show the resolved task dependency graph
 anvil results   # Query JSONL results and rerun failures
-anvil list      # List available tasks and processors
-anvil validate  # Validate tasks, processors, and AWS authentication
+anvil list      # List available tasks, processors, and providers
+anvil validate  # Inspect environment health or run focused validation checks
 anvil run       # Execute YAML-defined workflows
 ```
 
@@ -92,14 +108,99 @@ anvil run --config-file ./yaml/orgs.yaml
 
 ```yaml
 # orgs.yaml example
-schema_version: 1
+schema_version: 2
 
-organizations:
+targets:
   - name: smoke
-    profile: root
+    provider:
+      name: aws
+      mode: organization
+      options:
+        profile: root
     tasks:
       - name: noop
     dry_run: true
+```
+
+### Provider task packages
+> [!NOTE]
+> Duplicate task names across all packages and plugins applicable to the selected provider are rejected as ambiguous.
+>
+
+Task compatibility is determined by package location.
+
+- `anvil.providers.tasks.<task>` is universal and can run for any provider.
+- `anvil.providers.aws.tasks.<task>` is AWS-only.
+- `anvil.providers.azure.tasks.<task>` is Azure-only.
+- `anvil.providers.gcp.tasks.<task>` is GCP-only.
+
+### Extension package discovery
+
+Tasks, processors, and providers are discovered from package folders. Adding a
+public module or provider folder to an already registered package does not
+require another entry-point declaration. Discovery records names and sources
+without importing child implementations; normal execution imports only the
+selected components. Duplicate names are rejected as ambiguous and report every
+conflicting source.
+
+Third-party distributions register their package roots in `pyproject.toml`:
+
+```toml
+[project.entry-points."anvil.providers.tasks"]
+universal-tasks = "company_anvil.tasks"
+
+[project.entry-points."anvil.providers.aws.tasks"]
+aws-tasks = "company_anvil.aws_tasks"
+
+[project.entry-points."anvil.processors"]
+processors = "company_anvil.processors"
+
+[project.entry-points."anvil.provider_packages"]
+providers = "company_anvil.providers"
+```
+
+Each task or processor filename is its component name. Each immediate child of
+a provider collection is a provider package and must expose
+`create_provider_instance()`.
+
+Example Azure task configuration:
+
+```yaml
+schema_version: 2
+
+targets:
+  - name: azure-subscriptions
+    provider:
+      name: azure
+      mode: subscriptions
+      options: {}
+    include:
+      - 00000000-0000-0000-0000-000000000000
+    regions:
+      - eastus
+    tasks:
+      - name: count_resource_groups
+```
+
+Example GCP task configuration:
+
+```yaml
+schema_version: 2
+
+targets:
+  - name: gcp-projects
+    provider:
+      name: gcp
+      mode: projects
+      options:
+        credentials_path: /secure/path/to/credentials.json
+        quota_project_id: anvil-billing-project
+    include:
+      - anvil-dev-project
+    regions:
+      - us-central1
+    tasks:
+      - name: get_project_info
 ```
 
 For delegated-administrator patterns, keep the base session on the
@@ -109,12 +210,16 @@ delegated-admin account if it appears in Organizations discovery, and assumes
 account.
 
 ```yaml
-schema_version: 1
+schema_version: 2
 
-organizations:
+targets:
   - name: security
-    profile: delegated-admin-security
-    role_name: SecurityAuditRole
+    provider:
+      name: aws
+      mode: organization
+      options:
+        profile: delegated-admin-security
+        role_name: SecurityAuditRole
     regions:
       - us-east-1
     tasks:
@@ -123,27 +228,49 @@ organizations:
 
 ### Results
 
-`anvil results` queries completed run output without rerunning AWS work. Use it
-to filter historical JSONL results by target, account, region, task, or status,
-emit JSON/JSONL for automation, rerun failed work, or run a processor against a
-completed results directory. When a run has failures, Anvil prints ready-to-use
-`anvil results` commands that point at the affected run's `results.jsonl` file
-so you can inspect or rerun the failed accounts.
+`anvil results` queries completed run output without rerunning cloud work. Use it
+to filter historical JSONL results by target, account, region/location, task, or
+status, emit JSON/JSONL for automation, rerun failed work, or run a processor
+against a completed results directory. When a run has failures, Anvil prints
+ready-to-use `anvil results` commands that point at the affected run's
+`results.jsonl` file so you can inspect or rerun the failed execution targets.
 
 See more at [Common result queries](https://opsfoundry.dev/anvil/cli/#results)
 and [Rerun failures](https://opsfoundry.dev/anvil/cli/#rerun-failures).
 
 ### Validation
 
-Use `anvil validate` before a run to perform one or more checks without running
-tasks:
+Use `anvil validate` before a run to inspect the local environment or perform
+one or more focused checks without running tasks:
+
+```console
+anvil validate
+```
+
+With no switches, `anvil validate` prints offline diagnostics for the current
+Anvil environment, including Python and Anvil versions, optional provider
+dependency availability, provider/task/processor discovery, local auth source
+hints, and result path state. It does not call cloud APIs, validate live access,
+or run tasks.
+
+Validate a YAML config file offline:
+
+```console
+anvil validate --config-file ./yaml/orgs.yaml
+```
+
+This parses the config, validates schema and target shape, and checks CLI
+override semantics without checking credentials or calling provider APIs.
+
+Run focused validation categories:
 
 ```console
 anvil validate --tasks --processors --auth --config-file ./yaml/orgs.yaml
 ```
 
 `--tasks` and `--processors` validate discovery and callable signatures.
-`--auth` validates AWS access for the configured targets.
+`--providers` validates the provider contract. `--auth` validates cloud access
+for the configured targets after loading and validating the config file.
 
 See more at [Task validation](https://opsfoundry.dev/anvil/task-contract/#task-validation).
 
@@ -159,11 +286,15 @@ Use `html_report` when you want a self-contained, human-readable report for a
 completed target:
 
 ```yaml
-schema_version: 1
+schema_version: 2
 
-organizations:
+targets:
   - name: smoke
-    profile: root
+    provider:
+      name: aws
+      mode: organization
+      options:
+        profile: root
     regions:
       - us-east-1
     tasks:
@@ -178,11 +309,15 @@ Use `sarif_report` when `detect_` tasks return `sarif_findings` and you want a
 SARIF 2.1.0 report for code-scanning or security tooling:
 
 ```yaml
-schema_version: 1
+schema_version: 2
 
-organizations:
+targets:
   - name: lambda-runtime-audit
-    profile: root
+    provider:
+      name: aws
+      mode: organization
+      options:
+        profile: root
     regions:
       - us-*
     tasks:
@@ -197,7 +332,9 @@ organizations:
         run_on_failure: true
 ```
 
-See more at [HTML result reports](https://opsfoundry.dev/anvil/cli/#processors).
+See more at [HTML result reports](https://opsfoundry.dev/anvil/cli/#processors),
+including examples for separating target-level reports or combining a completed
+run into one HTML report.
 
 ------------------------------
 
@@ -211,18 +348,22 @@ anvil run --config-file ./yaml/advanced.yaml
 
 ```yaml
 # advanced.yaml example
-schema_version: 1
+schema_version: 2
 max_parallel_targets: 2
 
-organizations:
+targets:
   - name: place
-    profile: place-root
+    provider:
+      name: aws
+      mode: organization
+      options:
+        profile: place-root
+        role_name: OrganizationAccountAccessRole
     # Organizations support explicit regions, all, glob selectors, and mixed
     # glob plus explicit selectors.
     regions:
       - us-east-1
       - us-west-2
-    role_name: OrganizationAccountAccessRole
 
     max_workers: 5
     max_parallel_regions: 2

@@ -1,0 +1,41 @@
+schema_version: 2
+targets:
+- name: github-organization-include
+  provider:
+    name: github
+    mode: organizations
+    options:
+      token_env: GITHUB_TOKEN
+  regions:
+  - global
+  include:
+  - octo-org
+  - octocat
+  dry_run: true
+  metadata:
+    query: TODO
+    language: Python
+    max_results: 25
+  tasks:
+  # Standalone search runs once per organization with an org: qualifier.
+  - name: search_code
+
+- name: github-repository-include
+  provider:
+    name: github
+    mode: repositories
+    options:
+      token_env: GITHUB_TOKEN
+  regions:
+  - global
+  include:
+  - octo-org/example
+  dry_run: true
+  metadata:
+    query: secret
+    path: src
+    extension: py
+    max_results: 10
+  tasks:
+  # Standalone search runs once per explicit repository with a repo: qualifier.
+  - name: search_code

@@ -6,6 +6,7 @@ from anvil.descriptors import ConfigBranch, TargetDescriptor
 from anvil.execution_context import ExecutionContext
 from anvil.account import AccountAccessStrategy
 from anvil.organization import OrganizationResolver
+from anvil.providers.aws.regions import AwsRegionService
 
 
 class FakePaginator:
@@ -49,8 +50,9 @@ def _context(*, regions: list[str] | None = None) -> ExecutionContext:
 
 def _target(**kwargs) -> TargetDescriptor:
     return TargetDescriptor(
-        config_branch=ConfigBranch.ORGANIZATIONS,
+        config_branch=ConfigBranch.TARGETS,
         name="org-a",
+        mode="organization",
         profile="profile-a",
         regions=kwargs.pop("regions", ["us-east-1"]),
         **kwargs,
@@ -100,7 +102,7 @@ def test_discover_accounts_keeps_active_accounts_and_defaults_alias():
     }
 
 
-def test_discover_region_statuses_keeps_enabled_and_disabled_statuses():
+def test_aws_region_service_keeps_enabled_and_disabled_statuses():
     session = FakeSession(
         clients={
             "account": FakeClient(
@@ -131,7 +133,7 @@ def test_discover_region_statuses_keeps_enabled_and_disabled_statuses():
         }
     )
 
-    assert OrganizationResolver.discover_region_statuses(session) == {
+    assert AwsRegionService().discover_region_statuses(session=session) == {
         "us-east-1": "ENABLED_BY_DEFAULT",
         "us-west-2": "ENABLED",
         "ap-south-1": "DISABLED",

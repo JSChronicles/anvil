@@ -12,12 +12,9 @@ from anvil.descriptors import ConfigBranch, LoadedConfig, TargetDescriptor
 
 __LOGGER__ = logging.getLogger(__name__)
 
-SCHEMA_REGISTRY: dict[str, str] = {
-    ConfigBranch.ORGANIZATIONS.value: "orgs.schema.v1.json",
-    ConfigBranch.ACCOUNTS.value: "accounts.schema.v1.json",
-}
+TARGETS_SCHEMA_FILE = "targets.schema.v2.json"
 
-COMMON_SCHEMA_FILE = "common.schema.v1.json"
+COMMON_SCHEMA_FILE = "common.schema.v2.json"
 SCHEMA_BASE_URI = "https://anvil.local/schemas/"
 
 
@@ -31,36 +28,21 @@ def _load_schema_file(schema_file: str) -> dict:
 
 
 def _detect_config_branch(config: dict) -> ConfigBranch:
-    has_organizations = "organizations" in config
-    has_accounts = "accounts" in config
-
-    if has_organizations and has_accounts:
+    if config.get("schema_version") != 2:
         raise ValueError(
-            "Config must contain exactly one top-level branch: "
-            "'organizations' or 'accounts'"
+            "Unsupported config schema. Anvil v0.30 requires "
+            "schema_version: 2 with top-level 'targets'."
         )
 
-    if has_organizations:
-        return ConfigBranch.ORGANIZATIONS
+    if "targets" not in config:
+        raise ValueError("schema_version 2 configs must contain top-level 'targets'")
 
-    if has_accounts:
-        return ConfigBranch.ACCOUNTS
-
-    raise ValueError(
-        "Config must contain exactly one top-level branch: "
-        "'organizations' or 'accounts'"
-    )
+    return ConfigBranch.TARGETS
 
 
-@lru_cache(maxsize=2)
-def _load_branch_schema(*, branch: ConfigBranch, schema_version: int) -> dict:
-    if schema_version != 1:
-        raise ValueError(
-            f"Unsupported schema_version: {schema_version}. Supported versions: [1]"
-        )
-
-    schema_file = SCHEMA_REGISTRY[branch.value]
-    return _load_schema_file(schema_file)
+@lru_cache(maxsize=1)
+def _load_targets_schema() -> dict:
+    return _load_schema_file(TARGETS_SCHEMA_FILE)
 
 
 def _format_schema_error_location(*, config: dict, error) -> str:
@@ -71,10 +53,7 @@ def _format_schema_error_location(*, config: dict, error) -> str:
         branch_name = path_parts[0]
         entry_index = path_parts[1]
 
-        if branch_name not in {
-            ConfigBranch.ORGANIZATIONS.value,
-            ConfigBranch.ACCOUNTS.value,
-        }:
+        if branch_name not in {branch.value for branch in ConfigBranch}:
             return location
 
         entries = config.get(branch_name, [])
@@ -89,11 +68,7 @@ def _format_schema_error_location(*, config: dict, error) -> str:
         if not isinstance(entry_name, str) or not entry_name.strip():
             return location
 
-        label = (
-            "account_group"
-            if branch_name == ConfigBranch.ACCOUNTS.value
-            else "organization"
-        )
+        label = {ConfigBranch.TARGETS.value: "target"}[branch_name]
         return f"{label} '{entry_name}' ({location})"
 
     return location
@@ -101,11 +76,7 @@ def _format_schema_error_location(*, config: dict, error) -> str:
 
 @lru_cache(maxsize=1)
 def _build_schema_registry() -> Registry:
-    schema_files = {
-        COMMON_SCHEMA_FILE,
-        SCHEMA_REGISTRY[ConfigBranch.ORGANIZATIONS.value],
-        SCHEMA_REGISTRY[ConfigBranch.ACCOUNTS.value],
-    }
+    schema_files = {COMMON_SCHEMA_FILE, TARGETS_SCHEMA_FILE}
     registry = Registry()
 
     for schema_file in schema_files:
@@ -129,10 +100,13 @@ def validate_config_schema(*, config: dict) -> None:
     schema_version = config.get("schema_version")
 
     if not isinstance(schema_version, int):
-        raise ValueError("Missing or invalid 'schema_version' (must be an integer)")
+        raise ValueError(
+            "Missing or invalid 'schema_version'. Anvil v0.30 requires "
+            "schema_version: 2 with top-level 'targets'."
+        )
 
-    branch = _detect_config_branch(config)
-    schema = _load_branch_schema(branch=branch, schema_version=schema_version)
+    _detect_config_branch(config)
+    schema = _load_targets_schema()
     registry = _build_schema_registry()
 
     validator = Draft202012Validator(schema, registry=registry)
@@ -164,13 +138,39 @@ def load_config_descriptors(*, config: dict) -> LoadedConfig:
         if not isinstance(entry, dict):
             raise ValueError(f"{branch.value} entry #{index} must be a mapping")
 
-        targets.append(TargetDescriptor(config_branch=branch, **entry))
+        normalized_entry = _normalize_target_entry(entry=entry, index=index)
+        targets.append(TargetDescriptor(config_branch=branch, **normalized_entry))
 
     validate_target_descriptors(targets=targets)
 
     return LoadedConfig(
         branch=branch, max_parallel_targets=max_parallel_targets, targets=targets
     )
+
+
+def _normalize_target_entry(*, entry: dict, index: int) -> dict:
+    provider = entry.get("provider")
+    if not isinstance(provider, dict):
+        raise ValueError(f"targets entry #{index} requires provider mapping")
+
+    provider_name = provider.get("name")
+    provider_mode = provider.get("mode")
+    provider_options = provider.get("options", {})
+
+    if not isinstance(provider_name, str) or not provider_name.strip():
+        raise ValueError(f"targets entry #{index} provider.name is required")
+    if not isinstance(provider_mode, str) or not provider_mode.strip():
+        raise ValueError(f"targets entry #{index} provider.mode is required")
+    if provider_options is None:
+        provider_options = {}
+    if not isinstance(provider_options, dict):
+        raise ValueError(f"targets entry #{index} provider.options must be a mapping")
+
+    normalized = dict(entry)
+    normalized["provider"] = provider_name
+    normalized["mode"] = provider_mode
+    normalized["provider_options"] = dict(provider_options)
+    return normalized
 
 
 def validate_target_descriptors(*, targets: list[TargetDescriptor]) -> None:

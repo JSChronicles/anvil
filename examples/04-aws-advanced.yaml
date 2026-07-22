@@ -1,0 +1,33 @@
+schema_version: 2
+max_parallel_targets: 2
+targets:
+- name: aws-lambda-runtime-audit
+  provider:
+    name: aws
+    mode: organization
+    options:
+      profile: security-audit
+      role_name: OrganizationAccountAccessRole
+  regions:
+  - us-*
+  - ca-central-1
+  include:
+  - '111111111111'
+  - '222222222222'
+  max_workers: 4
+  max_parallel_regions: 2
+  fail_fast: true
+  dry_run: true
+  metadata:
+    runtimes:
+    - python3.8
+    - nodejs16.x
+  tasks:
+  - name: count_vpc
+  - name: list_lambdas_by_runtime
+  - name: detect_deprecated_lambda_runtimes
+    depends_on:
+    - list_lambdas_by_runtime
+  post_run:
+  - processor: sarif_report
+    output: aws-lambda-runtime-audit.sarif
