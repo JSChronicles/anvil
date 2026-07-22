@@ -1,24 +1,24 @@
 from __future__ import annotations
 
 import importlib
-import logging
-import pkgutil
 import sys
 from collections import defaultdict, deque
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from functools import lru_cache
-from importlib.metadata import EntryPoint, entry_points
+from importlib.metadata import entry_points
 
-from anvil._loader_utils import (
+from anvil._components import (
+    ComponentCatalog,
+    ComponentDescriptor as CatalogDescriptor,
+    ComponentKind,
+    ComponentOrigin,
+    ComponentResolver,
+    ComponentSource,
     DiscoveryIssue,
-    iter_stock_modules,
-    load_stock_callable,
-    plugin_source,
+    PackageComponentSource,
 )
-
-__LOGGER__ = logging.getLogger(__name__)
 
 UNIVERSAL_TASK_PACKAGE = "anvil.providers.tasks"
 PROVIDER_TASK_PACKAGE_PREFIX = "anvil.providers"
@@ -90,31 +90,60 @@ class ResolvedExecution:
 
 
 def _load_package_task(*, task_name: str, package_name: str) -> Callable:
-    return load_stock_callable(
-        name=task_name,
-        kind="task",
-        package_name=package_name,
-        error_type=TaskConfigError,
-    )
+    module_name = f"{package_name}.{task_name}"
+    try:
+        module = importlib.import_module(module_name)
+    except Exception as error:
+        raise TaskConfigError(
+            f"Task '{task_name}' in '{package_name}' failed during import: {error}"
+        ) from error
+    run = getattr(module, "run", None)
+    if not callable(run):
+        raise TaskConfigError(
+            f"Task '{task_name}' in '{package_name}' must define callable run(...)"
+        )
+    return run
+
+
+def _load_task_component(
+    package_name: str, task_name: str, source: ComponentSource
+) -> Callable:
+    return _load_package_task(task_name=task_name, package_name=package_name)
 
 
 @lru_cache(maxsize=512)
 def _load_provider_task_callable(*, provider_name: str, task_name: str) -> Callable:
     descriptors = _provider_task_descriptor_index(provider_name).get(task_name, [])
-    if len(descriptors) == 1:
-        return descriptors[0].load()
-    if len(descriptors) > 1:
-        sources = ", ".join(descriptor.source for descriptor in descriptors)
+    if not descriptors:
         raise TaskConfigError(
-            f"Task '{task_name}' is ambiguous for provider '{provider_name}'; "
-            f"found in multiple applicable task packages: {sources}."
+            f"Task '{task_name}' is not available for provider '{provider_name}'. "
+            "Tasks must be provided by universal package 'anvil.providers.tasks' "
+            f"or provider package 'anvil.providers.{provider_name}.tasks'."
         )
 
-    raise TaskConfigError(
-        f"Task '{task_name}' is not available for provider '{provider_name}'. "
-        "Tasks must be provided by universal package 'anvil.providers.tasks' "
-        f"or provider package 'anvil.providers.{provider_name}.tasks'."
-    )
+    catalog_descriptors = [
+        CatalogDescriptor(
+            name=descriptor.name,
+            source=ComponentSource(
+                origin=(
+                    ComponentOrigin.PLUGIN
+                    if "plugin:" in descriptor.source
+                    else ComponentOrigin.STOCK
+                ),
+                package="",
+                label=descriptor.source,
+                provider=provider_name,
+            ),
+            load=descriptor.load,
+        )
+        for descriptor in descriptors
+    ]
+    return ComponentResolver(
+        kind=ComponentKind.TASK,
+        catalog=ComponentCatalog(descriptors=tuple(catalog_descriptors)),
+        error_type=TaskConfigError,
+        context=f"for provider '{provider_name}'",
+    ).load(task_name)
 
 
 def _provider_task_packages(provider_name: str) -> tuple[tuple[str, str], ...]:
@@ -139,64 +168,29 @@ def _provider_task_entry_point_groups(
 def _iter_package_task_descriptors(
     *, package_name: str, source: str
 ) -> list[TaskDescriptor]:
-    try:
-        modules = list(
-            iter_stock_modules(
-                package_name=package_name,
-                load=lambda name: _load_package_task(
-                    task_name=name, package_name=package_name
-                ),
-            )
-        )
-    except ModuleNotFoundError as error:
-        if error.name == package_name:
+    component_source = ComponentSource(
+        origin=ComponentOrigin.STOCK,
+        package=package_name,
+        label=source,
+        provider=None if source == "universal" else source,
+    )
+    descriptors, issues = PackageComponentSource(
+        kind=ComponentKind.TASK,
+        package_name=package_name,
+        source=component_source,
+        component_loader=_load_task_component,
+    ).discover()
+    if issues:
+        issue = issues[0]
+        if "No module named" in issue.error and package_name in issue.error:
             return []
-        raise
-
+        raise TaskConfigError(f"{issue.name} ({issue.source}): {issue.error}")
     return [
-        TaskDescriptor(name=module.name, load=module.load, source=source)
-        for module in modules
-    ]
-
-
-def _load_plugin_task_callable(
-    *, entry_point: EntryPoint, task_name: str, source: str
-) -> Callable:
-    try:
-        package = importlib.import_module(entry_point.value)
-    except Exception as exc:
-        raise TaskConfigError(
-            f"Plugin task package '{entry_point.name}' ({source}) failed during "
-            f"import: {exc}"
-        ) from exc
-
-    module_name = f"{package.__name__}.{task_name}"
-    try:
-        module = importlib.import_module(module_name)
-    except ModuleNotFoundError as exc:
-        if exc.name == module_name:
-            raise TaskConfigError(
-                f"Plugin task '{task_name}' not found in plugin "
-                f"'{entry_point.name}' ({source})"
-            ) from exc
-        raise TaskConfigError(
-            f"Plugin task '{task_name}' in plugin '{entry_point.name}' "
-            f"({source}) failed during import: {exc}"
-        ) from exc
-    except Exception as exc:
-        raise TaskConfigError(
-            f"Plugin task '{task_name}' in plugin '{entry_point.name}' "
-            f"({source}) failed during import: {exc}"
-        ) from exc
-
-    run = getattr(module, "run", None)
-    if not callable(run):
-        raise TaskConfigError(
-            f"Plugin task '{task_name}' in plugin '{entry_point.name}' "
-            f"({source}) must define callable run(...)"
+        TaskDescriptor(
+            name=descriptor.name, load=descriptor.load, source=str(descriptor.source)
         )
-
-    return run
+        for descriptor in descriptors
+    ]
 
 
 def _iter_plugin_task_descriptors(
@@ -206,53 +200,35 @@ def _iter_plugin_task_descriptors(
     issues: list[DiscoveryIssue] = []
 
     for entry_point in entry_points(group=entry_point_group):
-        plugin_source_label = plugin_source(entry_point)
-        if plugin_source_label.startswith("plugin: "):
-            plugin_source_label = plugin_source_label.removeprefix("plugin: ")
-        source = f"{source_prefix} {plugin_source_label}"
-        try:
-            package = importlib.import_module(entry_point.value)
-        except Exception as exc:
-            __LOGGER__.debug(
-                f"Skipping task plugin '{entry_point.name}' from group "
-                f"'{entry_point_group}' due to import error: {exc}"
+        distribution = entry_point.dist.name if entry_point.dist is not None else None
+        source = f"{source_prefix} {distribution or 'unpackaged'}"
+        package_name = entry_point.value.split(":", maxsplit=1)[0]
+        component_source = ComponentSource(
+            origin=ComponentOrigin.PLUGIN,
+            package=package_name,
+            label=source,
+            distribution=(
+                entry_point.dist.name if entry_point.dist is not None else None
+            ),
+            entry_point_group=entry_point_group,
+            entry_point_name=entry_point.name,
+            provider=None if source_prefix.startswith("universal") else source_prefix,
+        )
+        discovered, source_issues = PackageComponentSource(
+            kind=ComponentKind.TASK,
+            package_name=package_name,
+            source=component_source,
+            component_loader=_load_task_component,
+        ).discover(issue_name=entry_point.name)
+        descriptors.extend(
+            TaskDescriptor(
+                name=descriptor.name,
+                load=descriptor.load,
+                source=str(descriptor.source),
             )
-            issues.append(
-                DiscoveryIssue(
-                    name=entry_point.name,
-                    source=source,
-                    error=f"package import failed ({exc})",
-                )
-            )
-            continue
-
-        package_path = getattr(package, "__path__", None)
-        if package_path is None:
-            issues.append(
-                DiscoveryIssue(
-                    name=entry_point.name,
-                    source=source,
-                    error="entry point must reference a package",
-                )
-            )
-            continue
-
-        for module_info in pkgutil.iter_modules(package_path):
-            name = module_info.name
-            if name.startswith("_"):
-                continue
-
-            descriptors.append(
-                TaskDescriptor(
-                    name=name,
-                    load=lambda ep=entry_point, n=name, s=source: (
-                        _load_plugin_task_callable(
-                            entry_point=ep, task_name=n, source=s
-                        )
-                    ),
-                    source=source,
-                )
-            )
+            for descriptor in discovered
+        )
+        issues.extend(source_issues)
 
     return descriptors, issues
 
@@ -261,14 +237,26 @@ def _iter_plugin_task_descriptors(
 def _provider_task_discovery(
     provider_name: str,
 ) -> tuple[dict[str, tuple[TaskDescriptor, ...]], tuple[DiscoveryIssue, ...]]:
-    descriptors_by_name: dict[str, list[TaskDescriptor]] = defaultdict(list)
+    catalog_descriptors: list[CatalogDescriptor[Callable]] = []
+    public_descriptors: dict[int, TaskDescriptor] = {}
     issues: list[DiscoveryIssue] = []
 
     for source, package_name in _provider_task_packages(provider_name):
         for descriptor in _iter_package_task_descriptors(
             package_name=package_name, source=source
         ):
-            descriptors_by_name[descriptor.name].append(descriptor)
+            catalog_descriptor = CatalogDescriptor(
+                name=descriptor.name,
+                source=ComponentSource(
+                    origin=ComponentOrigin.STOCK,
+                    package=package_name,
+                    label=descriptor.source,
+                    provider=None if source == "universal" else provider_name,
+                ),
+                load=descriptor.load,
+            )
+            catalog_descriptors.append(catalog_descriptor)
+            public_descriptors[id(catalog_descriptor)] = descriptor
 
     for source, entry_point_group in _provider_task_entry_point_groups(provider_name):
         plugin_descriptors, plugin_issues = _iter_plugin_task_descriptors(
@@ -276,11 +264,24 @@ def _provider_task_discovery(
         )
         issues.extend(plugin_issues)
         for descriptor in plugin_descriptors:
-            descriptors_by_name[descriptor.name].append(descriptor)
+            catalog_descriptor = CatalogDescriptor(
+                name=descriptor.name,
+                source=ComponentSource(
+                    origin=ComponentOrigin.PLUGIN,
+                    package="",
+                    label=descriptor.source,
+                    entry_point_group=entry_point_group,
+                    provider=None if source == "universal" else provider_name,
+                ),
+                load=descriptor.load,
+            )
+            catalog_descriptors.append(catalog_descriptor)
+            public_descriptors[id(catalog_descriptor)] = descriptor
 
+    catalog = ComponentCatalog(descriptors=tuple(catalog_descriptors))
     index = {
-        name: tuple(descriptors)
-        for name, descriptors in sorted(descriptors_by_name.items())
+        name: tuple(public_descriptors[id(descriptor)] for descriptor in descriptors)
+        for name, descriptors in catalog.inventory.items()
     }
     return index, tuple(issues)
 
@@ -546,11 +547,13 @@ def resolve_tasks(
 
 def discover_tasks() -> TaskDiscoveryResult:
     """Discover built-in and plugin provider-aware tasks."""
+    from anvil.provider_loader import list_providers
+
     tasks: list[TaskDescriptor] = []
     task_keys: set[tuple[str, str, int]] = set()
-    issue_keys: set[tuple[str, str, str]] = set()
+    issue_keys: set[tuple[str, ComponentSource, str]] = set()
     issues: list[DiscoveryIssue] = []
-    for provider_name in ("aws", "azure", "gcp", "github"):
+    for provider_name in sorted({provider.name for provider in list_providers()}):
         index, provider_issues = _provider_task_discovery(provider_name)
         for name, descriptors in index.items():
             source_counts: dict[tuple[str, str], int] = defaultdict(int)

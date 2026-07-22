@@ -27,7 +27,7 @@ from anvil.execution_context import ExecutionContext
 from anvil.organization import OrganizationResolver
 from anvil.providers.aws import AwsProvider
 from anvil.providers.azure import AzureProvider
-from anvil.provider_loader import list_providers
+from anvil.provider_loader import load_provider
 from anvil.providers.base import (
     ExecutionTarget,
     Provider,
@@ -64,14 +64,7 @@ DEFAULT_AUTH_CHECK_MAX_WORKERS = 4
 
 
 def _load_provider(provider_name: str) -> Provider:
-    if provider_name == "aws":
-        return AwsProvider()
-
-    for descriptor in list_providers():
-        if descriptor.name == provider_name:
-            return descriptor.load()
-
-    raise ValueError(f"Unknown provider '{provider_name}'")
+    return load_provider(provider_name)
 
 
 @dataclass(slots=True)

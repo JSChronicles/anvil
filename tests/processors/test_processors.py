@@ -49,6 +49,42 @@ def test_validate_processors_rejects_duplicate_names():
         )
 
 
+def test_load_processor_rejects_duplicate_catalog_candidates(monkeypatch):
+    from anvil import processor_loader
+    from anvil._components import (
+        ComponentCatalog,
+        ComponentDescriptor,
+        ComponentOrigin,
+        ComponentSource,
+    )
+
+    descriptors = [
+        ComponentDescriptor(
+            name="shared",
+            source=ComponentSource(
+                origin=ComponentOrigin.STOCK, package="stock", label="stock"
+            ),
+            load=lambda: lambda **kwargs: None,
+        ),
+        ComponentDescriptor(
+            name="shared",
+            source=ComponentSource(
+                origin=ComponentOrigin.PLUGIN, package="plugin", label="plugin: example"
+            ),
+            load=lambda: lambda **kwargs: None,
+        ),
+    ]
+    monkeypatch.setattr(
+        processor_loader,
+        "_processor_catalog",
+        lambda: ComponentCatalog.build(descriptors),
+    )
+    processor_loader.load_processor_callable.cache_clear()
+
+    with pytest.raises(processor_loader.ProcessorConfigError, match="ambiguous"):
+        processor_loader.load_processor_callable("shared")
+
+
 def test_validate_processors_rejects_missing_contract_parameter():
     def run(*, context, output):
         return None

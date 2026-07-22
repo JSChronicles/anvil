@@ -7,12 +7,17 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
-from anvil._loader_utils import (
-    DiscoveryIssue,
-    discover_plugin_modules,
-    iter_stock_modules,
-    load_plugin_callable,
-    load_stock_callable,
+from importlib.metadata import EntryPoint, entry_points
+
+from anvil._components import (
+    ComponentCatalog,
+    ComponentKind,
+    ComponentOrigin,
+    ComponentResolver,
+    ComponentSource,
+    DiscoveryIssue as CatalogDiscoveryIssue,
+    PackageComponentSource,
+    source_from_entry_point,
 )
 from anvil.descriptors import ConfigBranch, TargetDescriptor
 from anvil.results import TargetResult
@@ -54,7 +59,7 @@ class ProcessorDiscoveryResult:
     """Discovered processors and non-fatal discovery issues."""
 
     processors: list[ProcessorDescriptor]
-    issues: list[DiscoveryIssue]
+    issues: list[CatalogDiscoveryIssue]
 
 
 @dataclass(frozen=True, slots=True)
@@ -264,24 +269,70 @@ def run_configured_post_processors(
         run_processors(specs=resolved_specs, context=context)
 
 
-def _load_core_processor(processor_name: str) -> Callable:
-    return load_stock_callable(
-        name=processor_name,
-        kind="processor",
-        package_name="anvil.processors",
-        error_type=ProcessorConfigError,
+def _load_processor_from_package(
+    package_name: str, processor_name: str, source: ComponentSource
+) -> Callable:
+    """Import and validate one selected processor module."""
+
+    import importlib
+
+    module_name = f"{package_name}.{processor_name}"
+    try:
+        module = importlib.import_module(module_name)
+    except Exception as error:
+        raise ProcessorConfigError(
+            f"Processor '{processor_name}' ({source}) failed during import: {error}"
+        ) from error
+    run = getattr(module, "run", None)
+    if not callable(run):
+        raise ProcessorConfigError(
+            f"Processor '{processor_name}' ({source}) must define callable run(...)"
+        )
+    return run
+
+
+def _public_processor_descriptor(descriptor) -> ProcessorDescriptor:
+    return ProcessorDescriptor(
+        name=descriptor.name, load=descriptor.load, source=str(descriptor.source)
     )
 
 
-def _load_plugin_processor(processor_name: str) -> Callable:
-    return load_plugin_callable(
-        name=processor_name,
-        kind="processor",
-        entry_point_group=PROCESSOR_ENTRY_POINT_GROUP,
-        error_type=ProcessorConfigError,
-        logger=__LOGGER__,
-        import_failure_log_label="processor plugin package",
-        import_issue_log_label=processor_name,
+@lru_cache(maxsize=16)
+def _processor_catalog_for_entry_points(
+    plugin_entry_points: tuple[EntryPoint, ...],
+) -> ComponentCatalog[Callable]:
+    descriptors = []
+    issues: list[CatalogDiscoveryIssue] = []
+    stock_source = ComponentSource(
+        origin=ComponentOrigin.STOCK, package="anvil.processors", label="stock"
+    )
+    stock_descriptors, stock_issues = PackageComponentSource(
+        kind=ComponentKind.PROCESSOR,
+        package_name="anvil.processors",
+        source=stock_source,
+        component_loader=_load_processor_from_package,
+    ).discover()
+    descriptors.extend(stock_descriptors)
+    issues.extend(stock_issues)
+
+    for entry_point in plugin_entry_points:
+        package_name = entry_point.value.split(":", maxsplit=1)[0]
+        source = source_from_entry_point(entry_point=entry_point, package=package_name)
+        plugin_descriptors, plugin_issues = PackageComponentSource(
+            kind=ComponentKind.PROCESSOR,
+            package_name=package_name,
+            source=source,
+            component_loader=_load_processor_from_package,
+        ).discover(issue_name=entry_point.name)
+        descriptors.extend(plugin_descriptors)
+        issues.extend(plugin_issues)
+
+    return ComponentCatalog.build(descriptors, issues)
+
+
+def _processor_catalog() -> ComponentCatalog[Callable]:
+    return _processor_catalog_for_entry_points(
+        tuple(entry_points(group=PROCESSOR_ENTRY_POINT_GROUP))
     )
 
 
@@ -293,39 +344,23 @@ def _load_plugin_processor(processor_name: str) -> Callable:
 @lru_cache(maxsize=128)
 def load_processor_callable(processor_name: str) -> Callable:
     """Resolve a processor run callable by name."""
-    try:
-        return _load_core_processor(processor_name)
-    except ProcessorConfigError:
-        return _load_plugin_processor(processor_name)
+    return ComponentResolver(
+        kind=ComponentKind.PROCESSOR,
+        catalog=_processor_catalog(),
+        error_type=ProcessorConfigError,
+    ).load(processor_name)
 
 
 def discover_processors() -> ProcessorDiscoveryResult:
     """Discover processors and report plugin packages that cannot be inspected."""
-    processors: list[ProcessorDescriptor] = []
-
-    for module in iter_stock_modules(
-        package_name="anvil.processors", load=_load_core_processor
-    ):
-        processors.append(
-            ProcessorDescriptor(
-                name=module.name, load=module.load, source=module.source
-            )
-        )
-
-    plugin_result = discover_plugin_modules(
-        entry_point_group=PROCESSOR_ENTRY_POINT_GROUP,
-        load=_load_plugin_processor,
-        logger=__LOGGER__,
-        skip_log_label="processor plugin",
+    catalog = _processor_catalog()
+    return ProcessorDiscoveryResult(
+        processors=[
+            _public_processor_descriptor(descriptor)
+            for descriptor in catalog.descriptors
+        ],
+        issues=list(catalog.issues),
     )
-    for module in plugin_result.modules:
-        processors.append(
-            ProcessorDescriptor(
-                name=module.name, load=module.load, source=module.source
-            )
-        )
-
-    return ProcessorDiscoveryResult(processors=processors, issues=plugin_result.issues)
 
 
 def list_processors() -> list[ProcessorDescriptor]:

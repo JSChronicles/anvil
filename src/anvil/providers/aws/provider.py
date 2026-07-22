@@ -188,11 +188,7 @@ class AwsProvider:
     def discover_region_statuses(self, *, session: Session) -> dict[str, str]:
         """Discover AWS region statuses using an existing session."""
 
-        # Compatibility shim: existing runner tests and callers patch
-        # OrganizationResolver.discover_region_statuses. The resolver method now
-        # delegates to AWS provider-owned region code, so keeping this call
-        # preserves the old patch point without duplicating region logic.
-        return OrganizationResolver.discover_region_statuses(session)
+        return self._region_service.discover_region_statuses(session=session)
 
     def resolve_regions(
         self,
@@ -456,7 +452,7 @@ def _execution_target_from_account(
     )
 
 
-def create_provider() -> AwsProvider:
+def create_provider_instance() -> AwsProvider:
     """Create the first-party AWS provider."""
 
     return AwsProvider()

@@ -1,13 +1,29 @@
+"""Lazy provider discovery and construction."""
+
 from __future__ import annotations
 
+import importlib
 from collections.abc import Callable
 from dataclasses import dataclass
+from functools import lru_cache
 from importlib.metadata import EntryPoint, entry_points
+from typing import cast
 
-from anvil._loader_utils import DiscoveryIssue, plugin_source
+from anvil._components import (
+    ComponentCatalog,
+    ComponentKind,
+    ComponentOrigin,
+    ComponentResolver,
+    ComponentSource,
+    DiscoveryIssue as CatalogDiscoveryIssue,
+    PackageComponentSource,
+    source_from_entry_point,
+)
 from anvil.providers.base import Provider, ProviderMetadata
 
-PROVIDER_ENTRY_POINT_GROUP = "anvil.providers"
+PROVIDER_PACKAGE_ENTRY_POINT_GROUP = "anvil.provider_packages"
+_STOCK_PROVIDER_PACKAGE = "anvil.providers"
+_RESERVED_PROVIDER_CHILDREN = frozenset({"base", "tasks"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,140 +39,148 @@ class ProviderDescriptor:
 
 @dataclass(frozen=True, slots=True)
 class ProviderDiscoveryResult:
-    """Discovered providers and non-fatal plugin discovery issues."""
+    """Discovered providers and non-fatal package discovery issues."""
 
     providers: list[ProviderDescriptor]
-    issues: list[DiscoveryIssue]
+    issues: list[CatalogDiscoveryIssue]
 
 
-def _load_aws_provider() -> Provider:
-    from anvil.providers.aws import create_provider
+def _load_provider_from_package(
+    package_name: str, provider_name: str, source: ComponentSource
+) -> Provider:
+    """Construct one selected provider using its package convention."""
 
-    return create_provider()
-
-
-def _load_azure_provider() -> Provider:
-    from anvil.providers.azure import create_provider
-
-    return create_provider()
-
-
-def _load_gcp_provider() -> Provider:
-    from anvil.providers.gcp import create_provider
-
-    return create_provider()
-
-
-def _load_github_provider() -> Provider:
-    from anvil.providers.github import create_provider
-
-    return create_provider()
-
-
-def _load_plugin_provider(entry_point: EntryPoint) -> Provider:
-    loaded = entry_point.load()
-    if hasattr(loaded, "create_provider"):
-        factory = loaded.create_provider
-    else:
-        factory = loaded
-
+    module_name = f"{package_name}.{provider_name}"
+    try:
+        package = importlib.import_module(module_name)
+    except Exception as error:
+        raise TypeError(
+            f"Provider '{provider_name}' ({source}) failed during import: {error}"
+        ) from error
+    factory = getattr(package, "create_provider_instance", None)
     if not callable(factory):
         raise TypeError(
-            f"provider entry point '{entry_point.name}' must expose create_provider()"
+            f"provider package '{module_name}' must expose create_provider_instance()"
         )
+    return _validate_provider_instance(
+        provider=factory(), provider_name=provider_name, source=source
+    )
 
-    provider = factory()
+
+def _validate_provider_instance(
+    *, provider: object, provider_name: str, source: ComponentSource | str
+) -> Provider:
     metadata = getattr(provider, "metadata", None)
     if not isinstance(metadata, ProviderMetadata):
         raise TypeError(
-            f"provider entry point '{entry_point.name}' returned provider without "
+            f"provider '{provider_name}' ({source}) returned provider without "
             "ProviderMetadata"
         )
-
-    return provider
-
-
-def _builtin_provider_descriptors() -> list[ProviderDescriptor]:
-    return [
-        ProviderDescriptor(
-            name="aws",
-            display_name="AWS",
-            description="Amazon Web Services provider",
-            load=_load_aws_provider,
-            source="stock",
-        ),
-        ProviderDescriptor(
-            name="azure",
-            display_name="Azure",
-            description="Microsoft Azure provider",
-            load=_load_azure_provider,
-            source="stock",
-        ),
-        ProviderDescriptor(
-            name="gcp",
-            display_name="GCP",
-            description="Google Cloud provider",
-            load=_load_gcp_provider,
-            source="stock",
-        ),
-        ProviderDescriptor(
-            name="github",
-            display_name="GitHub",
-            description="GitHub provider",
-            load=_load_github_provider,
-            source="stock",
-        ),
-    ]
-
-
-def _plugin_provider_descriptors() -> tuple[
-    list[ProviderDescriptor], list[DiscoveryIssue]
-]:
-    providers: list[ProviderDescriptor] = []
-    issues: list[DiscoveryIssue] = []
-
-    for entry_point in entry_points(group=PROVIDER_ENTRY_POINT_GROUP):
-        source = plugin_source(entry_point)
-        name = entry_point.name
-        providers.append(
-            ProviderDescriptor(
-                name=name,
-                display_name=name,
-                load=lambda ep=entry_point: _load_plugin_provider(ep),
-                source=source,
-            )
+    if metadata.name != provider_name:
+        raise TypeError(
+            f"provider package name '{provider_name}' does not match metadata name "
+            f"'{metadata.name}'"
         )
+    return cast(Provider, provider)
 
-    return providers, issues
+
+def _entry_point_source(entry_point: EntryPoint) -> ComponentSource:
+    package_name = entry_point.value.split(":", maxsplit=1)[0]
+    return source_from_entry_point(entry_point=entry_point, package=package_name)
 
 
-def discover_providers() -> ProviderDiscoveryResult:
-    """Discover first-party and plugin providers without loading providers."""
+@lru_cache(maxsize=16)
+def _provider_catalog_for_entry_points(
+    package_entry_points: tuple[EntryPoint, ...],
+) -> ComponentCatalog[Provider]:
+    descriptors = []
+    issues: list[CatalogDiscoveryIssue] = []
 
-    providers = {
-        descriptor.name: descriptor for descriptor in _builtin_provider_descriptors()
-    }
-    plugin_providers, issues = _plugin_provider_descriptors()
-    for descriptor in plugin_providers:
-        if descriptor.name in providers:
-            issues.append(
-                DiscoveryIssue(
-                    name=descriptor.name,
-                    source=descriptor.source,
+    stock_source = ComponentSource(
+        origin=ComponentOrigin.STOCK, package=_STOCK_PROVIDER_PACKAGE, label="stock"
+    )
+    stock_descriptors, stock_issues = PackageComponentSource(
+        kind=ComponentKind.PROVIDER,
+        package_name=_STOCK_PROVIDER_PACKAGE,
+        source=stock_source,
+        component_loader=_load_provider_from_package,
+        reserved_children=_RESERVED_PROVIDER_CHILDREN,
+    ).discover()
+    descriptors.extend(stock_descriptors)
+    issues.extend(stock_issues)
+
+    for entry_point in package_entry_points:
+        entry_point_value = getattr(entry_point, "value", None)
+        if not isinstance(entry_point_value, str):
+            continue
+        package_name = entry_point_value.split(":", maxsplit=1)[0]
+        source = _entry_point_source(entry_point)
+        package_descriptors, package_issues = PackageComponentSource(
+            kind=ComponentKind.PROVIDER,
+            package_name=package_name,
+            source=source,
+            component_loader=_load_provider_from_package,
+        ).discover(issue_name=entry_point.name)
+        descriptors.extend(package_descriptors)
+        issues.extend(package_issues)
+
+    catalog = ComponentCatalog.build(descriptors, issues)
+    duplicate_issues = list(catalog.issues)
+    for name, candidates in catalog.inventory.items():
+        if len(candidates) < 2:
+            continue
+        for candidate in candidates:
+            duplicate_issues.append(
+                CatalogDiscoveryIssue(
+                    name=name,
+                    source=candidate.source,
                     error="provider duplicates an existing provider name",
                 )
             )
-            continue
+    return ComponentCatalog.build(catalog.descriptors, duplicate_issues)
 
-        providers[descriptor.name] = descriptor
 
+def _provider_catalog() -> ComponentCatalog[Provider]:
+    return _provider_catalog_for_entry_points(
+        tuple(entry_points(group=PROVIDER_PACKAGE_ENTRY_POINT_GROUP)),
+    )
+
+
+def _display_name(name: str) -> str:
+    known_initialisms = {"aws": "AWS", "gcp": "GCP", "github": "GitHub"}
+    return known_initialisms.get(name, name.replace("_", " ").title())
+
+
+def _public_descriptor(descriptor) -> ProviderDescriptor:
+    return ProviderDescriptor(
+        name=descriptor.name,
+        display_name=_display_name(descriptor.name),
+        load=descriptor.load,
+        source=str(descriptor.source),
+    )
+
+
+def discover_providers() -> ProviderDiscoveryResult:
+    """Discover provider folders without constructing providers."""
+
+    catalog = _provider_catalog()
+    unique_descriptors = [candidates[0] for candidates in catalog.inventory.values()]
     return ProviderDiscoveryResult(
-        providers=sorted(providers.values(), key=lambda item: (item.source, item.name)),
-        issues=issues,
+        providers=[_public_descriptor(item) for item in unique_descriptors],
+        issues=list(catalog.issues),
     )
 
 
 def list_providers() -> list[ProviderDescriptor]:
-    """Return provider descriptors for CLI listing."""
+    """Return all provider candidates in deterministic source/name order."""
 
     return discover_providers().providers
+
+
+def load_provider(provider_name: str) -> Provider:
+    """Load a uniquely selected provider and return a fresh instance."""
+
+    resolver: ComponentResolver[Provider] = ComponentResolver(
+        kind=ComponentKind.PROVIDER, catalog=_provider_catalog(), error_type=ValueError
+    )
+    return resolver.load(provider_name)

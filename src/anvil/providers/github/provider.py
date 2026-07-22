@@ -1422,7 +1422,7 @@ class GithubProvider:
             )
 
 
-def create_provider() -> GithubProvider:
+def create_provider_instance() -> GithubProvider:
     """Create the first-party GitHub provider."""
 
     return GithubProvider()

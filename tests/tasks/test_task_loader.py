@@ -171,12 +171,9 @@ def test_resolve_tasks_reports_missing_task_usefully():
 
 
 def test_discover_tasks_does_not_load_provider_task_callables(monkeypatch):
-    import anvil._loader_utils as loader_utils
-
     def fail_load(task_name):
         raise AssertionError(f"task should not load during discovery: {task_name}")
 
-    monkeypatch.setattr(loader_utils, "entry_points", lambda *, group: [])
     monkeypatch.setattr("anvil.task_loader._load_package_task", fail_load)
 
     discover_tasks()

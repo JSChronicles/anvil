@@ -134,6 +134,35 @@ Task compatibility is determined by package location.
 - `anvil.providers.azure.tasks.<task>` is Azure-only.
 - `anvil.providers.gcp.tasks.<task>` is GCP-only.
 
+### Extension package discovery
+
+Tasks, processors, and providers are discovered from package folders. Adding a
+public module or provider folder to an already registered package does not
+require another entry-point declaration. Discovery records names and sources
+without importing child implementations; normal execution imports only the
+selected components. Duplicate names are rejected as ambiguous and report every
+conflicting source.
+
+Third-party distributions register their package roots in `pyproject.toml`:
+
+```toml
+[project.entry-points."anvil.providers.tasks"]
+universal-tasks = "company_anvil.tasks"
+
+[project.entry-points."anvil.providers.aws.tasks"]
+aws-tasks = "company_anvil.aws_tasks"
+
+[project.entry-points."anvil.processors"]
+processors = "company_anvil.processors"
+
+[project.entry-points."anvil.provider_packages"]
+providers = "company_anvil.providers"
+```
+
+Each task or processor filename is its component name. Each immediate child of
+a provider collection is a provider package and must expose
+`create_provider_instance()`.
+
 Example Azure task configuration:
 
 ```yaml

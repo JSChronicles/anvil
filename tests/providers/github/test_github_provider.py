@@ -12,7 +12,7 @@ import pytest
 from anvil.descriptors import ConfigBranch, TargetDescriptor
 from anvil.execution_context import ExecutionContext
 from anvil.providers.base import ExecutionTarget
-from anvil.providers.github import create_provider
+from anvil.providers.github import create_provider_instance
 from anvil.providers.github.provider import (
     CachedGitHubClient,
     DEFAULT_GITHUB_API_VERSION,
@@ -202,7 +202,7 @@ class FakeRepositoryOwner:
         ]
 
 
-class FakeLegacyOrganizationClient:
+class FakeOrganizationClient:
     def __init__(self, raw_client):
         self.raw_client = raw_client
 
@@ -253,7 +253,7 @@ def _install_fake_pygithub(monkeypatch) -> ModuleType:
 
 
 def test_github_provider_metadata_and_default_location():
-    provider = create_provider()
+    provider = create_provider_instance()
     target = _target()
 
     assert provider.metadata.name == "github"
@@ -290,7 +290,7 @@ def test_github_provider_rejects_profile_with_inline_auth():
 
 
 def test_github_provider_rejects_repository_include_without_owner():
-    provider = create_provider()
+    provider = create_provider_instance()
     target = _target(include=["example"])
 
     with pytest.raises(ValueError, match="owner/repo"):
@@ -298,7 +298,7 @@ def test_github_provider_rejects_repository_include_without_owner():
 
 
 def test_github_provider_rejects_organization_include_with_repo_path():
-    provider = create_provider()
+    provider = create_provider_instance()
     target = _target(mode="organizations", include=["octo-org/example"])
 
     with pytest.raises(ValueError, match="owner logins"):
@@ -354,7 +354,7 @@ def test_github_provider_uses_owner_targets_for_organization_code_search():
 
 
 def test_github_provider_resolves_repository_targets_offline():
-    provider = create_provider()
+    provider = create_provider_instance()
     target = _target(include=["octo-org/example", "octo-org/other"])
 
     plan = provider.resolve_execution_targets(
@@ -368,7 +368,7 @@ def test_github_provider_resolves_repository_targets_offline():
 
 
 def test_github_auth_check_resolves_inline_token_env(monkeypatch):
-    provider = create_provider()
+    provider = create_provider_instance()
     monkeypatch.setenv("GITHUB_TOKEN", "secret-token")
 
     result = provider.auth_check(_target())
@@ -378,7 +378,7 @@ def test_github_auth_check_resolves_inline_token_env(monkeypatch):
 
 
 def test_github_auth_check_reports_missing_token_env(monkeypatch):
-    provider = create_provider()
+    provider = create_provider_instance()
     monkeypatch.delenv("MISSING_GITHUB_TOKEN", raising=False)
 
     result = provider.auth_check(
@@ -391,7 +391,7 @@ def test_github_auth_check_reports_missing_token_env(monkeypatch):
 
 
 def test_github_auth_check_reports_missing_profile(tmp_path, monkeypatch):
-    provider = create_provider()
+    provider = create_provider_instance()
     config_path = tmp_path / "github-config.toml"
     config_path.write_text('[default]\ntoken_env = "GITHUB_TOKEN"\n', encoding="utf-8")
     monkeypatch.setenv(GITHUB_CONFIG_ENV, str(config_path))
@@ -1065,7 +1065,7 @@ def test_cached_github_client_reuses_repo_and_organization_objects(monkeypatch):
     )
 
     raw_client = FakeGithubClient.instances[0]
-    raw_client.get_organization = FakeLegacyOrganizationClient(
+    raw_client.get_organization = FakeOrganizationClient(
         raw_client
     ).get_organization
 

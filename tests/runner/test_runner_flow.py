@@ -1182,7 +1182,7 @@ def test_prepare_target_reuses_same_org_discovery_cache(monkeypatch):
         staticmethod(fake_discover_accounts),
     )
     monkeypatch.setattr(
-        "anvil.runner.OrganizationResolver.discover_region_statuses",
+        "anvil.providers.aws.provider.AwsRegionService.discover_region_statuses",
         staticmethod(fake_discover_regions),
     )
 
@@ -1288,7 +1288,7 @@ def test_run_multiple_targets_reuses_same_org_discovery_cache(monkeypatch):
         staticmethod(fake_discover_accounts),
     )
     monkeypatch.setattr(
-        "anvil.runner.OrganizationResolver.discover_region_statuses",
+        "anvil.providers.aws.provider.AwsRegionService.discover_region_statuses",
         staticmethod(fake_discover_regions),
     )
     monkeypatch.setattr(
@@ -1474,7 +1474,7 @@ def test_prepare_target_keeps_base_session_account_out_of_org_cache(monkeypatch)
         staticmethod(fake_discover_accounts),
     )
     monkeypatch.setattr(
-        "anvil.runner.OrganizationResolver.discover_region_statuses",
+        "anvil.providers.aws.provider.AwsRegionService.discover_region_statuses",
         staticmethod(fake_discover_regions),
     )
 
@@ -1555,7 +1555,7 @@ def test_prepare_target_uses_bootstrap_region_for_region_selector(monkeypatch):
         staticmethod(lambda session: {}),
     )
     monkeypatch.setattr(
-        "anvil.runner.OrganizationResolver.discover_region_statuses",
+        "anvil.providers.aws.provider.AwsRegionService.discover_region_statuses",
         staticmethod(lambda session: {"us-east-1": "ENABLED_BY_DEFAULT"}),
     )
 
@@ -1726,7 +1726,7 @@ def test_run_prepared_target_uses_cached_org_preflight(monkeypatch):
         ),
     )
     monkeypatch.setattr(
-        "anvil.organization.OrganizationResolver.discover_region_statuses",
+        "anvil.organization.AwsRegionService.discover_region_statuses",
         staticmethod(
             lambda session: (_ for _ in ()).throw(
                 AssertionError("execution should not rediscover region statuses")

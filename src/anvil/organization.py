@@ -161,13 +161,6 @@ class OrganizationResolver:
 
         return accounts
 
-    @staticmethod
-    def discover_region_statuses(session: boto3.Session) -> dict[str, str]:
-        """
-        Discover AWS region opt-in statuses available to this organization context.
-        """
-        return AwsRegionService().discover_region_statuses(session=session)
-
     def _filter_accounts(
         self, all_accounts: dict[str, dict[str, str]]
     ) -> dict[str, dict[str, str]]:
@@ -206,7 +199,9 @@ class OrganizationResolver:
         Resolve configured regions and selectors against discovered region statuses.
         """
         if region_statuses is None:
-            region_statuses = self.discover_region_statuses(session)
+            region_statuses = self._region_service.discover_region_statuses(
+                session=session
+            )
 
         return self._region_service.resolve_regions(
             target_name=self.descriptor.name,

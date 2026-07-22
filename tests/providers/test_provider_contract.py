@@ -2,24 +2,28 @@ from __future__ import annotations
 
 import pytest
 
-from anvil.providers.aws import create_provider as create_aws_provider
-from anvil.providers.azure import create_provider as create_azure_provider
+from anvil.providers.aws import create_provider_instance as create_aws_provider_instance
+from anvil.providers.azure import (
+    create_provider_instance as create_azure_provider_instance,
+)
 from anvil.providers.base import (
     ProviderMetadata,
     configured_or_default_regions,
     validate_provider_contract,
     validate_resolved_regions,
 )
-from anvil.providers.gcp import create_provider as create_gcp_provider
-from anvil.providers.github import create_provider as create_github_provider
+from anvil.providers.gcp import create_provider_instance as create_gcp_provider_instance
+from anvil.providers.github import (
+    create_provider_instance as create_github_provider_instance,
+)
 
 
 def test_first_party_providers_satisfy_provider_contract():
     providers = [
-        create_aws_provider(),
-        create_azure_provider(),
-        create_gcp_provider(),
-        create_github_provider(),
+        create_aws_provider_instance(),
+        create_azure_provider_instance(),
+        create_gcp_provider_instance(),
+        create_github_provider_instance(),
     ]
 
     for provider in providers:
@@ -39,10 +43,10 @@ def test_configured_or_default_regions_preserves_explicit_values():
 @pytest.mark.parametrize(
     ("provider", "expected"),
     [
-        (create_aws_provider(), ["us-east-1"]),
-        (create_azure_provider(), ["eastus"]),
-        (create_gcp_provider(), ["us-central1"]),
-        (create_github_provider(), ["global"]),
+        (create_aws_provider_instance(), ["us-east-1"]),
+        (create_azure_provider_instance(), ["eastus"]),
+        (create_gcp_provider_instance(), ["us-central1"]),
+        (create_github_provider_instance(), ["global"]),
     ],
 )
 def test_omitted_regions_resolve_from_provider_metadata(provider, expected):

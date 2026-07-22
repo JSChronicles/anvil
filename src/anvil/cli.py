@@ -22,7 +22,7 @@ from typing import Protocol
 
 import yaml
 
-from anvil._loader_utils import DiscoveryIssue
+from anvil._components import DiscoveryIssue as DiscoveryIssue
 from anvil.benchmark import BenchmarkRecorder
 from anvil.descriptors import ConfigBranch, LoadedConfig
 from anvil.processor_loader import (
@@ -103,6 +103,19 @@ class DetailDescriptor(ListableDescriptor, Protocol):
     """Descriptor fields needed for CLI detail output."""
 
     load: Callable[[], Callable]
+
+
+class DiscoveryIssueDescriptor(Protocol):
+    """Diagnostic fields shared by all component discovery issues."""
+
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def source(self) -> object: ...
+
+    @property
+    def error(self) -> str: ...
 
 
 def _load_targets_from_config_file(path: Path) -> LoadedConfig:
@@ -435,7 +448,7 @@ def _detail_text(*, descriptor: DetailDescriptor) -> str:
 
 
 def _select_detail_descriptor(
-    *, descriptors: list[DetailDescriptor], name: str, label: str
+    *, descriptors: Sequence[DetailDescriptor], name: str, label: str
 ) -> DetailDescriptor:
     matches = [descriptor for descriptor in descriptors if descriptor.name == name]
     if not matches:
@@ -457,7 +470,7 @@ def _select_detail_descriptor(
 
 
 def _print_single_detail(
-    *, descriptors: list[DetailDescriptor], name: str, label: str
+    *, descriptors: Sequence[DetailDescriptor], name: str, label: str
 ) -> None:
     descriptor = _select_detail_descriptor(
         descriptors=descriptors, name=name, label=label
@@ -494,7 +507,7 @@ def _cmd_list(args: argparse.Namespace) -> int:
     return 0
 
 
-def _discovery_issue_messages(issues: list[DiscoveryIssue]) -> list[str]:
+def _discovery_issue_messages(issues: Sequence[DiscoveryIssueDescriptor]) -> list[str]:
     return [f"{issue.name} ({issue.source}): {issue.error}" for issue in issues]
 
 
@@ -631,6 +644,12 @@ def _validate_selected_providers(provider_names: list[str] | None) -> None:
     providers = discovery.providers
 
     if provider_names:
+        requested_names = set(provider_names)
+        errors.extend(
+            _discovery_issue_messages(
+                [issue for issue in discovery.issues if issue.name in requested_names]
+            )
+        )
         try:
             providers = _select_provider_descriptors(
                 descriptors=discovery.providers, provider_names=provider_names

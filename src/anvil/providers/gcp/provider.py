@@ -113,13 +113,6 @@ class GcpSession:
     credentials: object
     quota_project_id: str | None = None
 
-    @property
-    def region_name(self) -> str:
-        """Compatibility alias used by existing task call signatures."""
-
-        return self.location
-
-
 class GcpSessionFactory:
     """Create GCP credentials lazily so provider validation has no SDK dependency."""
 
@@ -520,7 +513,7 @@ class GcpProvider:
         return option if isinstance(option, str) else None
 
 
-def create_provider() -> GcpProvider:
+def create_provider_instance() -> GcpProvider:
     """Create the first-party GCP provider."""
 
     return GcpProvider()

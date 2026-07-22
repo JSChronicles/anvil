@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import sys
 from pathlib import Path
 
 import pytest
@@ -334,6 +335,7 @@ def test_discover_processors_includes_real_plugin_entry_point(monkeypatch, tmp_p
     )
 
     assert descriptor.source == "plugin: anvil-test-processor-plugin"
+    assert "anvil_test_processor_plugin.real_plugin_processor" not in sys.modules
     assert descriptor.load()(
         context=None, output="report.md", metadata={"ok": True}
     ) == {"output": "report.md", "metadata": {"ok": True}}

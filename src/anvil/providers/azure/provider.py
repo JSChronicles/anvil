@@ -137,13 +137,6 @@ class AzureSession:
     location: str
     credential: object
 
-    @property
-    def region_name(self) -> str:
-        """Compatibility alias used by existing task call signatures."""
-
-        return self.location
-
-
 class AzureSessionFactory:
     """Create Azure credentials lazily so provider validation has no SDK dependency."""
 
@@ -802,7 +795,7 @@ class AzureProvider:
         return option if isinstance(option, str) else None
 
 
-def create_provider() -> AzureProvider:
+def create_provider_instance() -> AzureProvider:
     """Create the first-party Azure provider."""
 
     return AzureProvider()
