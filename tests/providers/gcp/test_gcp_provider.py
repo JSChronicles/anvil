@@ -100,7 +100,7 @@ def _target(**overrides) -> TargetDescriptor:
 
 def _context() -> ExecutionContext:
     return ExecutionContext(
-        regions=["us-central1"], role_name=None, dry_run=False, tasks=[], metadata={}
+        regions=["us-central1"], dry_run=False, tasks=[], metadata={}
     )
 
 
@@ -117,9 +117,14 @@ def test_gcp_provider_metadata_and_default_locations():
 
 def test_gcp_provider_rejects_organization_targets():
     provider = GcpProvider()
-    target = TargetDescriptor(config_branch=ConfigBranch.TARGETS, name="folder")
+    target = TargetDescriptor(
+        config_branch=ConfigBranch.TARGETS,
+        name="folder",
+        provider="gcp",
+        mode="folders",
+    )
 
-    with pytest.raises(ValueError, match="provider 'gcp'"):
+    with pytest.raises(ValueError, match="Unsupported GCP target mode"):
         provider.validate_target(target)
 
 
@@ -135,7 +140,6 @@ def test_gcp_resolves_explicit_project_targets_deterministically():
         exclude=None,
     )
 
-    assert plan.exclusive_execution_key is None
     assert [execution_target.id for execution_target in plan.execution_targets] == [
         "project-a",
         "project-b",

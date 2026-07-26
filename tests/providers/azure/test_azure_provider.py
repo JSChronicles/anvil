@@ -117,8 +117,8 @@ def _target(**overrides) -> TargetDescriptor:
     values = {
         "config_branch": ConfigBranch.TARGETS,
         "name": "azure-subscriptions",
-        "provider": "azure",
         "mode": "subscriptions",
+        "provider": "azure",
         "include": ["sub-a"],
     }
     values.update(overrides)
@@ -130,6 +130,8 @@ def _target(**overrides) -> TargetDescriptor:
 def _raw_target(**overrides):
     values = {
         "config_branch": ConfigBranch.TARGETS,
+        "name": "azure-subscriptions",
+        "mode": "subscriptions",
         "include": ["sub-a"],
         "exclude": None,
         "provider": "azure",
@@ -140,9 +142,7 @@ def _raw_target(**overrides):
 
 
 def _context() -> ExecutionContext:
-    return ExecutionContext(
-        regions=["eastus"], role_name=None, dry_run=False, tasks=[], metadata={}
-    )
+    return ExecutionContext(regions=["eastus"], dry_run=False, tasks=[], metadata={})
 
 
 def test_azure_provider_metadata_and_default_locations():
@@ -158,15 +158,20 @@ def test_azure_provider_metadata_and_default_locations():
 
 def test_azure_provider_rejects_organization_targets():
     provider = AzureProvider()
-    target = TargetDescriptor(config_branch=ConfigBranch.TARGETS, name="mgmt")
+    target = TargetDescriptor(
+        config_branch=ConfigBranch.TARGETS,
+        name="mgmt",
+        provider="azure",
+        mode="organization",
+    )
 
-    with pytest.raises(ValueError, match="provider 'azure'"):
+    with pytest.raises(ValueError, match="Unsupported Azure target mode"):
         provider.validate_target(target)
 
 
 def test_azure_provider_rejects_tenant_id_without_client_secret():
     provider = AzureProvider()
-    target = _raw_target(provider_options={"tenant_id": "tenant-a"})
+    target = _target(provider_options={"tenant_id": "tenant-a"})
 
     with pytest.raises(ValueError, match="tenant_id.*client_secret"):
         provider.validate_target(target)
@@ -174,7 +179,7 @@ def test_azure_provider_rejects_tenant_id_without_client_secret():
 
 def test_azure_provider_rejects_client_secret_without_tenant_and_client_id():
     provider = AzureProvider()
-    target = _raw_target(provider_options={"client_secret": "secret-a"})
+    target = _target(provider_options={"client_secret": "secret-a"})
 
     with pytest.raises(ValueError, match="client_secret.*tenant_id.*client_id"):
         provider.validate_target(target)
@@ -197,7 +202,6 @@ def test_azure_resolves_explicit_subscription_targets_deterministically():
         exclude=None,
     )
 
-    assert plan.exclusive_execution_key is None
     assert [execution_target.id for execution_target in plan.execution_targets] == [
         "sub-a",
         "sub-b",
@@ -224,11 +228,16 @@ def test_azure_subscription_targets_exclude_each_selected_subscription():
     provider = AzureProvider(session_factory=FakeSessionFactory())
     target = _target(include=["sub-a", "sub-b"])
 
-    keys = provider.execution_exclusion_keys(
-        target=target, include=["sub-b", "sub-c"], exclude=None
+    result = provider.prepare_target(
+        target=target,
+        context=_context(),
+        include=["sub-b", "sub-c"],
+        exclude=None,
+        cache=SimpleNamespace(),
+        benchmark=None,
     )
 
-    assert keys == (
+    assert result.exclusive_execution_keys == (
         ("azure", "subscription", "sub-b"),
         ("azure", "subscription", "sub-c"),
     )
@@ -246,8 +255,13 @@ def test_azure_tenant_preflight_discovers_selected_subscriptions_for_exclusion()
         },
     )
 
-    result = provider.preflight_execution(
-        target=target, regions=["eastus"], include=target.include, exclude=None
+    result = provider.prepare_target(
+        target=target,
+        context=_context(),
+        include=target.include,
+        exclude=None,
+        cache=SimpleNamespace(),
+        benchmark=None,
     )
 
     assert result.data is not None
@@ -261,8 +275,13 @@ def test_azure_tenant_preflight_without_tenant_id_uses_default_credential_discov
     provider = AzureProvider(session_factory=FakeSessionFactory())
     target = _target(mode="tenant", include=["sub-a"])
 
-    result = provider.preflight_execution(
-        target=target, regions=["eastus"], include=target.include, exclude=None
+    result = provider.prepare_target(
+        target=target,
+        context=_context(),
+        include=target.include,
+        exclude=None,
+        cache=SimpleNamespace(),
+        benchmark=None,
     )
 
     assert result.data is not None
@@ -283,11 +302,14 @@ def test_azure_preflight_records_location_validation_benchmark_data():
     target = _target(mode="tenant", include=["sub-a"])
     benchmark: dict[str, object] = {}
 
-    result = provider.preflight_execution(
+    result = provider.prepare_target(
         target=target,
-        regions=["eastus", "westus2"],
+        context=ExecutionContext(
+            regions=["eastus", "westus2"], dry_run=False, tasks=[], metadata={}
+        ),
         include=target.include,
         exclude=None,
+        cache=SimpleNamespace(),
         benchmark=benchmark,
     )
 
@@ -423,8 +445,13 @@ def test_azure_resolve_execution_targets_reuses_preflight_subscriptions():
     )
     provider = AzureProvider(session_factory=session_factory)
     target = _target(include=None)
-    preflight = provider.preflight_execution(
-        target=target, regions=["eastus"], include=["sub-b"], exclude=None
+    preflight = provider.prepare_target(
+        target=target,
+        context=_context(),
+        include=["sub-b"],
+        exclude=None,
+        cache=SimpleNamespace(),
+        benchmark=None,
     )
 
     plan = provider.resolve_execution_targets(
@@ -432,7 +459,7 @@ def test_azure_resolve_execution_targets_reuses_preflight_subscriptions():
         regions=["eastus"],
         include=["sub-b"],
         exclude=None,
-        preflight_data=preflight.data,
+        preparation=preflight.data,
     )
 
     assert [execution_target.id for execution_target in plan.execution_targets] == [

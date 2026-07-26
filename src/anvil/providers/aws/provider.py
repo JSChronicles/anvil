@@ -1,30 +1,42 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass, replace
-from typing import Protocol
 
 from boto3.session import Session
 
-from anvil.account import Account, AccountAccessStrategy, _AssumedCredentialState
-from anvil.account_resolver import AccountResolver
-from anvil.auth import auth_check, infer_auth_source
 from anvil.benchmark import BenchmarkRecorder
 from anvil.descriptors import ConfigBranch, TargetDescriptor
 from anvil.execution_context import ExecutionContext
-from anvil.organization import OrganizationResolver
+from anvil.providers.aws.account import (
+    Account,
+    AccountAccessStrategy,
+    _AssumedCredentialState,
+)
+from anvil.providers.aws.account_resolver import AccountResolver
+from anvil.providers.aws.auth import auth_check, infer_auth_source
+from anvil.providers.aws.config import aws_option
+from anvil.providers.aws.organization import OrganizationResolver
 from anvil.providers.base import (
     ExecutionTarget,
     ProviderAuthResult,
     ProviderExecutionPlan,
+    ProviderPreparation,
+    ProviderPreparationCache,
     ProviderExecutionRuntime,
     ProviderMetadata,
     ProviderRegion,
+    narrow_include,
+    validate_region_selectors,
+    validate_string_options,
 )
 from anvil.providers.aws.regions import AwsRegionService
-from anvil.session import CachedClientSession, SessionFactory
+from anvil.providers.aws.session import CachedClientSession, SessionFactory
 
 DEFAULT_REGIONS = ("us-east-1",)
+MODE_ORGANIZATION = "organization"
+MODE_ACCOUNTS = "accounts"
+SUPPORTED_MODES = frozenset({MODE_ORGANIZATION, MODE_ACCOUNTS})
+SUPPORTED_OPTIONS = frozenset({"profile", "role_name"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,6 +47,7 @@ class AwsExecutionTargetData:
     account_alias: str
     is_management: bool
     access_strategy: AccountAccessStrategy
+    role_name: str | None
     base_session: Session
     regions: list[str]
     session_factory: SessionFactory
@@ -60,31 +73,6 @@ class AwsPreflightData:
     base_session_account_id: str
     discovered_accounts: dict[str, dict[str, str]]
     region_statuses: dict[str, str]
-
-
-@dataclass(frozen=True, slots=True)
-class AwsPreflightResult:
-    """AWS preflight result plus scheduler admission metadata."""
-
-    data: AwsPreflightData
-    exclusive_execution_key: str
-
-
-@dataclass(frozen=True, slots=True)
-class _AwsOrganizationCacheLookup:
-    entry: object
-    hit: bool
-    waited: bool
-
-
-class _AwsOrganizationCache(Protocol):
-    def get_or_discover(
-        self,
-        *,
-        organization_id: str,
-        discover: Callable[[], AwsOrganizationPreflightCacheEntry],
-    ) -> _AwsOrganizationCacheLookup:
-        """Return cached or newly discovered organization data."""
 
 
 class AwsExecutionRuntime:
@@ -177,6 +165,55 @@ class AwsProvider:
             raise ValueError(f"Unsupported AWS target branch: {target.config_branch}")
         if target.provider != self.metadata.name:
             raise ValueError("AWS provider supports provider 'aws' targets only")
+        if target.mode not in SUPPORTED_MODES:
+            raise ValueError(f"Unsupported AWS target mode: {target.mode}")
+        validate_string_options(target=target, allowed_options=SUPPORTED_OPTIONS)
+        validate_region_selectors(
+            target=target, selectors_allowed=target.mode == MODE_ORGANIZATION
+        )
+        if target.include is not None and target.exclude is not None:
+            raise ValueError("AWS include and exclude filters are mutually exclusive")
+        for account_id in [*(target.include or []), *(target.exclude or [])]:
+            if len(account_id) != 12 or not account_id.isdigit():
+                raise ValueError(f"Invalid AWS account ID: {account_id}")
+        if target.mode == MODE_ACCOUNTS:
+            if not target.include:
+                raise ValueError("AWS mode 'accounts' requires include")
+            if target.exclude is not None:
+                raise ValueError("AWS mode 'accounts' does not allow exclude")
+            if aws_option(target, "role_name") is None and len(target.include) != 1:
+                raise ValueError(
+                    "AWS accounts targets without role_name must include exactly "
+                    "one account ID"
+                )
+
+    def resolve_target_filters(
+        self,
+        *,
+        target: TargetDescriptor,
+        include_override: list[str] | None,
+        exclude_override: list[str] | None,
+    ) -> tuple[list[str] | None, list[str] | None]:
+        """Apply discovery overrides or narrow explicit AWS account targets."""
+
+        if target.mode == MODE_ORGANIZATION:
+            include = (
+                include_override if include_override is not None else target.include
+            )
+            exclude = (
+                exclude_override if exclude_override is not None else target.exclude
+            )
+        else:
+            if exclude_override is not None:
+                raise ValueError("AWS mode 'accounts' does not allow --exclude")
+            include = narrow_include(
+                configured=target.include, override=include_override
+            )
+            exclude = None
+
+        effective_target = replace(target, include=include, exclude=exclude)
+        self.validate_target(effective_target)
+        return include, exclude
 
     def bootstrap_region(self, *, configured_regions: list[str]) -> str:
         """Return the concrete AWS region used for discovery calls."""
@@ -208,15 +245,18 @@ class AwsProvider:
     def auth_cache_key(self, target: TargetDescriptor) -> object | None:
         """Return the same auth cache identity used by the current runner."""
 
-        auth_source = infer_auth_source(target.profile)
-        return (self.metadata.name, target.profile, auth_source.value)
+        profile = aws_option(target, "profile")
+        auth_source = infer_auth_source(profile)
+        return (self.metadata.name, profile, auth_source.value)
 
     def auth_check(self, target: TargetDescriptor) -> ProviderAuthResult:
         """Run the existing AWS auth check and adapt its result."""
 
-        auth_source = infer_auth_source(target.profile)
+        self.validate_target(target)
+        profile = aws_option(target, "profile")
+        auth_source = infer_auth_source(profile)
         result = auth_check(
-            target_name=target.name, profile=target.profile, auth_source=auth_source
+            target_name=target.name, profile=profile, auth_source=auth_source
         )
         return ProviderAuthResult(
             status=result.status,
@@ -231,7 +271,7 @@ class AwsProvider:
         self.validate_target(target)
         session_factory = SessionFactory()
         base_session = session_factory.create_base_session(
-            profile_name=target.profile,
+            profile_name=aws_option(target, "profile"),
             region_name=self.bootstrap_region(
                 configured_regions=target.regions or list(self.metadata.default_regions)
             ),
@@ -248,17 +288,19 @@ class AwsProvider:
         regions: list[str],
         include: list[str] | None,
         exclude: list[str] | None,
-        preflight_data: AwsPreflightData | None = None,
+        preparation: object | None = None,
         organization_resolver_cls: type[OrganizationResolver] = OrganizationResolver,
         account_resolver_cls: type[AccountResolver] = AccountResolver,
     ) -> ProviderExecutionPlan:
         """Resolve existing AWS account objects into provider-neutral targets."""
 
         self.validate_target(target)
+        if preparation is not None and not isinstance(preparation, AwsPreflightData):
+            raise TypeError("AWS preparation must be AwsPreflightData")
+        preflight_data = preparation
         effective_target = replace(target, include=include, exclude=exclude)
         context = ExecutionContext(
             regions=regions,
-            role_name=effective_target.role_name,
             dry_run=effective_target.dry_run,
             tasks=[],
             metadata=effective_target.metadata,
@@ -269,7 +311,7 @@ class AwsProvider:
             preflight_data.session_factory if preflight_data else SessionFactory()
         )
 
-        if effective_target.is_organization_config:
+        if effective_target.mode == MODE_ORGANIZATION:
             resolver = organization_resolver_cls(
                 descriptor=effective_target,
                 context=context,
@@ -288,17 +330,12 @@ class AwsProvider:
                     preflight_data.region_statuses if preflight_data else None
                 ),
             )
-            exclusive_execution_key = (
-                preflight_data.organization_id if preflight_data else None
-            )
         else:
             resolver = account_resolver_cls(
                 descriptor=effective_target,
                 context=context,
                 session_factory=resolved_session_factory,
             )
-            exclusive_execution_key = None
-
         accounts = resolver.resolve_accounts()
         execution_targets = [
             _execution_target_from_account(
@@ -307,31 +344,30 @@ class AwsProvider:
             for account in accounts
         ]
 
-        return ProviderExecutionPlan(
-            execution_targets=execution_targets,
-            exclusive_execution_key=exclusive_execution_key,
-        )
+        return ProviderExecutionPlan(execution_targets=execution_targets)
 
-    def preflight_execution(
+    def prepare_target(
         self,
         *,
         target: TargetDescriptor,
         context: ExecutionContext,
-        session_factory: SessionFactory,
-        organization_cache: _AwsOrganizationCache,
-        benchmark: dict[str, object] | None = None,
+        include: list[str] | None,
+        exclude: list[str] | None,
+        cache: ProviderPreparationCache,
+        benchmark: dict[str, object] | None,
         organization_resolver_cls: type[OrganizationResolver] = OrganizationResolver,
-    ) -> AwsPreflightResult:
+    ) -> ProviderPreparation:
         """Discover AWS organization execution data before target execution."""
 
         self.validate_target(target)
-        if not target.is_organization_config:
-            raise ValueError("AWS preflight requires organization mode")
+        if target.mode != MODE_ORGANIZATION:
+            return ProviderPreparation()
 
         sink = BenchmarkRecorder(data=benchmark)
+        session_factory = SessionFactory()
         with sink.phase("create_base_session_seconds"):
             base_session = session_factory.create_base_session(
-                profile_name=target.profile,
+                profile_name=aws_option(target, "profile"),
                 region_name=self.bootstrap_region(configured_regions=context.regions),
             )
 
@@ -360,26 +396,27 @@ class AwsProvider:
                 region_statuses=region_statuses,
             )
 
-        lookup = organization_cache.get_or_discover(
-            organization_id=organization_id, discover=discover_organization
+        cached_entry, cache_hit, cache_waited = cache.get_or_create(
+            key=(self.metadata.name, "organization", organization_id),
+            create=discover_organization,
         )
-        if not isinstance(lookup.entry, AwsOrganizationPreflightCacheEntry):
+        if not isinstance(cached_entry, AwsOrganizationPreflightCacheEntry):
             raise RuntimeError("AWS organization cache returned unexpected value")
 
-        sink.set("organization_cache_hit", lookup.hit)
-        sink.set("organization_cache_waited", lookup.waited)
+        sink.set("organization_cache_hit", cache_hit)
+        sink.set("organization_cache_waited", cache_waited)
 
         preflight_data = AwsPreflightData(
             session_factory=session_factory,
             base_session=base_session,
             organization_id=organization_id,
-            management_account_id=lookup.entry.management_account_id,
+            management_account_id=cached_entry.management_account_id,
             base_session_account_id=base_session_account_id,
-            discovered_accounts=lookup.entry.discovered_accounts,
-            region_statuses=lookup.entry.region_statuses,
+            discovered_accounts=cached_entry.discovered_accounts,
+            region_statuses=cached_entry.region_statuses,
         )
-        return AwsPreflightResult(
-            data=preflight_data, exclusive_execution_key=organization_id
+        return ProviderPreparation(
+            data=preflight_data, exclusive_execution_keys=(organization_id,)
         )
 
     def prepare_execution_runtime(
@@ -420,6 +457,7 @@ class AwsProvider:
             account_alias=data.account_alias,
             is_management=data.is_management,
             access_strategy=data.access_strategy,
+            role_name=data.role_name,
             base_session=data.base_session,
             context=context,
             regions=list(data.regions),
@@ -435,6 +473,7 @@ def _execution_target_from_account(
         account_alias=account.account_alias,
         is_management=account.is_management,
         access_strategy=account.access_strategy,
+        role_name=account.role_name,
         base_session=account._base_session,
         regions=list(account._regions),
         session_factory=account._session_factory,
@@ -444,6 +483,7 @@ def _execution_target_from_account(
         name=account.account_alias,
         type="account",
         provider=provider_name,
+        regions=list(account._regions),
         metadata={
             "account_id": account.account_id,
             "account_alias": account.account_alias,

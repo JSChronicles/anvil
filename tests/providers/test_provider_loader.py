@@ -14,14 +14,11 @@ def test_list_providers_returns_aws_without_loading_provider(monkeypatch):
 
     providers = provider_loader.list_providers()
 
-    assert [
-        (provider.name, provider.display_name, provider.source)
-        for provider in providers
-    ] == [
-        ("aws", "AWS", "stock"),
-        ("azure", "Azure", "stock"),
-        ("gcp", "GCP", "stock"),
-        ("github", "GitHub", "stock"),
+    assert [(provider.name, str(provider.source)) for provider in providers] == [
+        ("aws", "stock"),
+        ("azure", "stock"),
+        ("gcp", "stock"),
+        ("github", "stock"),
     ]
 
 
@@ -66,7 +63,20 @@ def test_provider_package_entry_point_discovers_child_folders(
         (
             "from anvil.providers.base import ProviderMetadata\n"
             "class CustomProvider:\n"
-            "    metadata = ProviderMetadata(name='custom', display_name='Custom')\n"
+            "    metadata = ProviderMetadata(name='custom', display_name='Custom', "
+            "supported_task_scopes=frozenset())\n"
+            "    def validate_target(self, target): pass\n"
+            "    def resolve_target_filters(self, *, target, include_override, "
+            "exclude_override): return target.include, target.exclude\n"
+            "    def auth_cache_key(self, target): return None\n"
+            "    def auth_check(self, target): pass\n"
+            "    def discover_regions(self, target): return []\n"
+            "    def prepare_target(self, *, target, context, include, exclude, cache, "
+            "benchmark): pass\n"
+            "    def resolve_execution_targets(self, *, target, regions, include, "
+            "exclude, preparation=None): pass\n"
+            "    def prepare_execution_runtime(self, *, target, execution_target, "
+            "context): pass\n"
             "def create_provider_instance():\n"
             "    return CustomProvider()\n"
         ),
@@ -100,7 +110,7 @@ def test_provider_package_entry_point_discovers_child_folders(
         if item.name == "custom"
     )
 
-    assert descriptor.source == "plugin: company-anvil"
+    assert str(descriptor.source) == "plugin: company-anvil"
     assert "company_providers.custom" not in sys.modules
 
     first_provider = provider_loader.load_provider("custom")

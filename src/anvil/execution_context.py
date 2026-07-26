@@ -13,7 +13,6 @@ class ExecutionContext:
     """
 
     regions: list[str]
-    role_name: str | None
     dry_run: bool
     tasks: list[ResolvedTask]
     metadata: dict[str, object]

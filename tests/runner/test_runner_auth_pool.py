@@ -1,405 +1,273 @@
 from __future__ import annotations
 
-import importlib
 import threading
 import time
 from types import SimpleNamespace
 
+import pytest
 
-def _org_target(descriptors, *, name: str, profile: str):
-    return descriptors.TargetDescriptor(
-        config_branch=descriptors.ConfigBranch.TARGETS, name=name, profile=profile
+from anvil.descriptors import ConfigBranch, TargetDescriptor
+from anvil.execution_context import ExecutionContext
+from anvil.providers.base import ProviderAuthResult, ProviderMetadata
+from anvil.results import AuthResult, EngineState, ExecutionStatus, TargetResult
+from anvil.runner import (
+    PreparedTarget,
+    TargetExecutionOutcome,
+    run_auth_checks,
+    run_multiple_targets,
+)
+
+
+def _target(*, name: str, profile: str, mode: str = "organization") -> TargetDescriptor:
+    return TargetDescriptor(
+        config_branch=ConfigBranch.TARGETS,
+        name=name,
+        provider="test",
+        mode=mode,
+        provider_options={"profile": profile},
+        include=["target-a"] if mode == "accounts" else None,
+        tasks=[],
     )
 
 
-def _accounts_target(descriptors, *, name: str, profile: str, include: list[str]):
-    return descriptors.TargetDescriptor(
-        config_branch=descriptors.ConfigBranch.TARGETS,
-        name=name,
-        profile=profile,
-        include=include,
-        role_name="TestRole",
+class _AuthProvider:
+    metadata = ProviderMetadata(
+        name="test",
+        display_name="Test",
+        supported_task_scopes=frozenset({"region"}),
+        default_regions=("global",),
+    )
+
+    def __init__(self, check) -> None:
+        self._check = check
+
+    def validate_target(self, target) -> None:
+        return None
+
+    def resolve_target_filters(self, *, target, include_override, exclude_override):
+        return target.include, target.exclude
+
+    def auth_cache_key(self, target):
+        return ("test", target.provider_options["profile"])
+
+    def auth_check(self, target):
+        return self._check(target)
+
+
+def _patch_provider(monkeypatch, check) -> None:
+    provider = _AuthProvider(check)
+    monkeypatch.setattr("anvil.runner._load_provider", lambda provider_name: provider)
+
+
+def _success_auth(target: TargetDescriptor) -> ProviderAuthResult:
+    return ProviderAuthResult(status=ExecutionStatus.SUCCESS, source="test")
+
+
+def _prepared(
+    *,
+    index: int,
+    target: TargetDescriptor,
+    exclusive_execution_keys: tuple[object, ...] = (),
+) -> PreparedTarget:
+    return PreparedTarget(
+        index=index,
+        provider=SimpleNamespace(),
+        effective_target=target,
+        auth_result=AuthResult(
+            target_name=target.name,
+            status=ExecutionStatus.SUCCESS,
+            source="test",
+            started_at="start",
+            ended_at="end",
+            duration_seconds=0.0,
+        ),
+        context=ExecutionContext(
+            regions=["global"], dry_run=False, tasks=[], metadata={}
+        ),
+        exclusive_execution_keys=exclusive_execution_keys,
+    )
+
+
+def _outcome(prepared_target: PreparedTarget) -> TargetExecutionOutcome:
+    target = prepared_target.effective_target
+    return TargetExecutionOutcome(
+        index=prepared_target.index,
+        target_result=TargetResult.create(
+            config_branch=target.config_branch,
+            target_name=target.name,
+            provider=target.provider,
+            dry_run=False,
+            entities=[],
+        ),
+        cancelled=False,
     )
 
 
 def test_run_auth_checks_uses_parallel_pool_and_preserves_input_order(monkeypatch):
-    runner = importlib.import_module("anvil.runner")
-    descriptors = importlib.import_module("anvil.descriptors")
-    results = importlib.import_module("anvil.results")
-
-    started_count = 0
-    max_in_flight = 0
-    completed_order: list[str] = []
+    targets = [
+        _target(name="target-a", profile="a"),
+        _target(name="target-b", profile="b"),
+        _target(name="target-c", profile="c"),
+    ]
+    active = 0
+    max_active = 0
     lock = threading.Lock()
-    release_event = threading.Event()
+    release = threading.Event()
 
-    targets = [
-        _org_target(descriptors, name="org-a", profile="a"),
-        _org_target(descriptors, name="org-b", profile="b"),
-        _org_target(descriptors, name="org-c", profile="c"),
-    ]
-
-    monkeypatch.setattr(
-        runner,
-        "infer_auth_source",
-        lambda profile: SimpleNamespace(value=f"source-{profile}"),
-    )
-
-    def fake_auth_check(*, target_name: str, profile: str | None, auth_source):
-        nonlocal started_count, max_in_flight
-
+    def check(target):
+        nonlocal active, max_active
         with lock:
-            started_count += 1
-            max_in_flight = max(max_in_flight, started_count)
-            if started_count == len(targets):
-                release_event.set()
-
-        assert release_event.wait(timeout=1.0)
-
-        time.sleep({"org-a": 0.03, "org-b": 0.0, "org-c": 0.01}[target_name])
-
+            active += 1
+            max_active = max(max_active, active)
+            if active == len(targets):
+                release.set()
+        assert release.wait(timeout=1.0)
+        time.sleep({"target-a": 0.03, "target-b": 0.0, "target-c": 0.01}[target.name])
         with lock:
-            completed_order.append(target_name)
-            started_count -= 1
+            active -= 1
+        return _success_auth(target)
 
-        return results.AuthResult(
-            target_name=target_name,
-            status=results.ExecutionStatus.SUCCESS,
-            source=auth_source.value,
-            started_at="start",
-            ended_at="end",
-            duration_seconds=0.0,
-            message="ok",
-        )
+    _patch_provider(monkeypatch, check)
+    result = run_auth_checks(targets=targets)
 
-    monkeypatch.setattr(runner, "auth_check", fake_auth_check)
-
-    engine_result = runner.run_auth_checks(targets=targets)
-
-    assert max_in_flight > 1
-    assert completed_order != ["org-a", "org-b", "org-c"]
-    assert [result.target_name for result in engine_result.auth_results] == [
-        "org-a",
-        "org-b",
-        "org-c",
+    assert max_active > 1
+    assert [item.target_name for item in result.auth_results] == [
+        "target-a",
+        "target-b",
+        "target-c",
     ]
-    assert engine_result.state is results.EngineState.COMPLETED_SUCCESS
+    assert result.state is EngineState.COMPLETED_SUCCESS
 
 
-def test_run_auth_checks_handles_mixed_success_and_failure_in_input_order(monkeypatch):
-    runner = importlib.import_module("anvil.runner")
-    descriptors = importlib.import_module("anvil.descriptors")
-    results = importlib.import_module("anvil.results")
-
+def test_run_auth_checks_preserves_mixed_results_in_input_order(monkeypatch):
     targets = [
-        _org_target(descriptors, name="org-a", profile="a"),
-        _org_target(descriptors, name="org-b", profile="b"),
-        _org_target(descriptors, name="org-c", profile="c"),
+        _target(name="target-a", profile="a"),
+        _target(name="target-b", profile="b"),
+        _target(name="target-c", profile="c"),
     ]
 
-    monkeypatch.setattr(
-        runner,
-        "infer_auth_source",
-        lambda profile: SimpleNamespace(value=f"source-{profile}"),
-    )
-
-    delays = {"org-a": 0.10, "org-b": 0.01, "org-c": 0.05}
-    statuses = {
-        "org-a": results.ExecutionStatus.SUCCESS,
-        "org-b": results.ExecutionStatus.ERROR,
-        "org-c": results.ExecutionStatus.SUCCESS,
-    }
-
-    def fake_auth_check(*, target_name: str, profile: str | None, auth_source):
-        time.sleep(delays[target_name])
-        return results.AuthResult(
-            target_name=target_name,
-            status=statuses[target_name],
-            source=auth_source.value,
-            started_at="start",
-            ended_at="end",
-            duration_seconds=delays[target_name],
-            message="ok" if statuses[target_name].is_success else "bad",
+    def check(target):
+        status = (
+            ExecutionStatus.ERROR
+            if target.name == "target-b"
+            else ExecutionStatus.SUCCESS
         )
+        return ProviderAuthResult(status=status, source="test", message=target.name)
 
-    monkeypatch.setattr(runner, "auth_check", fake_auth_check)
+    _patch_provider(monkeypatch, check)
+    result = run_auth_checks(targets=targets)
 
-    engine_result = runner.run_auth_checks(targets=targets)
-
-    assert [result.target_name for result in engine_result.auth_results] == [
-        "org-a",
-        "org-b",
-        "org-c",
+    assert [item.status for item in result.auth_results] == [
+        ExecutionStatus.SUCCESS,
+        ExecutionStatus.ERROR,
+        ExecutionStatus.SUCCESS,
     ]
-    assert [result.status for result in engine_result.auth_results] == [
-        results.ExecutionStatus.SUCCESS,
-        results.ExecutionStatus.ERROR,
-        results.ExecutionStatus.SUCCESS,
-    ]
-    assert engine_result.state is results.EngineState.AUTH_FAILED
+    assert result.state is EngineState.AUTH_FAILED
 
 
-def test_run_auth_checks_reuses_same_profile_auth_result(monkeypatch):
-    runner = importlib.import_module("anvil.runner")
-    descriptors = importlib.import_module("anvil.descriptors")
-    results = importlib.import_module("anvil.results")
-
+@pytest.mark.parametrize("status", [ExecutionStatus.SUCCESS, ExecutionStatus.ERROR])
+def test_run_auth_checks_reuses_same_provider_cache_key(monkeypatch, status):
     targets = [
-        _org_target(descriptors, name="org-a", profile="shared"),
-        _org_target(descriptors, name="org-b", profile="shared"),
-        _org_target(descriptors, name="org-c", profile="shared"),
+        _target(name="target-a", profile="shared"),
+        _target(name="target-b", profile="shared"),
+        _target(name="target-c", profile="shared"),
     ]
-    auth_check_calls: list[str] = []
+    calls: list[str] = []
 
-    monkeypatch.setattr(
-        runner, "infer_auth_source", lambda profile: runner.AuthSource.PROFILE_STATIC
-    )
+    def check(target):
+        calls.append(target.name)
+        return ProviderAuthResult(status=status, source="test", message="cached")
 
-    def fake_auth_check(*, target_name: str, profile: str | None, auth_source):
-        auth_check_calls.append(target_name)
-        return results.AuthResult(
-            target_name=target_name,
-            status=results.ExecutionStatus.SUCCESS,
-            source=auth_source.value,
-            started_at="start",
-            ended_at="end",
-            duration_seconds=1.0,
-            message="ok",
-        )
+    _patch_provider(monkeypatch, check)
+    result = run_auth_checks(targets=targets)
 
-    monkeypatch.setattr(runner, "auth_check", fake_auth_check)
-
-    engine_result = runner.run_auth_checks(targets=targets)
-
-    assert auth_check_calls == ["org-a"]
-    assert [result.target_name for result in engine_result.auth_results] == [
-        "org-a",
-        "org-b",
-        "org-c",
+    assert calls == ["target-a"]
+    assert [item.target_name for item in result.auth_results] == [
+        "target-a",
+        "target-b",
+        "target-c",
     ]
-    assert [result.duration_seconds for result in engine_result.auth_results] == [
-        1.0,
-        0.0,
-        0.0,
-    ]
-    assert all(
-        result.status is results.ExecutionStatus.SUCCESS
-        for result in engine_result.auth_results
-    )
+    assert all(item.status is status for item in result.auth_results)
+    assert [item.duration_seconds for item in result.auth_results][1:] == [0.0, 0.0]
 
 
-def test_run_auth_checks_reuses_same_profile_failure_for_each_target(monkeypatch):
-    runner = importlib.import_module("anvil.runner")
-    descriptors = importlib.import_module("anvil.descriptors")
-    results = importlib.import_module("anvil.results")
-
+def test_run_auth_checks_keeps_distinct_cache_keys_separate(monkeypatch):
     targets = [
-        _org_target(descriptors, name="org-a", profile="shared"),
-        _org_target(descriptors, name="org-b", profile="shared"),
+        _target(name="target-a", profile="a"),
+        _target(name="target-b", profile="b"),
+        _target(name="target-c", profile="a"),
     ]
-    auth_check_calls: list[str] = []
+    calls: list[str] = []
 
-    monkeypatch.setattr(
-        runner, "infer_auth_source", lambda profile: runner.AuthSource.SSO
-    )
+    def check(target):
+        calls.append(target.name)
+        return _success_auth(target)
 
-    def fake_auth_check(*, target_name: str, profile: str | None, auth_source):
-        auth_check_calls.append(target_name)
-        return results.AuthResult(
-            target_name=target_name,
-            status=results.ExecutionStatus.ERROR,
-            source=auth_source.value,
-            started_at="start",
-            ended_at="end",
-            duration_seconds=1.0,
-            message="AWS SSO session is invalid or expired.",
-            remediation="aws sso login --profile shared",
-        )
+    _patch_provider(monkeypatch, check)
+    run_auth_checks(targets=targets)
 
-    monkeypatch.setattr(runner, "auth_check", fake_auth_check)
-
-    engine_result = runner.run_auth_checks(targets=targets)
-
-    assert auth_check_calls == ["org-a"]
-    assert [result.target_name for result in engine_result.auth_results] == [
-        "org-a",
-        "org-b",
-    ]
-    assert [result.status for result in engine_result.auth_results] == [
-        results.ExecutionStatus.ERROR,
-        results.ExecutionStatus.ERROR,
-    ]
-    assert [result.duration_seconds for result in engine_result.auth_results] == [
-        1.0,
-        0.0,
-    ]
-    assert all(
-        result.message == "AWS SSO session is invalid or expired."
-        for result in engine_result.auth_results
-    )
-    assert engine_result.state is results.EngineState.AUTH_FAILED
+    assert calls == ["target-a", "target-b"]
 
 
-def test_run_auth_checks_keeps_different_profiles_separate(monkeypatch):
-    runner = importlib.import_module("anvil.runner")
-    descriptors = importlib.import_module("anvil.descriptors")
-    results = importlib.import_module("anvil.results")
-
+def test_run_auth_checks_single_flights_concurrent_same_key(monkeypatch):
     targets = [
-        _org_target(descriptors, name="org-a", profile="a"),
-        _org_target(descriptors, name="org-b", profile="b"),
-        _org_target(descriptors, name="org-c", profile="a"),
+        _target(name="target-a", profile="shared"),
+        _target(name="target-b", profile="shared"),
     ]
-    auth_check_calls: list[tuple[str, str | None]] = []
+    calls: list[str] = []
+    started = threading.Event()
+    release = threading.Event()
 
-    monkeypatch.setattr(
-        runner, "infer_auth_source", lambda profile: runner.AuthSource.PROFILE_STATIC
-    )
+    def check(target):
+        calls.append(target.name)
+        started.set()
+        assert release.wait(timeout=1.0)
+        return _success_auth(target)
 
-    def fake_auth_check(*, target_name: str, profile: str | None, auth_source):
-        auth_check_calls.append((target_name, profile))
-        return results.AuthResult(
-            target_name=target_name,
-            status=results.ExecutionStatus.SUCCESS,
-            source=auth_source.value,
-            started_at="start",
-            ended_at="end",
-            duration_seconds=1.0,
-            message="ok",
-        )
-
-    monkeypatch.setattr(runner, "auth_check", fake_auth_check)
-
-    engine_result = runner.run_auth_checks(targets=targets)
-
-    assert auth_check_calls == [("org-a", "a"), ("org-b", "b")]
-    assert [result.target_name for result in engine_result.auth_results] == [
-        "org-a",
-        "org-b",
-        "org-c",
-    ]
-
-
-def test_run_auth_checks_single_flights_concurrent_same_profile(monkeypatch):
-    runner = importlib.import_module("anvil.runner")
-    descriptors = importlib.import_module("anvil.descriptors")
-    results = importlib.import_module("anvil.results")
-
-    targets = [
-        _org_target(descriptors, name="org-a", profile="shared"),
-        _org_target(descriptors, name="org-b", profile="shared"),
-    ]
-    auth_check_calls: list[str] = []
-    auth_check_started = threading.Event()
-    release_auth_check = threading.Event()
-
-    monkeypatch.setattr(
-        runner, "infer_auth_source", lambda profile: runner.AuthSource.PROFILE_STATIC
-    )
-
-    def fake_auth_check(*, target_name: str, profile: str | None, auth_source):
-        auth_check_calls.append(target_name)
-        auth_check_started.set()
-        assert release_auth_check.wait(timeout=1.0)
-        return results.AuthResult(
-            target_name=target_name,
-            status=results.ExecutionStatus.SUCCESS,
-            source=auth_source.value,
-            started_at="start",
-            ended_at="end",
-            duration_seconds=1.0,
-            message="ok",
-        )
-
-    monkeypatch.setattr(runner, "auth_check", fake_auth_check)
-
-    result_holder = {}
+    _patch_provider(monkeypatch, check)
+    holder = {}
     thread = threading.Thread(
-        target=lambda: result_holder.setdefault(
-            "result", runner.run_auth_checks(targets=targets)
-        )
+        target=lambda: holder.setdefault("result", run_auth_checks(targets=targets))
     )
     thread.start()
-
-    assert auth_check_started.wait(timeout=1.0)
-    release_auth_check.set()
+    assert started.wait(timeout=1.0)
+    release.set()
     thread.join(timeout=1.0)
 
     assert not thread.is_alive()
-    assert auth_check_calls == ["org-a"]
-    assert [result.target_name for result in result_holder["result"].auth_results] == [
-        "org-a",
-        "org-b",
-    ]
+    assert calls == ["target-a"]
+    assert len(holder["result"].auth_results) == 2
 
 
-def test_run_multiple_targets_executes_targets_in_parallel_and_preserves_input_order(
-    monkeypatch,
-):
-    runner = importlib.import_module("anvil.runner")
-    descriptors = importlib.import_module("anvil.descriptors")
-    results = importlib.import_module("anvil.results")
-
-    started_count = 0
-    max_in_flight = 0
-    completed_order: list[str] = []
-    lock = threading.Lock()
-    release_event = threading.Event()
-
+def test_run_multiple_targets_parallelizes_and_preserves_result_order(monkeypatch):
     targets = [
-        _org_target(descriptors, name="org-a", profile="a"),
-        _org_target(descriptors, name="org-b", profile="b"),
+        _target(name="target-a", profile="a"),
+        _target(name="target-b", profile="b"),
     ]
+    active = 0
+    max_active = 0
+    lock = threading.Lock()
+    release = threading.Event()
 
-    def fake_prepare_target(*, index, target, **kwargs):
-        return runner.PreparedTarget(
-            index=index,
-            effective_target=target,
-            auth_result=results.AuthResult(
-                target_name=target.name,
-                status=results.ExecutionStatus.SUCCESS,
-                source=f"source-{target.profile}",
-                started_at="start",
-                ended_at="end",
-                duration_seconds=0.0,
-                message="ok",
-            ),
-            context=SimpleNamespace(cancel_event=threading.Event(), dry_run=False),
-            organization_id=target.name,
-            management_account_id="123456789012",
-        )
+    monkeypatch.setattr(
+        "anvil.runner.prepare_target",
+        lambda index, target, **kwargs: _prepared(index=index, target=target),
+    )
 
-    def fake_run_prepared_target(*, prepared_target):
-        nonlocal started_count, max_in_flight
-
+    def run(prepared_target):
+        nonlocal active, max_active
         with lock:
-            started_count += 1
-            max_in_flight = max(max_in_flight, started_count)
-            if started_count == len(targets):
-                release_event.set()
-
-        assert release_event.wait(timeout=1.0)
-        time.sleep({"org-a": 0.03, "org-b": 0.0}[prepared_target.effective_target.name])
-
+            active += 1
+            max_active = max(max_active, active)
+            if active == len(targets):
+                release.set()
+        assert release.wait(timeout=1.0)
         with lock:
-            completed_order.append(prepared_target.effective_target.name)
-            started_count -= 1
+            active -= 1
+        return _outcome(prepared_target)
 
-        return runner.TargetExecutionOutcome(
-            index=prepared_target.index,
-            target_result=results.TargetResult.create(
-                config_branch=prepared_target.effective_target.config_branch,
-                target_name=prepared_target.effective_target.name,
-                dry_run=False,
-                entities=[],
-            ),
-            cancelled=False,
-        )
-
-    monkeypatch.setattr(runner, "prepare_target", fake_prepare_target)
-    monkeypatch.setattr(runner, "run_prepared_target", fake_run_prepared_target)
-
-    engine_result = runner.run_multiple_targets(
+    monkeypatch.setattr("anvil.runner.run_prepared_target", run)
+    result = run_multiple_targets(
         targets=targets,
         max_parallel_targets=2,
         cli_dry_run=None,
@@ -407,88 +275,53 @@ def test_run_multiple_targets_executes_targets_in_parallel_and_preserves_input_o
         cli_exclude=None,
     )
 
-    assert max_in_flight > 1
-    assert completed_order != ["org-a", "org-b"]
-    assert [result.target_name for result in engine_result.auth_results] == [
-        "org-a",
-        "org-b",
+    assert max_active == 2
+    assert [item.target_name for item in result.target_results] == [
+        "target-a",
+        "target-b",
     ]
-    assert [result.target_name for result in engine_result.target_results] == [
-        "org-a",
-        "org-b",
+
+
+def test_run_multiple_targets_serializes_overlapping_provider_keys(monkeypatch):
+    targets = [
+        _target(name="target-a", profile="a"),
+        _target(name="target-b", profile="b"),
+        _target(name="target-c", profile="c"),
     ]
-    assert engine_result.state is results.EngineState.COMPLETED_SUCCESS
-
-
-def test_run_multiple_targets_serializes_same_org_targets(monkeypatch):
-    runner = importlib.import_module("anvil.runner")
-    descriptors = importlib.import_module("anvil.descriptors")
-    results = importlib.import_module("anvil.results")
-
-    active_org_counts: dict[str, int] = {}
-    max_same_org = 0
-    max_total_in_flight = 0
-    total_in_flight = 0
+    keys = {
+        "target-a": (("test", "shared"),),
+        "target-b": (("test", "shared"),),
+        "target-c": (("test", "other"),),
+    }
+    active_by_key: dict[object, int] = {}
+    max_shared = 0
+    max_total = 0
+    total = 0
     lock = threading.Lock()
 
-    targets = [
-        _org_target(descriptors, name="org-a", profile="a"),
-        _org_target(descriptors, name="org-b", profile="b"),
-        _org_target(descriptors, name="org-c", profile="c"),
-    ]
-    org_ids = {"org-a": "shared-org", "org-b": "shared-org", "org-c": "other-org"}
+    monkeypatch.setattr(
+        "anvil.runner.prepare_target",
+        lambda index, target, **kwargs: _prepared(
+            index=index, target=target, exclusive_execution_keys=keys[target.name]
+        ),
+    )
 
-    def fake_prepare_target(*, index, target, **kwargs):
-        return runner.PreparedTarget(
-            index=index,
-            effective_target=target,
-            auth_result=results.AuthResult(
-                target_name=target.name,
-                status=results.ExecutionStatus.SUCCESS,
-                source=f"source-{target.profile}",
-                started_at="start",
-                ended_at="end",
-                duration_seconds=0.0,
-                message="ok",
-            ),
-            context=SimpleNamespace(cancel_event=threading.Event(), dry_run=False),
-            organization_id=org_ids[target.name],
-            management_account_id="123456789012",
-        )
-
-    def fake_run_prepared_target(*, prepared_target):
-        nonlocal max_same_org, max_total_in_flight, total_in_flight
-        organization_id = prepared_target.organization_id or ""
-
+    def run(prepared_target):
+        nonlocal max_shared, max_total, total
+        key = prepared_target.exclusive_execution_keys[0]
         with lock:
-            total_in_flight += 1
-            active_org_counts[organization_id] = (
-                active_org_counts.get(organization_id, 0) + 1
-            )
-            max_same_org = max(max_same_org, active_org_counts[organization_id])
-            max_total_in_flight = max(max_total_in_flight, total_in_flight)
-
+            total += 1
+            active_by_key[key] = active_by_key.get(key, 0) + 1
+            max_shared = max(max_shared, active_by_key.get(("test", "shared"), 0))
+            max_total = max(max_total, total)
         time.sleep(0.03)
-
         with lock:
-            total_in_flight -= 1
-            active_org_counts[organization_id] -= 1
+            total -= 1
+            active_by_key[key] -= 1
+        return _outcome(prepared_target)
 
-        return runner.TargetExecutionOutcome(
-            index=prepared_target.index,
-            target_result=results.TargetResult.create(
-                config_branch=prepared_target.effective_target.config_branch,
-                target_name=prepared_target.effective_target.name,
-                dry_run=False,
-                entities=[],
-            ),
-            cancelled=False,
-        )
-
-    monkeypatch.setattr(runner, "prepare_target", fake_prepare_target)
-    monkeypatch.setattr(runner, "run_prepared_target", fake_run_prepared_target)
-
-    engine_result = runner.run_multiple_targets(
+    monkeypatch.setattr("anvil.runner.run_prepared_target", run)
+    run_multiple_targets(
         targets=targets,
         max_parallel_targets=2,
         cli_dry_run=None,
@@ -496,156 +329,36 @@ def test_run_multiple_targets_serializes_same_org_targets(monkeypatch):
         cli_exclude=None,
     )
 
-    assert max_same_org == 1
-    assert max_total_in_flight == 2
-    assert [result.target_name for result in engine_result.target_results] == [
-        "org-a",
-        "org-b",
-        "org-c",
-    ]
+    assert max_shared == 1
+    assert max_total == 2
 
 
-def test_run_multiple_targets_parallelizes_accounts_branch(monkeypatch):
-    runner = importlib.import_module("anvil.runner")
-    descriptors = importlib.import_module("anvil.descriptors")
-    results = importlib.import_module("anvil.results")
-
-    started_count = 0
-    max_in_flight = 0
-    lock = threading.Lock()
-    release_event = threading.Event()
-
+def test_run_multiple_targets_pipelines_preparation_and_execution(monkeypatch):
     targets = [
-        _accounts_target(
-            descriptors, name="group-a", profile="a", include=["111111111111"]
-        ),
-        _accounts_target(
-            descriptors, name="group-b", profile="b", include=["222222222222"]
-        ),
+        _target(name="target-a", profile="a"),
+        _target(name="target-b", profile="b"),
+        _target(name="target-c", profile="c"),
     ]
-
-    def fake_prepare_target(*, index, target, **kwargs):
-        return runner.PreparedTarget(
-            index=index,
-            effective_target=target,
-            auth_result=results.AuthResult(
-                target_name=target.name,
-                status=results.ExecutionStatus.SUCCESS,
-                source=f"source-{target.profile}",
-                started_at="start",
-                ended_at="end",
-                duration_seconds=0.0,
-                message="ok",
-            ),
-            context=SimpleNamespace(cancel_event=threading.Event(), dry_run=False),
-        )
-
-    def fake_run_prepared_target(*, prepared_target):
-        nonlocal started_count, max_in_flight
-
-        with lock:
-            started_count += 1
-            max_in_flight = max(max_in_flight, started_count)
-            if started_count == len(targets):
-                release_event.set()
-
-        assert release_event.wait(timeout=1.0)
-        time.sleep(0.02)
-
-        with lock:
-            started_count -= 1
-
-        return runner.TargetExecutionOutcome(
-            index=prepared_target.index,
-            target_result=results.TargetResult.create(
-                config_branch=prepared_target.effective_target.config_branch,
-                target_name=prepared_target.effective_target.name,
-                dry_run=False,
-                entities=[],
-            ),
-            cancelled=False,
-        )
-
-    monkeypatch.setattr(runner, "prepare_target", fake_prepare_target)
-    monkeypatch.setattr(runner, "run_prepared_target", fake_run_prepared_target)
-
-    engine_result = runner.run_multiple_targets(
-        targets=targets,
-        max_parallel_targets=2,
-        cli_dry_run=None,
-        cli_include=None,
-        cli_exclude=None,
-    )
-
-    assert max_in_flight > 1
-    assert [result.target_name for result in engine_result.target_results] == [
-        "group-a",
-        "group-b",
-    ]
-
-
-def test_run_multiple_targets_pipelines_preparation_into_execution(monkeypatch):
-    runner = importlib.import_module("anvil.runner")
-    descriptors = importlib.import_module("anvil.descriptors")
-    results = importlib.import_module("anvil.results")
-
-    prep_done = threading.Event()
     first_execution_started = threading.Event()
+    last_preparation_finished = threading.Event()
 
-    targets = [
-        _org_target(descriptors, name="org-a", profile="a"),
-        _org_target(descriptors, name="org-b", profile="b"),
-        _org_target(descriptors, name="org-c", profile="c"),
-    ]
-
-    def fake_prepare_target(*, index, target, **kwargs):
-        if target.name == "org-c":
+    def prepare(index, target, **kwargs):
+        if target.name == "target-c":
             assert first_execution_started.wait(timeout=1.0)
-            time.sleep(0.03)
+            last_preparation_finished.set()
+        return _prepared(index=index, target=target)
 
-        prepared = runner.PreparedTarget(
-            index=index,
-            effective_target=target,
-            auth_result=results.AuthResult(
-                target_name=target.name,
-                status=results.ExecutionStatus.SUCCESS,
-                source=f"source-{target.profile}",
-                started_at="start",
-                ended_at="end",
-                duration_seconds=0.0,
-                message="ok",
-            ),
-            context=SimpleNamespace(cancel_event=threading.Event(), dry_run=False),
-            organization_id=target.name,
-            management_account_id="123456789012",
-        )
-
-        if target.name == "org-c":
-            prep_done.set()
-
-        return prepared
-
-    def fake_run_prepared_target(*, prepared_target):
-        if prepared_target.effective_target.name == "org-a":
+    def run(prepared_target):
+        if prepared_target.effective_target.name == "target-a":
             first_execution_started.set()
-            assert not prep_done.is_set()
-
+            assert not last_preparation_finished.is_set()
         time.sleep(0.01)
-        return runner.TargetExecutionOutcome(
-            index=prepared_target.index,
-            target_result=results.TargetResult.create(
-                config_branch=prepared_target.effective_target.config_branch,
-                target_name=prepared_target.effective_target.name,
-                dry_run=False,
-                entities=[],
-            ),
-            cancelled=False,
-        )
+        return _outcome(prepared_target)
 
-    monkeypatch.setattr(runner, "prepare_target", fake_prepare_target)
-    monkeypatch.setattr(runner, "run_prepared_target", fake_run_prepared_target)
+    monkeypatch.setattr("anvil.runner.prepare_target", prepare)
+    monkeypatch.setattr("anvil.runner.run_prepared_target", run)
 
-    engine_result = runner.run_multiple_targets(
+    result = run_multiple_targets(
         targets=targets,
         max_parallel_targets=2,
         cli_dry_run=None,
@@ -654,9 +367,5 @@ def test_run_multiple_targets_pipelines_preparation_into_execution(monkeypatch):
     )
 
     assert first_execution_started.is_set()
-    assert prep_done.is_set()
-    assert [result.target_name for result in engine_result.target_results] == [
-        "org-a",
-        "org-b",
-        "org-c",
-    ]
+    assert last_preparation_finished.is_set()
+    assert len(result.target_results) == 3

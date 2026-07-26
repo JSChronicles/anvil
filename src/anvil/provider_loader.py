@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import importlib
-from collections.abc import Callable
 from dataclasses import dataclass
 from functools import lru_cache
 from importlib.metadata import EntryPoint, entry_points
@@ -11,6 +10,7 @@ from typing import cast
 
 from anvil._components import (
     ComponentCatalog,
+    ComponentDescriptor,
     ComponentKind,
     ComponentOrigin,
     ComponentResolver,
@@ -26,15 +26,7 @@ _STOCK_PROVIDER_PACKAGE = "anvil.providers"
 _RESERVED_PROVIDER_CHILDREN = frozenset({"base", "tasks"})
 
 
-@dataclass(frozen=True, slots=True)
-class ProviderDescriptor:
-    """Provider metadata and lazy loader used by CLI discovery."""
-
-    name: str
-    display_name: str
-    load: Callable[[], Provider]
-    source: str
-    description: str | None = None
+ProviderDescriptor = ComponentDescriptor[Provider]
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,28 +138,12 @@ def _provider_catalog() -> ComponentCatalog[Provider]:
     )
 
 
-def _display_name(name: str) -> str:
-    known_initialisms = {"aws": "AWS", "gcp": "GCP", "github": "GitHub"}
-    return known_initialisms.get(name, name.replace("_", " ").title())
-
-
-def _public_descriptor(descriptor) -> ProviderDescriptor:
-    return ProviderDescriptor(
-        name=descriptor.name,
-        display_name=_display_name(descriptor.name),
-        load=descriptor.load,
-        source=str(descriptor.source),
-    )
-
-
 def discover_providers() -> ProviderDiscoveryResult:
     """Discover provider folders without constructing providers."""
 
     catalog = _provider_catalog()
-    unique_descriptors = [candidates[0] for candidates in catalog.inventory.values()]
     return ProviderDiscoveryResult(
-        providers=[_public_descriptor(item) for item in unique_descriptors],
-        issues=list(catalog.issues),
+        providers=list(catalog.descriptors), issues=list(catalog.issues)
     )
 
 

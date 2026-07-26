@@ -1,6 +1,6 @@
 from botocore.exceptions import TokenRetrievalError
 
-from anvil.auth import AuthSource, auth_check
+from anvil.providers.aws.auth import AuthSource, auth_check
 from anvil.results import ExecutionStatus
 
 

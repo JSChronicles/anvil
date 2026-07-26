@@ -11,6 +11,7 @@ from importlib.metadata import EntryPoint, entry_points
 
 from anvil._components import (
     ComponentCatalog,
+    ComponentDescriptor,
     ComponentKind,
     ComponentOrigin,
     ComponentResolver,
@@ -45,13 +46,7 @@ class ProcessorSpec:
     run_on_failure: bool = False
 
 
-@dataclass(frozen=True, slots=True)
-class ProcessorDescriptor:
-    """Discovered processor and lazy loader for its run callable."""
-
-    name: str
-    load: Callable[[], Callable]
-    source: str
+ProcessorDescriptor = ComponentDescriptor[Callable]
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,12 +67,10 @@ class ProcessorRunContext:
     summary: dict[str, object]
     target_result_paths: dict[str, Path]
     target_name: str | None = None
-    target_result: TargetResult | dict[str, object] | None = None
+    target_result: dict[str, object] | None = None
     target_result_path: Path | None = None
     target_metadata: dict[str, object] = field(default_factory=dict)
-    target_results: Sequence[TargetResult | dict[str, object]] = field(
-        default_factory=list
-    )
+    target_results: Sequence[dict[str, object]] = field(default_factory=list)
 
 
 # ============================================================================
@@ -237,10 +230,10 @@ def run_configured_post_processors(
             summary=summary,
             target_result_paths=target_result_paths,
             target_name=target_result.target_name,
-            target_result=target_result,
+            target_result=target_result.to_dict(),
             target_result_path=target_result_paths.get(target_result.target_name),
             target_metadata=dict(target.metadata),
-            target_results=[target_result],
+            target_results=[target_result.to_dict()],
         )
 
         resolved_specs: list[ProcessorSpec] = []
@@ -289,12 +282,6 @@ def _load_processor_from_package(
             f"Processor '{processor_name}' ({source}) must define callable run(...)"
         )
     return run
-
-
-def _public_processor_descriptor(descriptor) -> ProcessorDescriptor:
-    return ProcessorDescriptor(
-        name=descriptor.name, load=descriptor.load, source=str(descriptor.source)
-    )
 
 
 @lru_cache(maxsize=16)
@@ -355,11 +342,7 @@ def discover_processors() -> ProcessorDiscoveryResult:
     """Discover processors and report plugin packages that cannot be inspected."""
     catalog = _processor_catalog()
     return ProcessorDiscoveryResult(
-        processors=[
-            _public_processor_descriptor(descriptor)
-            for descriptor in catalog.descriptors
-        ],
-        issues=list(catalog.issues),
+        processors=list(catalog.descriptors), issues=list(catalog.issues)
     )
 
 
@@ -367,7 +350,7 @@ def list_processors() -> list[ProcessorDescriptor]:
     """Return processors sorted by source and name."""
     return sorted(
         discover_processors().processors,
-        key=lambda processor: (processor.source, processor.name),
+        key=lambda processor: (str(processor.source), processor.name),
     )
 
 

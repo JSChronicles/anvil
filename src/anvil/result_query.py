@@ -18,6 +18,7 @@ DEFAULT_TABLE_FIELDS = [
     "target",
     "entity_id",
     "entity_name",
+    "entity_metadata",
     "entity_type",
     "region",
     "task",
@@ -25,6 +26,7 @@ DEFAULT_TABLE_FIELDS = [
 ]
 FIELD_HEADERS = {"record_type": "type"}
 AVAILABLE_FIELDS = [
+    "actions",
     "config_file",
     "config_file_resolved",
     "dry_run",
@@ -36,6 +38,7 @@ AVAILABLE_FIELDS = [
     "error",
     "generated_at",
     "record_type",
+    "provider",
     "region",
     "result",
     "started_at",
@@ -94,6 +97,7 @@ def build_jsonl_records_for_target(
                     **_timed_status_record(task_result),
                     "result": task_result.result,
                     "error": task_result.error,
+                    "actions": list(task_result.actions),
                 }
             )
 
@@ -342,6 +346,8 @@ def _base_entity_record(
         "entity_id": entity_result.id,
         "entity_name": entity_result.name,
         "entity_type": entity_result.type,
+        "provider": entity_result.provider,
+        "entity_metadata": dict(entity_result.metadata),
     }
     if config_file is not None:
         record["config_file"] = config_file.as_posix()

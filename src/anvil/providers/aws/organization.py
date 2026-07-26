@@ -5,11 +5,12 @@ import logging
 import boto3
 from boto3.session import Session
 
-from anvil.account import Account, AccountAccessStrategy
+from anvil.providers.aws.account import Account, AccountAccessStrategy
 from anvil.descriptors import TargetDescriptor
 from anvil.execution_context import ExecutionContext
 from anvil.providers.aws.regions import AwsRegionService
-from anvil.session import BOTO_CONFIG, SessionFactory
+from anvil.providers.aws.config import DEFAULT_ORGANIZATION_ROLE_NAME, aws_option
+from anvil.providers.aws.session import BOTO_CONFIG, SessionFactory
 
 __LOGGER__ = logging.getLogger(__name__)
 
@@ -48,7 +49,7 @@ class OrganizationResolver:
         )
 
         base_session = self._base_session or self._session_factory.create_base_session(
-            profile_name=self.descriptor.profile,
+            profile_name=aws_option(self.descriptor, "profile"),
             region_name=self._region_service.bootstrap_region(
                 configured_regions=self.context.regions
             ),
@@ -129,6 +130,10 @@ class OrganizationResolver:
                     account_alias=info["account_alias"],
                     is_management=is_management,
                     access_strategy=access_strategy,
+                    role_name=(
+                        aws_option(self.descriptor, "role_name")
+                        or DEFAULT_ORGANIZATION_ROLE_NAME
+                    ),
                     base_session=base_session,
                     context=self.context,
                     regions=effective_regions,

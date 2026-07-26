@@ -229,19 +229,30 @@ def test_cmd_list_processors_groups_by_source(monkeypatch, capsys):
 
 
 def test_cmd_list_providers_groups_by_source(monkeypatch, capsys):
+    from anvil._components import ComponentOrigin, ComponentSource
+
     cli = _import_cli_or_skip()
     monkeypatch.setattr(
         cli,
         "list_providers",
         lambda: [
             cli.ProviderDescriptor(
-                name="aws", display_name="AWS", load=lambda: None, source="stock"
+                name="aws",
+                load=lambda: None,
+                source=ComponentSource(
+                    origin=ComponentOrigin.STOCK,
+                    package="anvil.providers",
+                    label="stock",
+                ),
             ),
             cli.ProviderDescriptor(
                 name="custom",
-                display_name="Custom",
                 load=lambda: None,
-                source="plugin: my-plugin",
+                source=ComponentSource(
+                    origin=ComponentOrigin.PLUGIN,
+                    package="custom.providers",
+                    label="plugin: my-plugin",
+                ),
             ),
         ],
     )

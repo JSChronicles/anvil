@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import datetime
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 from anvil.descriptors import ConfigBranch
@@ -56,6 +56,7 @@ class TaskResult(TimedResult):
     status: ExecutionStatus
     result: object | None = None
     error: str | None = None
+    actions: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -67,6 +68,7 @@ class TaskResult(TimedResult):
             "duration_seconds": self.duration_seconds,
             "result": self.result,
             "error": self.error,
+            "actions": list(self.actions),
         }
 
 
@@ -106,6 +108,8 @@ class EntityResult(TimedResult):
     id: str
     name: str
     type: str
+    provider: str
+    metadata: dict[str, object]
     status: ExecutionStatus
     tasks: list[TaskResult]
     error: str | None = None
@@ -116,6 +120,8 @@ class EntityResult(TimedResult):
             "id": self.id,
             "name": self.name,
             "type": self.type,
+            "provider": self.provider,
+            "metadata": dict(self.metadata),
             "status": self.status.value,
             "started_at": self.started_at,
             "ended_at": self.ended_at,
@@ -133,6 +139,7 @@ class EntityResult(TimedResult):
 class TargetResult:
     config_branch: ConfigBranch
     target_name: str
+    provider: str
     generated_at: str
     dry_run: bool
     entities: list[EntityResult]
@@ -166,6 +173,7 @@ class TargetResult:
 
         payload: dict[str, object] = {
             singular_key: self.target_name,
+            "provider": self.provider,
             "generated_at": self.generated_at,
             "dry_run": self.dry_run,
             "total_entities": self.total_entities,
@@ -183,6 +191,7 @@ class TargetResult:
         *,
         config_branch: ConfigBranch,
         target_name: str,
+        provider: str,
         dry_run: bool,
         entities: list[EntityResult],
         error: str | None = None,
@@ -191,6 +200,7 @@ class TargetResult:
         return cls(
             config_branch=config_branch,
             target_name=target_name,
+            provider=provider,
             generated_at=datetime.datetime.now(datetime.UTC).isoformat(),
             dry_run=dry_run,
             entities=entities,

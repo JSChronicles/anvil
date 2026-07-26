@@ -5,7 +5,20 @@ from types import SimpleNamespace
 
 import pytest
 
+from anvil._components import ComponentOrigin, ComponentSource
 from anvil.providers.base import ProviderMetadata
+
+
+def _source(label: str) -> ComponentSource:
+    return ComponentSource(
+        origin=(
+            ComponentOrigin.PLUGIN
+            if label.startswith("plugin:")
+            else ComponentOrigin.STOCK
+        ),
+        package="tests.providers",
+        label=label,
+    )
 
 
 def _import_cli_or_skip():
@@ -483,7 +496,9 @@ def test_validate_selected_providers_validates_all_when_no_names(monkeypatch):
     seen = {}
 
     class Provider:
-        metadata = ProviderMetadata(name="aws", display_name="AWS")
+        metadata = ProviderMetadata(
+            name="aws", display_name="AWS", supported_task_scopes=frozenset({"region"})
+        )
 
         def validate_target(self, target):
             return None
@@ -497,8 +512,16 @@ def test_validate_selected_providers_validates_all_when_no_names(monkeypatch):
         def auth_check(self, target):
             return None
 
+        def resolve_target_filters(self, *, target, include_override, exclude_override):
+            return target.include, target.exclude
+
         def discover_regions(self, target):
             return []
+
+        def prepare_target(
+            self, *, target, context, include, exclude, cache, benchmark
+        ):
+            return None
 
         def resolve_execution_targets(self, *, target, regions, include, exclude):
             return None
@@ -516,7 +539,7 @@ def test_validate_selected_providers_validates_all_when_no_names(monkeypatch):
         lambda: SimpleNamespace(
             providers=[
                 cli.ProviderDescriptor(
-                    name="aws", display_name="AWS", load=load_provider, source="stock"
+                    name="aws", load=load_provider, source=_source("stock")
                 )
             ],
             issues=[],
@@ -557,7 +580,7 @@ def test_validate_selected_providers_reports_unknown_names(monkeypatch):
         lambda: SimpleNamespace(
             providers=[
                 cli.ProviderDescriptor(
-                    name="aws", display_name="AWS", load=lambda: None, source="stock"
+                    name="aws", load=lambda: None, source=_source("stock")
                 )
             ],
             issues=[],
@@ -572,7 +595,9 @@ def test_validate_selected_providers_reports_contract_member(monkeypatch):
     cli = _import_cli_or_skip()
 
     class BrokenProvider:
-        metadata = ProviderMetadata(name="broken", display_name="Broken")
+        metadata = ProviderMetadata(
+            name="broken", display_name="Broken", supported_task_scopes=frozenset()
+        )
 
         def validate_target(self, target):
             return None
@@ -584,9 +609,8 @@ def test_validate_selected_providers_reports_contract_member(monkeypatch):
             providers=[
                 cli.ProviderDescriptor(
                     name="broken",
-                    display_name="Broken",
                     load=lambda: BrokenProvider(),
-                    source="plugin: broken-provider",
+                    source=_source("plugin: broken-provider"),
                 )
             ],
             issues=[],
@@ -598,7 +622,7 @@ def test_validate_selected_providers_reports_contract_member(monkeypatch):
 
     error = str(exc_info.value)
     assert "broken (plugin: broken-provider)" in error
-    assert "auth_cache_key" in error
+    assert "resolve_target_filters" in error
 
 
 def test_validate_aggregates_failures_and_successes(monkeypatch, capsys):

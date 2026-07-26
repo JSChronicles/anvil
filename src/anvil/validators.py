@@ -177,6 +177,8 @@ def validate_target_descriptors(*, targets: list[TargetDescriptor]) -> None:
     """
     Validate semantic correctness across loaded target descriptors.
     """
+    from anvil.provider_loader import load_provider
+
     seen_names: set[str] = set()
 
     for target in targets:
@@ -184,6 +186,8 @@ def validate_target_descriptors(*, targets: list[TargetDescriptor]) -> None:
             raise ValueError(f"Duplicate target name detected: '{target.name}'")
 
         seen_names.add(target.name)
+        provider = load_provider(target.provider)
+        provider.validate_target(target)
 
         combined_concurrency = target.max_workers * target.max_parallel_regions
         if target.fail_fast and combined_concurrency > 10:

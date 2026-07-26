@@ -5,8 +5,8 @@ import threading
 import pytest
 from botocore.exceptions import ClientError
 
-from anvil import session as session_module
-from anvil.session import AssumedRoleCredentials, SessionFactory
+from anvil.providers.aws import session as session_module
+from anvil.providers.aws.session import AssumedRoleCredentials, SessionFactory
 
 
 class FakeBotoSession:

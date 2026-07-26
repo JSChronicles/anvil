@@ -41,12 +41,15 @@ def _target_result() -> TargetResult:
     return TargetResult.create(
         config_branch=ConfigBranch.TARGETS,
         target_name="engineering",
+        provider="aws",
         dry_run=True,
         entities=[
             EntityResult(
                 id="111111111111",
                 name="dev",
                 type="account",
+                provider="aws",
+                metadata={},
                 status=ExecutionStatus.ERROR,
                 started_at="2026-04-30T00:00:00+00:00",
                 ended_at="2026-04-30T00:00:02+00:00",
@@ -191,6 +194,7 @@ def test_build_rerun_targets_includes_interrupted_task_dependencies():
             TargetDescriptor(
                 config_branch=ConfigBranch.TARGETS,
                 name="org-a",
+                provider="aws",
                 mode="organization",
                 regions=["us-east-1", "us-west-2"],
                 tasks=[

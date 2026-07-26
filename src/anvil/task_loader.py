@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import sys
 from collections import defaultdict, deque
 from collections.abc import Callable, Mapping, Sequence
@@ -46,13 +47,16 @@ class ResolvedTask:
     scope: TaskScope = TaskScope.REGION
 
 
-@dataclass(slots=True)
-class _TaskSpec:
-    depends_on: list[str]
+@dataclass(frozen=True, slots=True)
+class TaskSpec:
+    """Immutable normalized task declaration."""
+
+    name: str
+    depends_on: tuple[str, ...]
     optional: bool
 
 
-TaskSpecKey = tuple[tuple[str, tuple[str, ...], bool], ...]
+TaskSpecKey = tuple[TaskSpec, ...]
 CachedOrderedTask = tuple[tuple[str, Callable, tuple[str, ...], bool, TaskScope], ...]
 CachedAdjacency = tuple[tuple[str, tuple[str, ...]], ...]
 
@@ -61,13 +65,7 @@ class TaskConfigError(RuntimeError):
     pass
 
 
-@dataclass(frozen=True, slots=True)
-class TaskDescriptor:
-    """Discovered task and lazy loader for its run callable."""
-
-    name: str
-    load: Callable[[], Callable]
-    source: str
+TaskDescriptor = CatalogDescriptor[Callable]
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,34 +111,28 @@ def _load_task_component(
 
 @lru_cache(maxsize=512)
 def _load_provider_task_callable(*, provider_name: str, task_name: str) -> Callable:
-    descriptors = _provider_task_descriptor_index(provider_name).get(task_name, [])
+    descriptor_index, discovery_issues = _provider_task_discovery(provider_name)
+    descriptors = descriptor_index.get(task_name, [])
     if not descriptors:
+        issue_detail = ""
+        if discovery_issues:
+            issue_lines = "; ".join(
+                f"{issue.name} ({issue.source}): {issue.error}"
+                for issue in discovery_issues
+            )
+            issue_detail = (
+                f" Discovery of one or more task sources failed: {issue_lines}"
+            )
         raise TaskConfigError(
             f"Task '{task_name}' is not available for provider '{provider_name}'. "
             "Tasks must be provided by universal package 'anvil.providers.tasks' "
             f"or provider package 'anvil.providers.{provider_name}.tasks'."
+            f"{issue_detail}"
         )
 
-    catalog_descriptors = [
-        CatalogDescriptor(
-            name=descriptor.name,
-            source=ComponentSource(
-                origin=(
-                    ComponentOrigin.PLUGIN
-                    if "plugin:" in descriptor.source
-                    else ComponentOrigin.STOCK
-                ),
-                package="",
-                label=descriptor.source,
-                provider=provider_name,
-            ),
-            load=descriptor.load,
-        )
-        for descriptor in descriptors
-    ]
     return ComponentResolver(
         kind=ComponentKind.TASK,
-        catalog=ComponentCatalog(descriptors=tuple(catalog_descriptors)),
+        catalog=ComponentCatalog(descriptors=tuple(descriptors)),
         error_type=TaskConfigError,
         context=f"for provider '{provider_name}'",
     ).load(task_name)
@@ -168,6 +160,22 @@ def _provider_task_entry_point_groups(
 def _iter_package_task_descriptors(
     *, package_name: str, source: str
 ) -> list[TaskDescriptor]:
+    try:
+        package_spec = importlib.util.find_spec(package_name)
+    except ModuleNotFoundError as error:
+        missing_package = error.name
+        if missing_package is not None and (
+            package_name == missing_package
+            or package_name.startswith(f"{missing_package}.")
+        ):
+            return []
+        raise TaskConfigError(
+            f"Unable to inspect task package '{package_name}': {error}"
+        ) from error
+
+    if package_spec is None:
+        return []
+
     component_source = ComponentSource(
         origin=ComponentOrigin.STOCK,
         package=package_name,
@@ -182,15 +190,8 @@ def _iter_package_task_descriptors(
     ).discover()
     if issues:
         issue = issues[0]
-        if "No module named" in issue.error and package_name in issue.error:
-            return []
         raise TaskConfigError(f"{issue.name} ({issue.source}): {issue.error}")
-    return [
-        TaskDescriptor(
-            name=descriptor.name, load=descriptor.load, source=str(descriptor.source)
-        )
-        for descriptor in descriptors
-    ]
+    return list(descriptors)
 
 
 def _iter_plugin_task_descriptors(
@@ -220,14 +221,7 @@ def _iter_plugin_task_descriptors(
             source=component_source,
             component_loader=_load_task_component,
         ).discover(issue_name=entry_point.name)
-        descriptors.extend(
-            TaskDescriptor(
-                name=descriptor.name,
-                load=descriptor.load,
-                source=str(descriptor.source),
-            )
-            for descriptor in discovered
-        )
+        descriptors.extend(discovered)
         issues.extend(source_issues)
 
     return descriptors, issues
@@ -238,52 +232,22 @@ def _provider_task_discovery(
     provider_name: str,
 ) -> tuple[dict[str, tuple[TaskDescriptor, ...]], tuple[DiscoveryIssue, ...]]:
     catalog_descriptors: list[CatalogDescriptor[Callable]] = []
-    public_descriptors: dict[int, TaskDescriptor] = {}
     issues: list[DiscoveryIssue] = []
 
     for source, package_name in _provider_task_packages(provider_name):
-        for descriptor in _iter_package_task_descriptors(
-            package_name=package_name, source=source
-        ):
-            catalog_descriptor = CatalogDescriptor(
-                name=descriptor.name,
-                source=ComponentSource(
-                    origin=ComponentOrigin.STOCK,
-                    package=package_name,
-                    label=descriptor.source,
-                    provider=None if source == "universal" else provider_name,
-                ),
-                load=descriptor.load,
-            )
-            catalog_descriptors.append(catalog_descriptor)
-            public_descriptors[id(catalog_descriptor)] = descriptor
+        catalog_descriptors.extend(
+            _iter_package_task_descriptors(package_name=package_name, source=source)
+        )
 
     for source, entry_point_group in _provider_task_entry_point_groups(provider_name):
         plugin_descriptors, plugin_issues = _iter_plugin_task_descriptors(
             entry_point_group=entry_point_group, source_prefix=f"{source} plugin:"
         )
         issues.extend(plugin_issues)
-        for descriptor in plugin_descriptors:
-            catalog_descriptor = CatalogDescriptor(
-                name=descriptor.name,
-                source=ComponentSource(
-                    origin=ComponentOrigin.PLUGIN,
-                    package="",
-                    label=descriptor.source,
-                    entry_point_group=entry_point_group,
-                    provider=None if source == "universal" else provider_name,
-                ),
-                load=descriptor.load,
-            )
-            catalog_descriptors.append(catalog_descriptor)
-            public_descriptors[id(catalog_descriptor)] = descriptor
+        catalog_descriptors.extend(plugin_descriptors)
 
-    catalog = ComponentCatalog(descriptors=tuple(catalog_descriptors))
-    index = {
-        name: tuple(public_descriptors[id(descriptor)] for descriptor in descriptors)
-        for name, descriptors in catalog.inventory.items()
-    }
-    return index, tuple(issues)
+    catalog = ComponentCatalog.build(catalog_descriptors, issues)
+    return dict(catalog.inventory), catalog.issues
 
 
 def _provider_task_descriptor_index(
@@ -305,6 +269,7 @@ def provider_task_descriptor_index(
 
 def _clear_task_caches() -> None:
     _load_provider_task_callable.cache_clear()
+    _resolve_tasks_cached.cache_clear()
     cache_clear = getattr(_provider_task_discovery, "cache_clear", None)
     if cache_clear is not None:
         cache_clear()
@@ -318,13 +283,19 @@ def _clear_task_caches() -> None:
 TaskSpecInput = Mapping[str, object]
 
 
-def _freeze_task_specs(task_specs: Sequence[TaskSpecInput]) -> TaskSpecKey:
-    frozen_specs: list[tuple[str, tuple[str, ...], bool]] = []
+def _normalize_task_specs(task_specs: Sequence[TaskSpecInput]) -> TaskSpecKey:
+    """Validate task declarations once while preserving declaration order."""
+
+    normalized_specs: list[TaskSpec] = []
+    seen_names: set[str] = set()
 
     for spec in task_specs:
-        name = spec["name"]
-        if not isinstance(name, str):
-            raise TaskConfigError("task name must be a string")
+        name = spec.get("name")
+        if not isinstance(name, str) or not name:
+            raise TaskConfigError("task name must be a non-empty string")
+        if name in seen_names:
+            raise TaskConfigError(f"Duplicate task name detected: '{name}'")
+        seen_names.add(name)
 
         raw_depends_on = spec.get("depends_on", [])
         if not isinstance(raw_depends_on, list):
@@ -336,12 +307,20 @@ def _freeze_task_specs(task_specs: Sequence[TaskSpecInput]) -> TaskSpecKey:
                     f"Task '{name}' depends_on must be a list of strings"
                 )
             depends_on.append(dependency)
+        if len(set(depends_on)) != len(depends_on):
+            raise TaskConfigError(
+                f"Task '{name}' depends_on must not contain duplicates"
+            )
 
-        frozen_specs.append(
-            (name, tuple(depends_on), bool(spec.get("optional", False)))
+        optional = spec.get("optional", False)
+        if not isinstance(optional, bool):
+            raise TaskConfigError(f"Task '{name}' optional must be a boolean")
+
+        normalized_specs.append(
+            TaskSpec(name=name, depends_on=tuple(depends_on), optional=optional)
         )
 
-    return tuple(frozen_specs)
+    return tuple(normalized_specs)
 
 
 def _task_scope(*, task_name: str, run: Callable) -> TaskScope:
@@ -399,15 +378,10 @@ def _build_resolved_execution(
 @lru_cache(maxsize=128)
 def _resolve_tasks_cached(
     provider_name: str,
-    task_specs_key: TaskSpecKey,
+    task_specs: TaskSpecKey,
     supported_task_scopes: tuple[TaskScope, ...],
 ) -> tuple[CachedOrderedTask, CachedAdjacency]:
-    task_specs: list[dict[str, object]] = [
-        {"name": name, "depends_on": list(depends_on), "optional": optional}
-        for name, depends_on, optional in task_specs_key
-    ]
-
-    spec_by_name = _parse_task_specs(task_specs)
+    spec_by_name = {spec.name: spec for spec in task_specs}
 
     _validate_dependencies(spec_by_name)
 
@@ -457,36 +431,7 @@ def _resolve_tasks_cached(
     return ordered, frozen_adjacency
 
 
-def _parse_task_specs(task_specs: Sequence[TaskSpecInput]) -> dict[str, _TaskSpec]:
-    spec_by_name: dict[str, _TaskSpec] = {}
-
-    for spec in task_specs:
-        name = spec["name"]
-        if not isinstance(name, str):
-            raise TaskConfigError("task name must be a string")
-
-        if name in spec_by_name:
-            raise TaskConfigError(f"Duplicate task name detected: '{name}'")
-
-        raw_depends_on = spec.get("depends_on", [])
-        if not isinstance(raw_depends_on, list):
-            raise TaskConfigError(f"Task '{name}' depends_on must be a list of strings")
-        depends_on: list[str] = []
-        for dependency in raw_depends_on:
-            if not isinstance(dependency, str):
-                raise TaskConfigError(
-                    f"Task '{name}' depends_on must be a list of strings"
-                )
-            depends_on.append(dependency)
-
-        spec_by_name[name] = _TaskSpec(
-            depends_on=depends_on, optional=bool(spec.get("optional", False))
-        )
-
-    return spec_by_name
-
-
-def _validate_dependencies(spec_by_name: dict[str, _TaskSpec]) -> None:
+def _validate_dependencies(spec_by_name: dict[str, TaskSpec]) -> None:
     names = set(spec_by_name.keys())
 
     for task_name, spec in spec_by_name.items():
@@ -501,7 +446,7 @@ def _validate_dependencies(spec_by_name: dict[str, _TaskSpec]) -> None:
 
 
 def _topological_sort(
-    spec_by_name: dict[str, _TaskSpec],
+    spec_by_name: dict[str, TaskSpec],
 ) -> tuple[list[str], dict[str, list[str]]]:
 
     names = list(spec_by_name.keys())
@@ -534,13 +479,13 @@ def _topological_sort(
 def resolve_tasks(
     *,
     task_specs: Sequence[TaskSpecInput],
-    provider_name: str = "aws",
-    supported_task_scopes: frozenset[str | TaskScope] = frozenset({"region"}),
+    provider_name: str,
+    supported_task_scopes: frozenset[str | TaskScope],
 ) -> ResolvedExecution:
-    task_specs_key = _freeze_task_specs(task_specs)
+    normalized_specs = _normalize_task_specs(task_specs)
     normalized_scopes = _normalize_supported_task_scopes(supported_task_scopes)
     ordered, adjacency = _resolve_tasks_cached(
-        provider_name, task_specs_key, normalized_scopes
+        provider_name, normalized_specs, normalized_scopes
     )
     return _build_resolved_execution(ordered, adjacency)
 
@@ -549,32 +494,23 @@ def discover_tasks() -> TaskDiscoveryResult:
     """Discover built-in and plugin provider-aware tasks."""
     from anvil.provider_loader import list_providers
 
-    tasks: list[TaskDescriptor] = []
-    task_keys: set[tuple[str, str, int]] = set()
-    issue_keys: set[tuple[str, ComponentSource, str]] = set()
-    issues: list[DiscoveryIssue] = []
+    tasks: set[TaskDescriptor] = set()
+    issues: set[DiscoveryIssue] = set()
     for provider_name in sorted({provider.name for provider in list_providers()}):
         index, provider_issues = _provider_task_discovery(provider_name)
-        for name, descriptors in index.items():
-            source_counts: dict[tuple[str, str], int] = defaultdict(int)
-            for descriptor in descriptors:
-                source_key = (descriptor.source, name)
-                ordinal = source_counts[source_key]
-                source_counts[source_key] += 1
-                task_key = (descriptor.source, name, ordinal)
-                if task_key in task_keys:
-                    continue
-                task_keys.add(task_key)
-                tasks.append(descriptor)
-        for issue in provider_issues:
-            key = (issue.name, issue.source, issue.error)
-            if key in issue_keys:
-                continue
-            issue_keys.add(key)
-            issues.append(issue)
+        for descriptors in index.values():
+            tasks.update(descriptors)
+        issues.update(provider_issues)
 
-    return TaskDiscoveryResult(tasks=tasks, issues=issues)
+    return TaskDiscoveryResult(
+        tasks=sorted(tasks, key=lambda task: (str(task.source), task.name)),
+        issues=sorted(
+            issues, key=lambda issue: (str(issue.source), issue.name, issue.error)
+        ),
+    )
 
 
 def list_tasks() -> list[TaskDescriptor]:
-    return sorted(discover_tasks().tasks, key=lambda task: (task.source, task.name))
+    return sorted(
+        discover_tasks().tasks, key=lambda task: (str(task.source), task.name)
+    )

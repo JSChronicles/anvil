@@ -32,5 +32,4 @@ class TaskCallContext:
             "dry_run": self.dry_run,
             "metadata": self.metadata,
             "actions": self.actions,
-            "task_context": self,
         }

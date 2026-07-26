@@ -247,6 +247,7 @@ def test_build_rerun_targets_narrows_entities_regions_and_task_dependencies():
             TargetDescriptor(
                 config_branch=ConfigBranch.TARGETS,
                 name="org-a",
+                provider="aws",
                 mode="organization",
                 regions=["us-east-1", "us-west-2"],
                 include=["111111111111", "222222222222"],
@@ -259,6 +260,7 @@ def test_build_rerun_targets_narrows_entities_regions_and_task_dependencies():
             TargetDescriptor(
                 config_branch=ConfigBranch.TARGETS,
                 name="org-b",
+                provider="aws",
                 mode="organization",
                 regions=["us-east-1"],
                 tasks=[{"name": "inventory"}],
@@ -504,6 +506,8 @@ def test_run_configured_post_processors_runs_successful_targets(monkeypatch):
     target = TargetDescriptor(
         config_branch=ConfigBranch.TARGETS,
         name="org-a",
+        provider="aws",
+        mode="organization",
         metadata={"team": "security"},
         post_run=[
             {
@@ -514,7 +518,10 @@ def test_run_configured_post_processors_runs_successful_targets(monkeypatch):
         ],
     )
     loaded_config = LoadedConfig(branch=ConfigBranch.TARGETS, targets=[target])
-    target_result = SimpleNamespace(target_name="org-a", has_failures=False)
+    target_result_payload = {"target": "org-a", "provider": "aws"}
+    target_result = SimpleNamespace(
+        target_name="org-a", has_failures=False, to_dict=lambda: target_result_payload
+    )
     engine_result = SimpleNamespace(target_results=[target_result])
     written_results = SimpleNamespace(
         run_dir=Path("results/orgs/run"),
@@ -545,7 +552,7 @@ def test_run_configured_post_processors_runs_successful_targets(monkeypatch):
     )
     assert seen["specs"][0].metadata == {"include_passed": False}
     assert seen["context"].target_name == "org-a"
-    assert seen["context"].target_result is target_result
+    assert seen["context"].target_result == target_result_payload
     assert seen["context"].target_metadata == {"team": "security"}
 
 
@@ -559,6 +566,8 @@ def test_run_configured_post_processors_skips_failed_targets(monkeypatch):
     target = TargetDescriptor(
         config_branch=ConfigBranch.TARGETS,
         name="org-a",
+        provider="aws",
+        mode="organization",
         post_run=[{"processor": "summary_markdown"}],
     )
     loaded_config = LoadedConfig(branch=ConfigBranch.TARGETS, targets=[target])
@@ -599,6 +608,8 @@ def test_run_configured_post_processors_runs_failure_opt_in(monkeypatch):
     target = TargetDescriptor(
         config_branch=ConfigBranch.TARGETS,
         name="org-a",
+        provider="aws",
+        mode="organization",
         post_run=[
             {"processor": "success_only"},
             {
@@ -609,7 +620,10 @@ def test_run_configured_post_processors_runs_failure_opt_in(monkeypatch):
         ],
     )
     loaded_config = LoadedConfig(branch=ConfigBranch.TARGETS, targets=[target])
-    target_result = SimpleNamespace(target_name="org-a", has_failures=True)
+    target_result_payload = {"target": "org-a", "provider": "aws"}
+    target_result = SimpleNamespace(
+        target_name="org-a", has_failures=True, to_dict=lambda: target_result_payload
+    )
     written_results = SimpleNamespace(
         run_dir=Path("results/orgs/run"),
         summary_path=Path("results/orgs/run/summary.json"),
@@ -638,7 +652,7 @@ def test_run_configured_post_processors_runs_failure_opt_in(monkeypatch):
         Path("results/orgs/run/reports/org-a-status.html")
     )
     assert seen["specs"][0].run_on_failure is True
-    assert seen["context"].target_result is target_result
+    assert seen["context"].target_result == target_result_payload
 
 
 def test_cmd_results_processor_runs_completed_results_context(monkeypatch):

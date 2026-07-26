@@ -1,6 +1,21 @@
 import pytest
 
 from anvil.descriptors import ConfigBranch, TargetDescriptor
+from anvil.providers.aws.provider import AwsProvider
+from anvil.providers.azure.provider import AzureProvider
+from anvil.providers.gcp.provider import GcpProvider
+from anvil.providers.github.provider import GithubProvider
+
+
+def _aws_org(**overrides) -> TargetDescriptor:
+    values = {
+        "config_branch": ConfigBranch.TARGETS,
+        "name": "org",
+        "provider": "aws",
+        "mode": "organization",
+    }
+    values.update(overrides)
+    return TargetDescriptor(**values)
 
 
 def test_duplicate_org_names():
@@ -9,10 +24,7 @@ def test_duplicate_org_names():
     except PermissionError as error:
         pytest.skip(f"jsonschema package resources unavailable in test env: {error}")
 
-    targets = [
-        TargetDescriptor(config_branch=ConfigBranch.TARGETS, name="a"),
-        TargetDescriptor(config_branch=ConfigBranch.TARGETS, name="a"),
-    ]
+    targets = [_aws_org(name="a"), _aws_org(name="a")]
 
     with pytest.raises(ValueError):
         validate_target_descriptors(targets=targets)
@@ -22,21 +34,27 @@ def test_accounts_direct_mode_requires_single_account():
     with pytest.raises(
         ValueError, match="without role_name must include exactly one account ID"
     ):
-        TargetDescriptor(
+        descriptor = TargetDescriptor(
             config_branch=ConfigBranch.TARGETS,
             name="direct-rollout",
+            provider="aws",
+            mode="accounts",
             include=["111111111111", "222222222222"],
         )
+        AwsProvider().validate_target(descriptor)
 
 
 def test_accounts_assume_role_mode_allows_multiple_accounts():
     descriptor = TargetDescriptor(
         config_branch=ConfigBranch.TARGETS,
         name="assume-role-rollout",
-        role_name="OrganizationAccountAccessRole",
+        provider="aws",
+        mode="accounts",
+        provider_options={"role_name": "OrganizationAccountAccessRole"},
         include=["111111111111", "222222222222"],
     )
 
+    AwsProvider().validate_target(descriptor)
     assert descriptor.include == ["111111111111", "222222222222"]
 
 
@@ -102,38 +120,47 @@ def test_github_repository_mode_allows_owner_repo_values():
 
 def test_github_modes_require_include():
     with pytest.raises(ValueError, match="requires include"):
-        TargetDescriptor(
+        descriptor = TargetDescriptor(
             config_branch=ConfigBranch.TARGETS,
             name="github-repositories",
             provider="github",
             mode="repositories",
         )
+        GithubProvider().validate_target(descriptor)
 
 
-def test_invalid_provider_is_rejected():
-    with pytest.raises(ValueError, match="Unsupported provider"):
-        TargetDescriptor(
-            config_branch=ConfigBranch.TARGETS,
-            name="unknown",
-            provider="do",
-            include=["target-a"],
+def test_unknown_provider_is_rejected_during_component_resolution():
+    from anvil.validators import validate_target_descriptors
+
+    with pytest.raises(ValueError, match="Unknown provider"):
+        validate_target_descriptors(
+            targets=[
+                TargetDescriptor(
+                    config_branch=ConfigBranch.TARGETS,
+                    name="unknown",
+                    provider="do",
+                    mode="custom",
+                    include=["target-a"],
+                )
+            ]
         )
 
 
 def test_invalid_provider_mode_is_rejected():
-    with pytest.raises(ValueError, match="Unsupported mode"):
-        TargetDescriptor(
+    with pytest.raises(ValueError, match="Unsupported Azure target mode"):
+        descriptor = TargetDescriptor(
             config_branch=ConfigBranch.TARGETS,
             name="azure-subscriptions",
             provider="azure",
             mode="projects",
             include=["sub-a"],
         )
+        AzureProvider().validate_target(descriptor)
 
 
 def test_invalid_provider_options_are_rejected():
     with pytest.raises(ValueError, match="Unsupported provider.options"):
-        TargetDescriptor(
+        descriptor = TargetDescriptor(
             config_branch=ConfigBranch.TARGETS,
             name="gcp-projects",
             provider="gcp",
@@ -141,97 +168,46 @@ def test_invalid_provider_options_are_rejected():
             include=["project-a"],
             provider_options={"tenant_id": "wrong-cloud"},
         )
-
-
-def test_provider_options_profile_conflict_is_rejected():
-    with pytest.raises(ValueError, match="provider.options.profile"):
-        TargetDescriptor(
-            config_branch=ConfigBranch.TARGETS,
-            name="aws-accounts",
-            profile="dev",
-            include=["111111111111"],
-            provider_options={"profile": "prod"},
-        )
-
-
-def test_provider_options_role_name_conflict_is_rejected():
-    with pytest.raises(ValueError, match="provider.options.role_name"):
-        TargetDescriptor(
-            config_branch=ConfigBranch.TARGETS,
-            name="aws-accounts",
-            role_name="AuditRole",
-            include=["111111111111"],
-            provider_options={"role_name": "ReadOnlyRole"},
-        )
-
-
-def test_matching_top_level_and_provider_options_profile_is_accepted():
-    descriptor = TargetDescriptor(
-        config_branch=ConfigBranch.TARGETS,
-        name="aws-accounts",
-        profile="dev",
-        include=["111111111111"],
-        provider_options={"profile": "dev"},
-    )
-
-    assert descriptor.profile == "dev"
-
-
-def test_matching_top_level_and_provider_options_role_name_is_accepted():
-    descriptor = TargetDescriptor(
-        config_branch=ConfigBranch.TARGETS,
-        name="aws-accounts",
-        role_name="AuditRole",
-        include=["111111111111", "222222222222"],
-        provider_options={"role_name": "AuditRole"},
-    )
-
-    assert descriptor.role_name == "AuditRole"
+        GcpProvider().validate_target(descriptor)
 
 
 def test_max_parallel_regions_defaults_to_one():
-    descriptor = TargetDescriptor(config_branch=ConfigBranch.TARGETS, name="org")
+    descriptor = _aws_org()
 
     assert descriptor.max_parallel_regions == 1
 
 
 def test_max_parallel_regions_accepts_maximum_value():
-    descriptor = TargetDescriptor(
-        config_branch=ConfigBranch.TARGETS, name="org", max_parallel_regions=4
-    )
+    descriptor = _aws_org(max_parallel_regions=4)
 
     assert descriptor.max_parallel_regions == 4
 
 
 def test_organization_regions_accepts_all_selector():
-    descriptor = TargetDescriptor(
-        config_branch=ConfigBranch.TARGETS, name="org", regions=["all"]
-    )
+    descriptor = _aws_org(regions=["all"])
 
+    AwsProvider().validate_target(descriptor)
     assert descriptor.regions == ["all"]
 
 
 def test_organization_regions_accepts_globs_and_explicit_regions():
-    descriptor = TargetDescriptor(
-        config_branch=ConfigBranch.TARGETS, name="org", regions=["us-*", "ca-central-1"]
-    )
+    descriptor = _aws_org(regions=["us-*", "ca-central-1"])
 
+    AwsProvider().validate_target(descriptor)
     assert descriptor.regions == ["us-*", "ca-central-1"]
 
 
 def test_post_run_defaults_to_empty_list():
-    descriptor = TargetDescriptor(config_branch=ConfigBranch.TARGETS, name="org")
+    descriptor = _aws_org()
 
     assert descriptor.post_run == []
 
 
 def test_post_run_normalizes_processor_and_metadata():
-    descriptor = TargetDescriptor(
-        config_branch=ConfigBranch.TARGETS,
-        name="org",
+    descriptor = _aws_org(
         post_run=[
             {"processor": " summary_markdown ", "metadata": {"include_passed": False}}
-        ],
+        ]
     )
 
     assert descriptor.post_run == [
@@ -240,10 +216,8 @@ def test_post_run_normalizes_processor_and_metadata():
 
 
 def test_post_run_normalizes_run_on_failure():
-    descriptor = TargetDescriptor(
-        config_branch=ConfigBranch.TARGETS,
-        name="org",
-        post_run=[{"processor": "html_report", "run_on_failure": True}],
+    descriptor = _aws_org(
+        post_run=[{"processor": "html_report", "run_on_failure": True}]
     )
 
     assert descriptor.post_run == [
@@ -253,20 +227,21 @@ def test_post_run_normalizes_run_on_failure():
 
 def test_regions_rejects_all_mixed_with_other_regions():
     with pytest.raises(ValueError, match="'all' must be the only region value"):
-        TargetDescriptor(
-            config_branch=ConfigBranch.TARGETS, name="org", regions=["all", "us-east-1"]
-        )
+        AwsProvider().validate_target(_aws_org(regions=["all", "us-east-1"]))
 
 
 @pytest.mark.parametrize("regions", [["all"], ["us-*"]])
 def test_accounts_regions_reject_selectors(regions):
     with pytest.raises(ValueError, match="selectors are not allowed"):
-        TargetDescriptor(
+        descriptor = TargetDescriptor(
             config_branch=ConfigBranch.TARGETS,
             name="group",
+            provider="aws",
+            mode="accounts",
             include=["111111111111"],
             regions=regions,
         )
+        AwsProvider().validate_target(descriptor)
 
 
 @pytest.mark.parametrize(
@@ -287,12 +262,15 @@ def test_provider_location_discovery_modes_accept_selectors(provider, mode, incl
         regions=["us-*"],
     )
 
+    {"azure": AzureProvider(), "gcp": GcpProvider()}[provider].validate_target(
+        descriptor
+    )
     assert descriptor.regions == ["us-*"]
 
 
 def test_github_repository_regions_reject_selectors():
     with pytest.raises(ValueError, match="selectors are not allowed"):
-        TargetDescriptor(
+        descriptor = TargetDescriptor(
             config_branch=ConfigBranch.TARGETS,
             name="github-repos",
             provider="github",
@@ -300,28 +278,19 @@ def test_github_repository_regions_reject_selectors():
             include=["octo-org/example"],
             regions=["all"],
         )
+        GithubProvider().validate_target(descriptor)
 
 
 @pytest.mark.parametrize("max_parallel_regions", [0, 5])
 def test_max_parallel_regions_rejects_out_of_range_values(max_parallel_regions):
     with pytest.raises(ValueError, match="max_parallel_regions"):
-        TargetDescriptor(
-            config_branch=ConfigBranch.TARGETS,
-            name="org",
-            max_parallel_regions=max_parallel_regions,
-        )
+        _aws_org(max_parallel_regions=max_parallel_regions)
 
 
 def test_fail_fast_warns_when_combined_concurrency_is_high(caplog):
     from anvil.validators import validate_target_descriptors
 
-    target = TargetDescriptor(
-        config_branch=ConfigBranch.TARGETS,
-        name="org",
-        max_workers=3,
-        max_parallel_regions=4,
-        fail_fast=True,
-    )
+    target = _aws_org(max_workers=3, max_parallel_regions=4, fail_fast=True)
 
     validate_target_descriptors(targets=[target])
 
@@ -331,13 +300,7 @@ def test_fail_fast_warns_when_combined_concurrency_is_high(caplog):
 def test_fail_fast_does_not_warn_when_combined_concurrency_is_low(caplog):
     from anvil.validators import validate_target_descriptors
 
-    target = TargetDescriptor(
-        config_branch=ConfigBranch.TARGETS,
-        name="org",
-        max_workers=2,
-        max_parallel_regions=4,
-        fail_fast=True,
-    )
+    target = _aws_org(max_workers=2, max_parallel_regions=4, fail_fast=True)
 
     validate_target_descriptors(targets=[target])
 

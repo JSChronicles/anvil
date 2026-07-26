@@ -235,9 +235,7 @@ def _target(**overrides) -> TargetDescriptor:
 
 
 def _context() -> ExecutionContext:
-    return ExecutionContext(
-        regions=["global"], role_name=None, dry_run=False, tasks=[], metadata={}
-    )
+    return ExecutionContext(regions=["global"], dry_run=False, tasks=[], metadata={})
 
 
 def _install_fake_pygithub(monkeypatch) -> ModuleType:
@@ -265,8 +263,11 @@ def test_github_provider_metadata_and_default_location():
 
 
 def test_github_provider_requires_explicit_include():
+    provider = create_provider_instance()
+    target = _target(include=None)
+
     with pytest.raises(ValueError, match="requires include"):
-        _target(include=None)
+        provider.validate_target(target)
 
 
 def test_github_provider_rejects_exclude():
@@ -275,18 +276,27 @@ def test_github_provider_rejects_exclude():
 
 
 def test_github_provider_rejects_removed_auth_type():
+    provider = create_provider_instance()
+    target = _target(provider_options={"auth_type": "token"})
+
     with pytest.raises(ValueError, match="auth_type"):
-        _target(provider_options={"auth_type": "token"})
+        provider.validate_target(target)
 
 
 def test_github_provider_rejects_removed_installation_id():
+    provider = create_provider_instance()
+    target = _target(provider_options={"installation_id": "67890"})
+
     with pytest.raises(ValueError, match="installation_id"):
-        _target(provider_options={"installation_id": "67890"})
+        provider.validate_target(target)
 
 
 def test_github_provider_rejects_profile_with_inline_auth():
+    provider = create_provider_instance()
+    target = _target(provider_options={"profile": "work", "token_env": "GITHUB_TOKEN"})
+
     with pytest.raises(ValueError, match="profile cannot be combined"):
-        _target(provider_options={"profile": "work", "token_env": "GITHUB_TOKEN"})
+        provider.validate_target(target)
 
 
 def test_github_provider_rejects_repository_include_without_owner():
@@ -444,6 +454,7 @@ def test_github_prepare_runtime_rejects_wrong_provider():
         name="octo-org/example",
         type="repository",
         provider="aws",
+        regions=["global"],
         provider_data=GithubExecutionTargetData(
             target_id="octo-org/example",
             target_type="repository",
@@ -466,6 +477,7 @@ def test_github_prepare_runtime_rejects_wrong_provider_data_type():
         name="octo-org/example",
         type="repository",
         provider="github",
+        regions=["global"],
         provider_data=object(),
     )
 

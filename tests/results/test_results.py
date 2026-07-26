@@ -13,6 +13,8 @@ def _entity_result(*, entity_id: str, status: ExecutionStatus) -> EntityResult:
         id=entity_id,
         name=f"acct-{entity_id}",
         type="account",
+        provider="aws",
+        metadata={},
         status=status,
         started_at="2026-03-25T00:00:00+00:00",
         ended_at="2026-03-25T00:00:01+00:00",
@@ -25,6 +27,7 @@ def test_engine_summary_counts_interrupted_entities() -> None:
     target_result = TargetResult.create(
         config_branch=ConfigBranch.TARGETS,
         target_name="org-a",
+        provider="aws",
         dry_run=True,
         entities=[
             _entity_result(entity_id="111111111111", status=ExecutionStatus.SUCCESS),

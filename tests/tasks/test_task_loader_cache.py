@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 
+from anvil._components import ComponentOrigin, ComponentSource
 from anvil.task_loader import TaskDescriptor
 
 
@@ -15,7 +16,16 @@ def _patch_provider_tasks(monkeypatch, task_loader, load_calls: list[str]) -> No
 
             return run
 
-        return TaskDescriptor(name=task_name, load=load, source="aws")
+        return TaskDescriptor(
+            name=task_name,
+            load=load,
+            source=ComponentSource(
+                origin=ComponentOrigin.STOCK,
+                package="tests.tasks",
+                label="aws",
+                provider="aws",
+            ),
+        )
 
     monkeypatch.setattr(
         task_loader,
@@ -24,6 +34,14 @@ def _patch_provider_tasks(monkeypatch, task_loader, load_calls: list[str]) -> No
             "alpha": (descriptor("alpha"),),
             "beta": (descriptor("beta"),),
         },
+    )
+    monkeypatch.setattr(
+        task_loader,
+        "_provider_task_discovery",
+        lambda provider_name: (
+            {"alpha": [descriptor("alpha")], "beta": [descriptor("beta")]},
+            (),
+        ),
     )
     task_loader._load_provider_task_callable.cache_clear()
     task_loader._resolve_tasks_cached.cache_clear()
@@ -39,8 +57,16 @@ def test_repeated_identical_task_specs_reuse_cached_resolution(monkeypatch):
 
     task_specs = [{"name": "alpha"}, {"name": "beta", "depends_on": ["alpha"]}]
 
-    first = task_loader.resolve_tasks(task_specs=task_specs)
-    second = task_loader.resolve_tasks(task_specs=task_specs)
+    first = task_loader.resolve_tasks(
+        task_specs=task_specs,
+        provider_name="aws",
+        supported_task_scopes=frozenset({"region"}),
+    )
+    second = task_loader.resolve_tasks(
+        task_specs=task_specs,
+        provider_name="aws",
+        supported_task_scopes=frozenset({"region"}),
+    )
 
     assert load_calls == ["alpha", "beta"]
     assert [task.name for task in first.ordered] == ["alpha", "beta"]
@@ -60,8 +86,16 @@ def test_different_task_order_is_not_treated_as_same_cache_key(monkeypatch):
     first_specs = [{"name": "alpha"}, {"name": "beta"}]
     second_specs = [{"name": "beta"}, {"name": "alpha"}]
 
-    first = task_loader.resolve_tasks(task_specs=first_specs)
-    second = task_loader.resolve_tasks(task_specs=second_specs)
+    first = task_loader.resolve_tasks(
+        task_specs=first_specs,
+        provider_name="aws",
+        supported_task_scopes=frozenset({"region"}),
+    )
+    second = task_loader.resolve_tasks(
+        task_specs=second_specs,
+        provider_name="aws",
+        supported_task_scopes=frozenset({"region"}),
+    )
 
     assert [task.name for task in first.ordered] == ["alpha", "beta"]
     assert [task.name for task in second.ordered] == ["beta", "alpha"]
@@ -77,12 +111,20 @@ def test_returned_values_do_not_expose_shared_mutable_cached_state(monkeypatch):
 
     task_specs = [{"name": "alpha"}, {"name": "beta", "depends_on": ["alpha"]}]
 
-    first = task_loader.resolve_tasks(task_specs=task_specs)
+    first = task_loader.resolve_tasks(
+        task_specs=task_specs,
+        provider_name="aws",
+        supported_task_scopes=frozenset({"region"}),
+    )
     first.ordered[1].depends_on.append("extra")
     first.adjacency["alpha"].append("extra")
     first.ordered.append(first.ordered[0])
 
-    second = task_loader.resolve_tasks(task_specs=task_specs)
+    second = task_loader.resolve_tasks(
+        task_specs=task_specs,
+        provider_name="aws",
+        supported_task_scopes=frozenset({"region"}),
+    )
 
     assert [task.name for task in second.ordered] == ["alpha", "beta"]
     assert second.ordered[1].depends_on == ["alpha"]

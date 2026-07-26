@@ -298,7 +298,6 @@ def test_discovery_modes_allow_omitted_include(provider, mode):
     [
         ("aws", "accounts"),
         ("azure", "subscriptions"),
-        ("gcp", "projects"),
         ("github", "organizations"),
         ("github", "repositories"),
     ],
@@ -306,13 +305,13 @@ def test_discovery_modes_allow_omitted_include(provider, mode):
 def test_explicit_modes_require_include_and_reject_exclude(provider, mode):
     validators = _import_validators_or_skip()
 
+    config = {
+        "schema_version": 2,
+        "targets": [_target(provider_name=provider, mode=mode)],
+    }
+    validators.validate_config_schema(config=config)
     with pytest.raises(ValueError, match="include"):
-        validators.validate_config_schema(
-            config={
-                "schema_version": 2,
-                "targets": [_target(provider_name=provider, mode=mode)],
-            }
-        )
+        validators.load_config_descriptors(config=config)
 
     with pytest.raises(ValueError, match="exclude"):
         validators.validate_config_schema(
@@ -338,14 +337,12 @@ def test_github_modes_validate_include_shape(mode, include):
     validators = _import_validators_or_skip()
 
     with pytest.raises(ValueError, match="include"):
-        validators.validate_config_schema(
-            config={
-                "schema_version": 2,
-                "targets": [
-                    _target(provider_name="github", mode=mode, include=include)
-                ],
-            }
-        )
+        config = {
+            "schema_version": 2,
+            "targets": [_target(provider_name="github", mode=mode, include=include)],
+        }
+        validators.validate_config_schema(config=config)
+        validators.load_config_descriptors(config=config)
 
 
 @pytest.mark.parametrize("field_name", ["provider_options", "profile", "role_name"])
