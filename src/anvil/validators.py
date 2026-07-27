@@ -188,7 +188,7 @@ def validate_target_descriptors(*, targets: list[TargetDescriptor]) -> None:
         if target.fail_fast and combined_concurrency > 10:
             __LOGGER__.warning(
                 f"Target '{target.name}' has fail_fast enabled with "
-                f"combined account-region concurrency={combined_concurrency} "
+                f"combined entity-region concurrency={combined_concurrency} "
                 f"(max_workers={target.max_workers}, "
                 f"max_parallel_regions={target.max_parallel_regions})"
             )

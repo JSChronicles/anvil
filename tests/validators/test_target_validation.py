@@ -13,7 +13,7 @@ def _aws_organization_target(**overrides) -> TargetDescriptor:
     return TargetDescriptor(**values)
 
 
-def test_duplicate_org_names():
+def test_duplicate_target_names():
     try:
         from anvil.validators import validate_target_descriptors
     except PermissionError as error:
@@ -271,7 +271,7 @@ def test_fail_fast_warns_when_combined_concurrency_is_high(caplog):
 
     validate_target_descriptors(targets=[target])
 
-    assert "combined account-region concurrency=12" in caplog.text
+    assert "combined entity-region concurrency=12" in caplog.text
 
 
 def test_fail_fast_does_not_warn_when_combined_concurrency_is_low(caplog):
@@ -283,4 +283,4 @@ def test_fail_fast_does_not_warn_when_combined_concurrency_is_low(caplog):
 
     validate_target_descriptors(targets=[target])
 
-    assert "combined account-region concurrency" not in caplog.text
+    assert "combined entity-region concurrency" not in caplog.text

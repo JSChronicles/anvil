@@ -33,6 +33,7 @@ AVAILABLE_FIELDS = [
     "duration_seconds",
     "ended_at",
     "entity_id",
+    "entity_metadata",
     "entity_name",
     "entity_type",
     "error",

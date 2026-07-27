@@ -513,9 +513,6 @@ def test_validate_selected_providers_validates_all_when_no_names(monkeypatch):
         def validate_target(self, target):
             return None
 
-        def default_regions(self, target):
-            return []
-
         def auth_cache_key(self, target):
             return None
 

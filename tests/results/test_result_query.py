@@ -225,7 +225,11 @@ def test_build_rerun_targets_includes_interrupted_task_dependencies():
 
 
 def test_parse_fields_validates_known_fields():
-    assert parse_fields("entity_id, region,task") == ["entity_id", "region", "task"]
+    assert parse_fields("entity_id, entity_metadata,region") == [
+        "entity_id",
+        "entity_metadata",
+        "region",
+    ]
 
 
 def test_parse_fields_rejects_unknown_fields():
