@@ -17,6 +17,7 @@ def test_offline_github_paths_do_not_import_pygithub(monkeypatch):
 
     monkeypatch.setattr(builtins, "__import__", guarded_import)
     monkeypatch.setattr(provider_loader, "entry_points", lambda *, group: [])
+    provider_loader._clear_provider_caches()
 
     providers = provider_loader.list_providers()
     github_descriptor = next(

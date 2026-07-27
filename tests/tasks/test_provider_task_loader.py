@@ -285,3 +285,24 @@ def test_discover_tasks_scans_universal_sources_once(monkeypatch):
         "gcp",
         "github",
     ]
+
+
+def test_repeated_list_tasks_reuses_provider_discovery_snapshot(monkeypatch):
+    from anvil import provider_loader
+
+    task_loader = importlib.import_module("anvil.task_loader")
+    entry_point_scans = 0
+
+    def fake_entry_points(*, group):
+        nonlocal entry_point_scans
+        entry_point_scans += 1
+        return []
+
+    monkeypatch.setattr(provider_loader, "entry_points", fake_entry_points)
+    provider_loader._clear_provider_caches()
+    _clear_task_loader_caches(task_loader)
+
+    task_loader.list_tasks()
+    task_loader.list_tasks()
+
+    assert entry_point_scans == 1

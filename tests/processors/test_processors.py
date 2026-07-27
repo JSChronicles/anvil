@@ -25,6 +25,45 @@ def _context(tmp_path: Path) -> ProcessorRunContext:
     )
 
 
+def test_processor_catalog_scans_entry_points_once(monkeypatch):
+    from anvil import processor_loader
+
+    calls = 0
+
+    def fake_entry_points(*, group):
+        nonlocal calls
+        calls += 1
+        return []
+
+    monkeypatch.setattr(processor_loader, "entry_points", fake_entry_points)
+    processor_loader._clear_processor_caches()
+
+    processor_loader.list_processors()
+    processor_loader.list_processors()
+
+    assert calls == 1
+
+
+def test_clear_processor_caches_refreshes_entry_points(monkeypatch):
+    from anvil import processor_loader
+
+    calls = 0
+
+    def fake_entry_points(*, group):
+        nonlocal calls
+        calls += 1
+        return []
+
+    monkeypatch.setattr(processor_loader, "entry_points", fake_entry_points)
+    processor_loader._clear_processor_caches()
+
+    processor_loader.list_processors()
+    processor_loader._clear_processor_caches()
+    processor_loader.list_processors()
+
+    assert calls == 2
+
+
 def test_validate_processors_accepts_valid_processor():
     def run(*, context, output, metadata):
         """Run a valid processor."""
@@ -76,12 +115,12 @@ def test_load_processor_rejects_duplicate_catalog_candidates(monkeypatch):
             load=lambda: lambda **kwargs: None,
         ),
     ]
+    processor_loader._clear_processor_caches()
     monkeypatch.setattr(
         processor_loader,
         "_processor_catalog",
         lambda: ComponentCatalog.build(descriptors),
     )
-    processor_loader._clear_processor_caches()
 
     with pytest.raises(processor_loader.ProcessorConfigError, match="ambiguous"):
         processor_loader.load_processor_callable("shared")

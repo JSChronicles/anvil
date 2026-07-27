@@ -130,10 +130,20 @@ def _provider_catalog_for_entry_points(
     return ComponentCatalog.build(catalog.descriptors, duplicate_issues)
 
 
+@lru_cache(maxsize=1)
 def _provider_catalog() -> ComponentCatalog[Provider]:
+    """Return the process-local provider discovery snapshot."""
+
     return _provider_catalog_for_entry_points(
         tuple(entry_points(group=PROVIDER_PACKAGE_ENTRY_POINT_GROUP))
     )
+
+
+def _clear_provider_caches() -> None:
+    """Clear provider discovery snapshots and derived catalogs."""
+
+    _provider_catalog.cache_clear()
+    _provider_catalog_for_entry_points.cache_clear()
 
 
 def discover_providers() -> ProviderDiscoveryResult:

@@ -356,7 +356,10 @@ def _processor_catalog_for_entry_points(
     return ComponentCatalog.build(descriptors, issues)
 
 
+@lru_cache(maxsize=1)
 def _processor_catalog() -> ComponentCatalog[Callable]:
+    """Return the process-local processor discovery snapshot."""
+
     return _processor_catalog_for_entry_points(
         tuple(entry_points(group=PROCESSOR_ENTRY_POINT_GROUP))
     )
@@ -377,8 +380,9 @@ def load_processor_callable(processor_name: str) -> Callable:
 
 
 def _clear_processor_caches() -> None:
-    """Clear the processor discovery cache."""
+    """Clear processor discovery snapshots and derived catalogs."""
 
+    _processor_catalog.cache_clear()
     _processor_catalog_for_entry_points.cache_clear()
 
 

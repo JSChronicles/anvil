@@ -9,6 +9,15 @@ import pytest
 from anvil import provider_loader
 
 
+@pytest.fixture(autouse=True)
+def clear_provider_caches():
+    """Isolate provider entry-point snapshots between tests."""
+
+    provider_loader._clear_provider_caches()
+    yield
+    provider_loader._clear_provider_caches()
+
+
 def test_list_providers_returns_aws_without_loading_provider(monkeypatch):
     monkeypatch.setattr(provider_loader, "entry_points", lambda *, group: [])
 
@@ -20,6 +29,39 @@ def test_list_providers_returns_aws_without_loading_provider(monkeypatch):
         ("gcp", "stock"),
         ("github", "stock"),
     ]
+
+
+def test_provider_catalog_scans_entry_points_once(monkeypatch):
+    calls = 0
+
+    def fake_entry_points(*, group):
+        nonlocal calls
+        calls += 1
+        return []
+
+    monkeypatch.setattr(provider_loader, "entry_points", fake_entry_points)
+
+    provider_loader.list_providers()
+    provider_loader.list_providers()
+
+    assert calls == 1
+
+
+def test_clear_provider_caches_refreshes_entry_points(monkeypatch):
+    calls = 0
+
+    def fake_entry_points(*, group):
+        nonlocal calls
+        calls += 1
+        return []
+
+    monkeypatch.setattr(provider_loader, "entry_points", fake_entry_points)
+
+    provider_loader.list_providers()
+    provider_loader._clear_provider_caches()
+    provider_loader.list_providers()
+
+    assert calls == 2
 
 
 def test_load_provider_rejects_duplicate_package_candidates(monkeypatch, tmp_path):
