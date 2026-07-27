@@ -4,6 +4,39 @@ All notable changes to this project will be documented in this file.
 
 <!-- version list -->
 
+## v0.30.1 (2026-07-27)
+
+### Bug Fixes
+
+- Expose entity metadata in result queries
+  ([`7d191be`](https://github.com/JSChronicles/anvil/commit/7d191be8e7d1eb1c8132a1c0e2ab4ab0a9923196))
+
+- Format in md files
+  ([`7d191be`](https://github.com/JSChronicles/anvil/commit/7d191be8e7d1eb1c8132a1c0e2ab4ab0a9923196))
+
+- Implemented component discovery caching
+  ([`7d191be`](https://github.com/JSChronicles/anvil/commit/7d191be8e7d1eb1c8132a1c0e2ab4ab0a9923196))
+
+- Refactor validation, context isolation, and catalog APIs
+  ([`7d191be`](https://github.com/JSChronicles/anvil/commit/7d191be8e7d1eb1c8132a1c0e2ab4ab0a9923196))
+
+- Remove ConfigBranch from target pipeline
+  ([`7d191be`](https://github.com/JSChronicles/anvil/commit/7d191be8e7d1eb1c8132a1c0e2ab4ab0a9923196))
+
+- Tighten typing for GitHub tasks and tests
+  ([`7d191be`](https://github.com/JSChronicles/anvil/commit/7d191be8e7d1eb1c8132a1c0e2ab4ab0a9923196))
+
+### Chores
+
+- **github-actions**: Bump the github-actions group with 6 updates
+  ([#60](https://github.com/JSChronicles/anvil/pull/60),
+  [`5e41564`](https://github.com/JSChronicles/anvil/commit/5e4156469c60a56bd4db0f42bee5db88b578830d))
+
+- **pre-commit**: Bump the pre-commit group with 2 updates
+  ([#59](https://github.com/JSChronicles/anvil/pull/59),
+  [`8c230c6`](https://github.com/JSChronicles/anvil/commit/8c230c672d67c30fbd3691d759af54336e6c0d95))
+
+
 ## v0.30.0 (2026-07-22)
 
 ### Bug Fixes
