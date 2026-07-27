@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TypedDict
 
 import matplotlib.pyplot as plt
 
@@ -11,7 +12,16 @@ TEXT = "#f8fafc"
 ANVIL = "#7c4dff"
 BASELINE = "#f97316"
 
-ROWS: list[dict[str, object]] = [
+
+class BenchmarkRow(TypedDict):
+    """One runtime measurement displayed by the benchmark chart."""
+
+    group: str
+    region_label: str
+    minutes: float
+
+
+ROWS: list[BenchmarkRow] = [
     {
         "group": "Sequential orgs\nSequential accounts",
         "region_label": "1 region",
@@ -65,7 +75,7 @@ def speedup(old: float, new: float) -> float:
     return old / new
 
 
-def plot_grouped(rows: list[dict[str, object]], *, output_path: Path) -> None:
+def plot_grouped(rows: list[BenchmarkRow], *, output_path: Path) -> None:
     plt.style.use("dark_background")
     fig, ax = plt.subplots(figsize=(15, 7.5))
 

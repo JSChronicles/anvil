@@ -10,11 +10,11 @@ import subprocess
 import threading
 import time
 import tomllib
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 from types import ModuleType
-from typing import Any
+from typing import Any, Protocol, cast
 from urllib.parse import urlparse
 
 from anvil.descriptors import TargetDescriptor
@@ -72,6 +72,16 @@ GITHUB_LOGIN_PATTERN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9]
 GITHUB_REPOSITORY_PATTERN = re.compile(
     r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[^/\s]+$"
 )
+
+
+class _GitHubClient(Protocol):
+    """PyGithub operations used by the cached client wrapper."""
+
+    def get_repo(self, full_name_or_id: str) -> object: ...
+
+    def get_organization(self, login: str) -> object: ...
+
+    def search_code(self, *, query: str, highlight: bool) -> Iterable[object]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -201,7 +211,7 @@ class _RateLimitedSearchResults:
     def __init__(
         self,
         *,
-        results: object,
+        results: Iterable[object],
         rate_key: object,
         rate_gate: GitHubRateGate,
         page_size: int,
@@ -262,7 +272,7 @@ class CachedGitHubClient:
         rate_key: object | None = None,
         rate_gate: GitHubRateGate = _GITHUB_RATE_GATE,
     ) -> None:
-        self._client = client
+        self._client = cast(_GitHubClient, client)
         self._rate_key = rate_key
         self._rate_gate = rate_gate
         self._repositories: dict[str, object] = {}
@@ -828,7 +838,7 @@ class GitHubSessionFactory:
         )
 
     def _settings_from_options(
-        self, *, options: dict[str, object], source: str, fail_on_missing: bool
+        self, *, options: Mapping[str, object], source: str, fail_on_missing: bool
     ) -> GitHubAuthSettings:
         api_url = self._string_option(provider_options=options, option_name="api_url")
         api_version = self._string_option(
@@ -934,7 +944,7 @@ class GitHubSessionFactory:
         tried = ", ".join([*GITHUB_FALLBACK_TOKEN_ENVS, ".netrc", "gh auth token"])
         raise RuntimeError(f"GitHub authentication failed. Tried: {tried}")
 
-    def _private_key(self, *, options: dict[str, object], source: str) -> str:
+    def _private_key(self, *, options: Mapping[str, object], source: str) -> str:
         private_key_env = self._string_option(
             provider_options=options, option_name="private_key_env"
         )
@@ -983,7 +993,7 @@ class GitHubSessionFactory:
         return token.strip()
 
     @staticmethod
-    def _has_explicit_auth_options(provider_options: dict[str, object]) -> bool:
+    def _has_explicit_auth_options(provider_options: Mapping[str, object]) -> bool:
         return any(
             option_name in provider_options for option_name in GITHUB_PROFILE_OPTIONS
         )
@@ -1146,7 +1156,7 @@ class GitHubSessionFactory:
 
     @staticmethod
     def _required_string_option(
-        *, provider_options: dict[str, object], option_name: str, source: str
+        *, provider_options: Mapping[str, object], option_name: str, source: str
     ) -> str:
         option = provider_options.get(option_name)
         if not isinstance(option, str) or not option.strip():
@@ -1155,7 +1165,7 @@ class GitHubSessionFactory:
 
     @staticmethod
     def _required_int_option(
-        *, provider_options: dict[str, object], option_name: str
+        *, provider_options: Mapping[str, object], option_name: str
     ) -> int:
         option = provider_options.get(option_name)
         if not isinstance(option, str) or not option.strip():
@@ -1171,7 +1181,7 @@ class GitHubSessionFactory:
 
     @staticmethod
     def _string_option(
-        *, provider_options: dict[str, object], option_name: str
+        *, provider_options: Mapping[str, object], option_name: str
     ) -> str | None:
         option = provider_options.get(option_name)
         return option if isinstance(option, str) else None

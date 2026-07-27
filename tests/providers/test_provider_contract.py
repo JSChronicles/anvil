@@ -122,7 +122,9 @@ def test_provider_contract_rejects_missing_contract_parameter():
             name="broken", display_name="Broken", supported_task_scopes=frozenset()
         )
 
-        def resolve_execution_targets(self, *, target, regions, include):
+        def resolve_execution_targets(  # ty: ignore[invalid-method-override]
+            self, *, target, regions, include
+        ):
             return None
 
     with pytest.raises(TypeError, match="resolve_execution_targets.*exclude"):
@@ -135,7 +137,9 @@ def test_provider_contract_rejects_missing_preparation_parameter():
             name="broken", display_name="Broken", supported_task_scopes=frozenset()
         )
 
-        def resolve_execution_targets(self, *, target, regions, include, exclude):
+        def resolve_execution_targets(  # ty: ignore[invalid-method-override]
+            self, *, target, regions, include, exclude
+        ):
             return None
 
     with pytest.raises(TypeError, match="resolve_execution_targets.*preparation"):

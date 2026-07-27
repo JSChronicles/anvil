@@ -1,10 +1,19 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import Protocol, cast
 
 DEFAULT_MAX_RESULTS = 100
 DEFAULT_PER_PAGE = 100
 REST_HEADERS = {"Accept": "application/vnd.github+json"}
+
+
+class _GitHubRequester(Protocol):
+    """Structural type for the PyGithub REST requester."""
+
+    def requestJsonAndCheck(  # noqa: N802 - matches PyGithub's public method
+        self, method: str, path: str, *args: object, **kwargs: object
+    ) -> tuple[object, object]: ...
 
 
 def metadata_bool(
@@ -127,9 +136,12 @@ def list_rest_items(
     client = _session_client(session=session)
     custom = getattr(client, "rest_get_json_pages", None)
     if callable(custom):
+        custom_items = _jsonable(custom(path, params=params, max_results=max_results))
+        if not isinstance(custom_items, list):
+            raise RuntimeError(f"GitHub REST endpoint {path} did not return a list")
         return [
-            item
-            for item in _jsonable(custom(path, params=params, max_results=max_results))
+            {str(key): value for key, value in item.items()}
+            for item in custom_items
             if isinstance(item, dict)
         ][:max_results]
 
@@ -143,7 +155,11 @@ def list_rest_items(
         if not isinstance(data, list):
             raise RuntimeError(f"GitHub REST endpoint {path} did not return a list")
 
-        page_items = [item for item in data if isinstance(item, dict)]
+        page_items: list[dict[str, object]] = [
+            {str(key): value for key, value in item.items()}
+            for item in data
+            if isinstance(item, dict)
+        ]
         items.extend(page_items)
         if len(data) < request_params["per_page"]:
             break
@@ -201,7 +217,7 @@ def _session_client(*, session: object) -> object:
     return client
 
 
-def _requester(*, client: object) -> object:
+def _requester(*, client: object) -> _GitHubRequester:
     raw_client = getattr(client, "raw_client", client)
     requester = getattr(raw_client, "requester", None)
     if requester is None:
@@ -212,7 +228,7 @@ def _requester(*, client: object) -> object:
         raise RuntimeError(
             "GitHub REST tasks require a PyGithub requester or rest_get_json helper"
         )
-    return requester
+    return cast(_GitHubRequester, requester)
 
 
 def _jsonable(value: object) -> object:

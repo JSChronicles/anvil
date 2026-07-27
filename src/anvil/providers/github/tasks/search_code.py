@@ -6,12 +6,21 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterable, Mapping
+from typing import Protocol, cast
 
 from anvil.actions import ActionRecorder
 
 __LOGGER__ = logging.getLogger(__name__)
 
 DEFAULT_MAX_RESULTS = 100
+
+
+class _SearchClient(Protocol):
+    """Structural type for GitHub sessions that support code search."""
+
+    def search_code(
+        self, query: str, *, highlight: bool = False
+    ) -> Iterable[object]: ...
 
 
 def _metadata_string(
@@ -182,11 +191,11 @@ def _runtime_error_from_provider_error(error: Exception) -> RuntimeError:
     return RuntimeError(f"GitHub search_code failed: {message}")
 
 
-def _search_client(session: object) -> object:
+def _search_client(session: object) -> _SearchClient:
     client = getattr(session, "client", None)
     if client is None or not callable(getattr(client, "search_code", None)):
         raise RuntimeError("search_code requires a GitHub session with search_code()")
-    return client
+    return cast(_SearchClient, client)
 
 
 def run(

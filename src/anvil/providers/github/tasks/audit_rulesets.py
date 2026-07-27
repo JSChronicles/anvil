@@ -50,7 +50,7 @@ def run(
     includes_parents = metadata_bool(
         task_name=TASK_NAME, metadata=metadata, key="includes_parents", default=True
     )
-    params = {"includes_parents": includes_parents}
+    params: dict[str, object] = {"includes_parents": includes_parents}
     rulesets = list_rest_items(
         session=session,
         path=f"/repos/{owner}/{repo}/rulesets",

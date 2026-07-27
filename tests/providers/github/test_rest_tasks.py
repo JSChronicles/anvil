@@ -40,7 +40,12 @@ class FakeRestClient:
             raise response
         if not isinstance(response, list):
             raise AssertionError("paginated response must be a list")
-        return response[:max_results]
+        items: list[dict[str, object]] = []
+        for item in response[:max_results]:
+            if not isinstance(item, dict):
+                raise AssertionError("paginated response items must be mappings")
+            items.append({str(key): value for key, value in item.items()})
+        return items
 
 
 @dataclass(frozen=True)
