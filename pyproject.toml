@@ -149,5 +149,4 @@ not-iterable = "ignore"
 not-subscriptable = "ignore"
 invalid-assignment = "ignore"
 
-[tool.uv]
-exclude-newer = "1 week"
+

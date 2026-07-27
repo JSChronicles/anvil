@@ -53,7 +53,8 @@ Ensure the code is clean, maintainable, PEP 8 compliant, and high quality.
 Avoid:
 
 ```python
-def run(x,y): return x+y
+def run(x, y):
+    return x + y
 ```
 
 Prefer:
