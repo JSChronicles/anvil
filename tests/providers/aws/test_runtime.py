@@ -6,17 +6,17 @@ from dataclasses import dataclass
 
 import pytest
 
-from anvil.account import (
+from anvil.providers.aws.account import (
     MINIMUM_ASSUMED_CREDENTIAL_REFRESH_WINDOW,
     AccountAccessStrategy,
 )
-from anvil.descriptors import ConfigBranch, TargetDescriptor
+from anvil.descriptors import TargetDescriptor
 from anvil.execution_context import ExecutionContext
 from anvil.providers.aws.provider import AwsExecutionTargetData, AwsProvider
 from anvil.providers.base import ExecutionTarget
 from anvil.results import ExecutionStatus
 from anvil.runner import _execute_provider_execution_target
-from anvil.session import AssumedRoleCredentials, CachedClientSession
+from anvil.providers.aws.session import AssumedRoleCredentials, CachedClientSession
 from anvil.task_loader import ResolvedTask
 
 
@@ -92,10 +92,11 @@ class RecordingSessionFactory:
 
 def _target() -> TargetDescriptor:
     return TargetDescriptor(
-        config_branch=ConfigBranch.TARGETS,
         name="selected",
+        provider="aws",
+        mode="accounts",
         include=["123456789012"],
-        role_name="TestRole",
+        provider_options={"role_name": "TestRole"},
     )
 
 
@@ -107,7 +108,6 @@ def _context(
 ) -> ExecutionContext:
     return ExecutionContext(
         regions=regions or ["us-east-1"],
-        role_name="TestRole",
         dry_run=True,
         tasks=tasks or [],
         metadata={},
@@ -126,11 +126,17 @@ def _execution_target(
         name="test-account",
         type="account",
         provider="aws",
+        regions=regions or ["us-east-1"],
         provider_data=AwsExecutionTargetData(
             account_id="123456789012",
             account_alias="test-account",
             is_management=False,
             access_strategy=access_strategy,
+            role_name=(
+                "TestRole"
+                if access_strategy is AccountAccessStrategy.ASSUME_ROLE
+                else None
+            ),
             base_session=BaseSession(),
             regions=regions or ["us-east-1"],
             session_factory=session_factory,

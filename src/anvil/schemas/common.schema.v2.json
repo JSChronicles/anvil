@@ -14,7 +14,7 @@
         "name": {
           "type": "string",
           "minLength": 1,
-          "description": "Task name (must match task module filename)."
+          "description": "Task name (must match the discovered task component name)."
         },
         "depends_on": {
           "type": "array",
@@ -62,39 +62,15 @@
         }
       }
     },
-    "profile": {
-      "anyOf": [
-        {
-          "type": "string",
-          "minLength": 1
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "description": "Provider profile for the source authentication context when used under provider.options."
-    },
     "regions": {
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
-      "description": "Provider regions/locations for task execution. AWS organization configs also support the 'all' selector and glob selectors.",
+      "description": "Provider regions or locations for task execution.",
       "items": {
         "type": "string",
         "minLength": 1
       }
-    },
-    "role_name": {
-      "anyOf": [
-        {
-          "type": "string",
-          "minLength": 1
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "description": "Optional AWS IAM role name to assume in target accounts when used under provider.options. AWS organizations default to OrganizationAccountAccessRole at runtime; AWS accounts run directly when omitted."
     },
     "tasks": {
       "type": "array",
@@ -145,161 +121,6 @@
       "additionalProperties": true,
       "description": "Free-form metadata for execution context."
     },
-    "provider": {
-      "type": "string",
-      "enum": [
-        "aws",
-        "azure",
-        "gcp",
-        "github"
-      ],
-      "default": "aws",
-      "description": "Cloud provider for this target. Provider name is required under provider.name."
-    },
-    "mode": {
-      "type": "string",
-      "enum": [
-        "organization",
-        "accounts",
-        "tenant",
-        "subscriptions",
-        "projects",
-        "organizations",
-        "repositories"
-      ],
-      "description": "Provider-specific target mode. Provider mode is required under provider.mode."
-    },
-    "awsProviderOptions": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "profile": {
-          "$ref": "#/$defs/profile"
-        },
-        "role_name": {
-          "$ref": "#/$defs/role_name"
-        }
-      }
-    },
-    "azureProviderOptions": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "tenant_id": {
-          "type": "string",
-          "minLength": 1
-        },
-        "client_id": {
-          "type": "string",
-          "minLength": 1
-        },
-        "client_secret": {
-          "type": "string",
-          "minLength": 1
-        }
-      }
-    },
-    "gcpProviderOptions": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "credentials_path": {
-          "type": "string",
-          "minLength": 1
-        },
-        "organization_id": {
-          "type": "string",
-          "minLength": 1
-        },
-        "quota_project_id": {
-          "type": "string",
-          "minLength": 1
-        }
-      }
-    },
-    "githubProviderOptions": {
-      "type": "object",
-      "additionalProperties": false,
-      "allOf": [
-        {
-          "not": {
-            "required": [
-              "profile",
-              "api_url"
-            ]
-          }
-        },
-        {
-          "not": {
-            "required": [
-              "profile",
-              "api_version"
-            ]
-          }
-        },
-        {
-          "not": {
-            "required": [
-              "profile",
-              "token_env"
-            ]
-          }
-        },
-        {
-          "not": {
-            "required": [
-              "profile",
-              "app_id"
-            ]
-          }
-        },
-        {
-          "not": {
-            "required": [
-              "profile",
-              "private_key_env"
-            ]
-          }
-        },
-        {
-          "not": {
-            "required": [
-              "profile",
-              "private_key_path"
-            ]
-          }
-        }
-      ],
-      "properties": {
-        "profile": {
-          "$ref": "#/$defs/profile"
-        },
-        "api_url": {
-          "type": "string",
-          "minLength": 1
-        },
-        "api_version": {
-          "type": "string",
-          "minLength": 1
-        },
-        "token_env": {
-          "type": "string",
-          "minLength": 1
-        },
-        "app_id": {
-          "type": "string",
-          "minLength": 1
-        },
-        "private_key_env": {
-          "type": "string",
-          "minLength": 1
-        },
-        "private_key_path": {
-          "type": "string",
-          "minLength": 1
-        }
-      }
-    },
     "post_run": {
       "type": "array",
       "minItems": 1,
@@ -307,15 +128,6 @@
       "items": {
         "$ref": "#/$defs/postRunEntry"
       }
-    },
-    "accountIdList": {
-      "type": "array",
-      "minItems": 1,
-      "items": {
-        "type": "string",
-        "pattern": "^[0-9]{12}$"
-      },
-      "description": "AWS account ID list."
     },
     "targetIdList": {
       "type": "array",
@@ -325,27 +137,7 @@
         "minLength": 1
       },
       "uniqueItems": true,
-      "description": "Provider-specific execution target ID list. AWS uses account IDs, Azure uses subscription IDs, GCP uses project IDs, and GitHub uses organization logins or owner/repo names."
-    },
-    "githubOrganizationList": {
-      "type": "array",
-      "minItems": 1,
-      "items": {
-        "type": "string",
-        "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$"
-      },
-      "uniqueItems": true,
-      "description": "GitHub owner login list. Values may be organization or user logins."
-    },
-    "githubRepositoryList": {
-      "type": "array",
-      "minItems": 1,
-      "items": {
-        "type": "string",
-        "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[^/\\s]+$"
-      },
-      "uniqueItems": true,
-      "description": "GitHub owner/repo repository list."
+      "description": "Provider-owned execution target ID list."
     },
     "baseTargetProperties": {
       "name": {

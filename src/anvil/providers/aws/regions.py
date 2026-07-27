@@ -8,7 +8,7 @@ from anvil.regions import (
     get_bootstrap_region,
     resolve_region_selectors,
 )
-from anvil.session import BOTO_CONFIG
+from anvil.providers.aws.session import BOTO_CONFIG
 
 
 class AwsRegionService:

@@ -1,4 +1,4 @@
-from anvil.auth import AuthSource, infer_auth_source
+from anvil.providers.aws.auth import AuthSource, infer_auth_source
 
 
 def test_infer_auth_source_environment(monkeypatch):

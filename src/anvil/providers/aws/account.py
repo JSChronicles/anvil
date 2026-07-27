@@ -10,7 +10,7 @@ import boto3
 from boto3.session import Session
 
 from anvil.execution_context import ExecutionContext
-from anvil.session import AssumedRoleCredentials, SessionFactory
+from anvil.providers.aws.session import AssumedRoleCredentials, SessionFactory
 
 __LOGGER__ = logging.getLogger(__name__)
 
@@ -44,6 +44,7 @@ class Account:
         account_alias: str,
         is_management: bool,
         access_strategy: AccountAccessStrategy,
+        role_name: str | None,
         base_session: boto3.Session,
         context: ExecutionContext,
         regions: list[str],
@@ -53,6 +54,7 @@ class Account:
         self.account_alias = account_alias
         self.is_management = is_management
         self.access_strategy = access_strategy
+        self.role_name = role_name
         self._base_session: Session = base_session
         self._context = context
         self._regions = regions
@@ -66,13 +68,11 @@ class Account:
             profile_name=self._base_session.profile_name, region_name=source_region
         )
 
-        if self._context.role_name is None:
-            raise ValueError("Expected role_name for assume-role execution")
+        if self.role_name is None:
+            raise ValueError("Assume-role account execution requires role_name")
 
         return self._session_factory.assume_role_credentials(
-            session=worker_session,
-            account_id=self.account_id,
-            role_name=self._context.role_name,
+            session=worker_session, account_id=self.account_id, role_name=self.role_name
         )
 
     @staticmethod

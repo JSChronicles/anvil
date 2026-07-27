@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 
 from anvil.actions import ActionRecorder
 
@@ -19,18 +19,17 @@ class TaskCallContext:
     metadata: dict[str, object]
     actions: ActionRecorder
 
+    @classmethod
+    def keyword_names(cls) -> frozenset[str]:
+        """Return the canonical task invocation keyword names."""
+
+        return frozenset(field.name for field in fields(cls))
+
     def to_kwargs(self) -> dict[str, object]:
         """Return provider-neutral task keyword arguments."""
 
-        return {
-            "provider": self.provider,
-            "execution_target_id": self.execution_target_id,
-            "execution_target_name": self.execution_target_name,
-            "execution_target_type": self.execution_target_type,
-            "region": self.region,
-            "session": self.session,
-            "dry_run": self.dry_run,
-            "metadata": self.metadata,
-            "actions": self.actions,
-            "task_context": self,
+        invocation_kwargs = {
+            field.name: getattr(self, field.name) for field in fields(self)
         }
+        invocation_kwargs["metadata"] = dict(self.metadata)
+        return invocation_kwargs

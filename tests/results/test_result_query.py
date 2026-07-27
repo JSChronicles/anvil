@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 
-from anvil.descriptors import ConfigBranch
 from anvil.result_query import (
     ResultFilters,
     build_jsonl_records_for_target,
@@ -39,14 +38,16 @@ def _task_result(
 
 def _target_result() -> TargetResult:
     return TargetResult.create(
-        config_branch=ConfigBranch.TARGETS,
         target_name="engineering",
+        provider="aws",
         dry_run=True,
         entities=[
             EntityResult(
                 id="111111111111",
                 name="dev",
                 type="account",
+                provider="aws",
+                metadata={},
                 status=ExecutionStatus.ERROR,
                 started_at="2026-04-30T00:00:00+00:00",
                 ended_at="2026-04-30T00:00:02+00:00",
@@ -186,11 +187,10 @@ def test_build_rerun_targets_includes_interrupted_task_dependencies():
     from anvil.descriptors import LoadedConfig, TargetDescriptor
 
     loaded_config = LoadedConfig(
-        branch=ConfigBranch.TARGETS,
         targets=[
             TargetDescriptor(
-                config_branch=ConfigBranch.TARGETS,
                 name="org-a",
+                provider="aws",
                 mode="organization",
                 regions=["us-east-1", "us-west-2"],
                 tasks=[
@@ -198,7 +198,7 @@ def test_build_rerun_targets_includes_interrupted_task_dependencies():
                     {"name": "cleanup", "depends_on": ["inventory"]},
                 ],
             )
-        ],
+        ]
     )
 
     targets = build_rerun_targets(
@@ -225,7 +225,11 @@ def test_build_rerun_targets_includes_interrupted_task_dependencies():
 
 
 def test_parse_fields_validates_known_fields():
-    assert parse_fields("entity_id, region,task") == ["entity_id", "region", "task"]
+    assert parse_fields("entity_id, entity_metadata,region") == [
+        "entity_id",
+        "entity_metadata",
+        "region",
+    ]
 
 
 def test_parse_fields_rejects_unknown_fields():

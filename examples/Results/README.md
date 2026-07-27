@@ -88,9 +88,7 @@ __LOGGER__ = logging.getLogger(__name__)
 
 
 def cleanup_user_resources(
-    iam_client,
-    user_name: str,
-    dry_run: bool,
+    iam_client, user_name: str, dry_run: bool
 ) -> dict[str, object]:
     group_results: list[dict[str, object]] = []
     access_key_results: list[dict[str, object]] = []
@@ -151,11 +149,7 @@ def run(
         raise RuntimeError("example_cleanup requires metadata.user_name to be a string")
 
     iam = session.client("iam")
-    return cleanup_user_resources(
-        iam_client=iam,
-        user_name=user_name,
-        dry_run=dry_run,
-    )
+    return cleanup_user_resources(iam_client=iam, user_name=user_name, dry_run=dry_run)
 ```
 
 The returned value appears in the task result:
@@ -211,6 +205,7 @@ Record actions directly inside the required `run()` function for small tasks:
 ```python
 from anvil.actions import ActionRecorder
 
+
 def run(
     *,
     account_id: str,
@@ -237,12 +232,7 @@ from anvil.actions import ActionRecorder
 __LOGGER__ = logging.getLogger(__name__)
 
 
-def cleanup_user(
-    iam,
-    user_name: str,
-    dry_run: bool,
-    actions: ActionRecorder,
-) -> None:
+def cleanup_user(iam, user_name: str, dry_run: bool, actions: ActionRecorder) -> None:
     if dry_run:
         message = f"(dry-run) Would delete IAM user: {user_name}"
         __LOGGER__.debug(message)

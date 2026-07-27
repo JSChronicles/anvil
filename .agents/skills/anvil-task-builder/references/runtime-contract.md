@@ -88,6 +88,9 @@ Runtime facts:
 - For region-scoped tasks, `region` is the current task execution region. AWS
   sessions also expose `session.region_name`.
 - Operator-provided task inputs come from `metadata`.
+- Tasks should treat metadata as read-only configuration.
+  Anvil isolates changes to top-level metadata keys,
+  but not changes inside nested lists or dictionaries.
 - `actions` is an `ActionRecorder` for audit-level actions.
 - Returned values are included in Anvil result JSON.
 - The engine already includes execution context such as target identity, `region`, and `dry_run` in normal results.

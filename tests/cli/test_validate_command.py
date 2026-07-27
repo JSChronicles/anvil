@@ -5,7 +5,20 @@ from types import SimpleNamespace
 
 import pytest
 
+from anvil._components import ComponentCatalog, ComponentOrigin, ComponentSource
 from anvil.providers.base import ProviderMetadata
+
+
+def _source(label: str) -> ComponentSource:
+    return ComponentSource(
+        origin=(
+            ComponentOrigin.PLUGIN
+            if label.startswith("plugin:")
+            else ComponentOrigin.STOCK
+        ),
+        package="tests.providers",
+        label=label,
+    )
 
 
 def _import_cli_or_skip():
@@ -149,7 +162,6 @@ def test_validate_selected_tasks_validates_all_when_no_names(monkeypatch):
 
     cli._validate_selected_tasks([])
 
-    assert seen["loaded"] == ["count_vpc", "noop"]
     assert seen["validated"] == ["count_vpc", "noop"]
 
 
@@ -192,7 +204,6 @@ def test_validate_selected_tasks_validates_selected_names(monkeypatch):
 
     cli._validate_selected_tasks(["noop"])
 
-    assert seen["loaded"] == ["noop"]
     assert seen["validated"] == ["noop"]
 
 
@@ -202,21 +213,25 @@ def test_validate_all_tasks_reports_duplicate_provider_task_names(monkeypatch):
     def valid_run(**kwargs):
         return None
 
+    descriptors = [
+        cli.TaskDescriptor(
+            name="shared", load=lambda: valid_run, source=_source("universal")
+        ),
+        cli.TaskDescriptor(
+            name="shared", load=lambda: valid_run, source=_source("aws")
+        ),
+    ]
     monkeypatch.setattr(
         cli,
         "discover_tasks",
         lambda: SimpleNamespace(
-            tasks=[
-                cli.TaskDescriptor(
-                    name="shared", load=lambda: valid_run, source="universal"
-                ),
-                cli.TaskDescriptor(name="shared", load=lambda: valid_run, source="aws"),
-            ],
+            tasks=descriptors,
             issues=[],
+            provider_catalogs={"aws": ComponentCatalog.build(descriptors)},
         ),
     )
 
-    with pytest.raises(ValueError, match="duplicate task name: shared"):
+    with pytest.raises(ValueError, match="ambiguous for provider 'aws'"):
         cli._validate_selected_tasks([])
 
 
@@ -226,22 +241,28 @@ def test_validate_selected_tasks_reports_duplicate_provider_task_names(monkeypat
     def valid_run(**kwargs):
         return None
 
+    shared_descriptors = [
+        cli.TaskDescriptor(
+            name="shared", load=lambda: valid_run, source=_source("universal")
+        ),
+        cli.TaskDescriptor(
+            name="shared", load=lambda: valid_run, source=_source("aws")
+        ),
+    ]
     monkeypatch.setattr(
         cli,
         "discover_tasks",
         lambda: SimpleNamespace(
             tasks=[
-                cli.TaskDescriptor(
-                    name="shared", load=lambda: valid_run, source="universal"
-                ),
-                cli.TaskDescriptor(name="shared", load=lambda: valid_run, source="aws"),
+                *shared_descriptors,
                 cli.TaskDescriptor(name="other", load=lambda: valid_run, source="aws"),
             ],
             issues=[],
+            provider_catalogs={"aws": ComponentCatalog.build(shared_descriptors)},
         ),
     )
 
-    with pytest.raises(ValueError, match="duplicate task name: shared"):
+    with pytest.raises(ValueError, match="ambiguous for provider 'aws'"):
         cli._validate_selected_tasks(["shared"])
 
 
@@ -454,6 +475,8 @@ def test_validate_selected_known_processor_ignores_unrelated_discovery_issues(
     cli = _import_cli_or_skip()
 
     def run(*, context, output, metadata):
+        """Run a known processor."""
+
         return None
 
     monkeypatch.setattr(
@@ -483,13 +506,12 @@ def test_validate_selected_providers_validates_all_when_no_names(monkeypatch):
     seen = {}
 
     class Provider:
-        metadata = ProviderMetadata(name="aws", display_name="AWS")
+        metadata = ProviderMetadata(
+            name="aws", display_name="AWS", supported_task_scopes=frozenset({"region"})
+        )
 
         def validate_target(self, target):
             return None
-
-        def default_regions(self, target):
-            return []
 
         def auth_cache_key(self, target):
             return None
@@ -497,10 +519,20 @@ def test_validate_selected_providers_validates_all_when_no_names(monkeypatch):
         def auth_check(self, target):
             return None
 
+        def resolve_target_filters(self, *, target, include_override, exclude_override):
+            return target.include, target.exclude
+
         def discover_regions(self, target):
             return []
 
-        def resolve_execution_targets(self, *, target, regions, include, exclude):
+        def prepare_target(
+            self, *, target, context, include, exclude, cache, benchmark
+        ):
+            return None
+
+        def resolve_execution_targets(
+            self, *, target, regions, include, exclude, preparation=None
+        ):
             return None
 
         def prepare_execution_runtime(self, *, target, execution_target, context):
@@ -516,7 +548,7 @@ def test_validate_selected_providers_validates_all_when_no_names(monkeypatch):
         lambda: SimpleNamespace(
             providers=[
                 cli.ProviderDescriptor(
-                    name="aws", display_name="AWS", load=load_provider, source="stock"
+                    name="aws", load=load_provider, source=_source("stock")
                 )
             ],
             issues=[],
@@ -557,7 +589,7 @@ def test_validate_selected_providers_reports_unknown_names(monkeypatch):
         lambda: SimpleNamespace(
             providers=[
                 cli.ProviderDescriptor(
-                    name="aws", display_name="AWS", load=lambda: None, source="stock"
+                    name="aws", load=lambda: None, source=_source("stock")
                 )
             ],
             issues=[],
@@ -572,7 +604,9 @@ def test_validate_selected_providers_reports_contract_member(monkeypatch):
     cli = _import_cli_or_skip()
 
     class BrokenProvider:
-        metadata = ProviderMetadata(name="broken", display_name="Broken")
+        metadata = ProviderMetadata(
+            name="broken", display_name="Broken", supported_task_scopes=frozenset()
+        )
 
         def validate_target(self, target):
             return None
@@ -584,9 +618,8 @@ def test_validate_selected_providers_reports_contract_member(monkeypatch):
             providers=[
                 cli.ProviderDescriptor(
                     name="broken",
-                    display_name="Broken",
                     load=lambda: BrokenProvider(),
-                    source="plugin: broken-provider",
+                    source=_source("plugin: broken-provider"),
                 )
             ],
             issues=[],
@@ -598,7 +631,7 @@ def test_validate_selected_providers_reports_contract_member(monkeypatch):
 
     error = str(exc_info.value)
     assert "broken (plugin: broken-provider)" in error
-    assert "auth_cache_key" in error
+    assert "resolve_target_filters" in error
 
 
 def test_validate_aggregates_failures_and_successes(monkeypatch, capsys):
@@ -655,7 +688,7 @@ def test_validate_config_file_alone_runs_offline_config_validation(monkeypatch, 
     )
 
     calls = []
-    loaded_config = SimpleNamespace(branch=cli.ConfigBranch.TARGETS, targets=[])
+    loaded_config = SimpleNamespace(targets=[])
     monkeypatch.setattr(
         cli,
         "_load_targets_from_config_file",

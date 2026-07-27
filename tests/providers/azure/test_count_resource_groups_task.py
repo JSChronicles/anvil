@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import builtins
 import sys
 from dataclasses import dataclass
 from types import ModuleType
@@ -29,11 +30,11 @@ class FakeAzureSession:
 
 
 class FakeResourceGroups:
-    def __init__(self, resource_groups: list[object]) -> None:
+    def __init__(self, resource_groups: builtins.list[object]) -> None:
         self._resource_groups = resource_groups
 
-    def list(self) -> list[object]:
-        return list(self._resource_groups)
+    def list(self) -> builtins.list[object]:
+        return builtins.list(self._resource_groups)
 
 
 class FakeResourceManagementClient:

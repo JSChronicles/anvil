@@ -13,6 +13,7 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from importlib.metadata import EntryPoint
+from inspect import Parameter, signature
 from types import MappingProxyType
 from typing import Generic, TypeVar
 
@@ -108,7 +109,6 @@ class ComponentResolutionError(RuntimeError):
 class PackageComponentSource(Generic[T]):
     """Discover immediate public children of one importable package root."""
 
-    kind: ComponentKind
     package_name: str
     source: ComponentSource
     component_loader: Callable[[str, str, ComponentSource], T]
@@ -203,8 +203,54 @@ class ComponentResolver(Generic[T]):
         return self.descriptor(name).load()
 
 
+def validate_keyword_only_invocation(
+    callable_object: Callable[..., object], *, keyword_names: frozenset[str]
+) -> None:
+    """Validate that a callable accepts the supplied runtime keywords.
+
+    Additional optional keyword-only parameters and ``**kwargs`` are allowed.
+    Additional required parameters are rejected because the runtime cannot
+    supply them.
+
+    Args:
+        callable_object: Callable to inspect.
+        keyword_names: Runtime keyword names that will always be supplied.
+
+    Raises:
+        ValueError: If the signature cannot accept the runtime invocation.
+    """
+
+    try:
+        callable_signature = signature(callable_object)
+    except (TypeError, ValueError) as error:
+        raise ValueError("unable to inspect callable signature") from error
+
+    parameters = callable_signature.parameters
+    missing = keyword_names - set(parameters)
+    if missing:
+        raise ValueError(f"missing required parameters: {sorted(missing)}")
+
+    unsupported_parameters = sorted(
+        parameter.name
+        for parameter in parameters.values()
+        if parameter.kind not in {Parameter.KEYWORD_ONLY, Parameter.VAR_KEYWORD}
+    )
+    if unsupported_parameters:
+        raise ValueError(f"parameters must be keyword-only: {unsupported_parameters}")
+
+    invocation_kwargs = {name: object() for name in keyword_names}
+    try:
+        callable_signature.bind(**invocation_kwargs)
+    except TypeError as error:
+        raise ValueError(f"cannot be invoked with runtime keywords: {error}") from error
+
+
 def source_from_entry_point(
-    *, entry_point: EntryPoint, package: str, label_prefix: str = "plugin:"
+    *,
+    entry_point: EntryPoint,
+    package: str,
+    label_prefix: str = "plugin:",
+    provider: str | None = None,
 ) -> ComponentSource:
     """Build structured source metadata for a package entry point."""
 
@@ -217,6 +263,7 @@ def source_from_entry_point(
         distribution=distribution,
         entry_point_group=entry_point.group,
         entry_point_name=entry_point.name,
+        provider=provider,
     )
 
 

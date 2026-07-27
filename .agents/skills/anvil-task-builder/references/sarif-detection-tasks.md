@@ -69,9 +69,7 @@ Each finding must include:
         }
     ],
     "fingerprint": "stable-rule-account-region-resource-condition",
-    "properties": {
-        "resource_name": "example",
-    },
+    "properties": {"resource_name": "example"},
 }
 ```
 

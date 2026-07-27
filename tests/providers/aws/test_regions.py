@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from anvil.descriptors import ConfigBranch, TargetDescriptor
+from anvil.descriptors import TargetDescriptor
 from anvil.providers.aws import AwsProvider
 
 
@@ -50,7 +50,7 @@ class FakeSession:
 
 
 def test_aws_provider_metadata_declares_default_region():
-    target = TargetDescriptor(config_branch=ConfigBranch.TARGETS, name="org-a")
+    target = TargetDescriptor(name="org-a", provider="aws", mode="organization")
 
     assert target.regions is None
     assert AwsProvider.metadata.default_regions == ("us-east-1",)
@@ -95,7 +95,7 @@ def test_aws_provider_discover_regions_adapts_availability(monkeypatch):
     )
 
     target = TargetDescriptor(
-        config_branch=ConfigBranch.TARGETS, name="org-a", regions=["all"]
+        name="org-a", provider="aws", mode="organization", regions=["all"]
     )
 
     regions = AwsProvider().discover_regions(target)

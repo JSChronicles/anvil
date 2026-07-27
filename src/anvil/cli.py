@@ -24,7 +24,7 @@ import yaml
 
 from anvil._components import DiscoveryIssue as DiscoveryIssue
 from anvil.benchmark import BenchmarkRecorder
-from anvil.descriptors import ConfigBranch, LoadedConfig
+from anvil.descriptors import LoadedConfig
 from anvil.processor_loader import (
     ProcessorDescriptor,
     ProcessorSpec,
@@ -36,7 +36,12 @@ from anvil.processor_loader import (
     run_processors,
 )
 from anvil.processor_validation import processor_validation_errors
-from anvil.provider_loader import ProviderDescriptor, discover_providers, list_providers
+from anvil.provider_loader import (
+    ProviderDescriptor,
+    discover_providers,
+    list_providers,
+    load_provider,
+)
 from anvil.providers.base import validate_provider_contract
 from anvil.result_query import (
     ResultFilters,
@@ -53,8 +58,8 @@ from anvil.result_query import (
 )
 from anvil.results import EngineResult, EngineState
 from anvil.runner import run_auth_checks, run_multiple_targets
-from anvil.task_loader import ResolvedTask, TaskDescriptor, discover_tasks, list_tasks
-from anvil.task_validation import task_validation_errors
+from anvil.task_loader import TaskDescriptor, discover_tasks, list_tasks
+from anvil.task_validation import task_catalog_ambiguity_errors, task_validation_errors
 from anvil.validators import load_config_descriptors, validate_config_schema
 
 __LOGGER__ = logging.getLogger(__name__)
@@ -95,8 +100,11 @@ class DiagnosticCheck:
 class ListableDescriptor(Protocol):
     """Descriptor fields needed for grouped CLI listing."""
 
-    name: str
-    source: str
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def source(self) -> object: ...
 
 
 class DetailDescriptor(ListableDescriptor, Protocol):
@@ -137,19 +145,15 @@ def _load_targets_from_config_file(path: Path) -> LoadedConfig:
 def _validate_cli_overrides(
     *, loaded_config: LoadedConfig, args: argparse.Namespace
 ) -> None:
-    """
-    Validate branch-specific CLI override semantics.
-    """
-    if loaded_config.branch is ConfigBranch.TARGETS and args.exclude is not None:
-        explicit_targets = [
-            target for target in loaded_config.targets if target.is_explicit_mode
-        ]
-        if explicit_targets:
-            target_names = ", ".join(target.name for target in explicit_targets)
-            raise ValueError(
-                "CLI --exclude is not supported for explicit provider modes; "
-                f"target(s): {target_names}"
-            )
+    """Validate CLI filter overrides using each target's provider contract."""
+
+    include = getattr(args, "include", None)
+    exclude = getattr(args, "exclude", None)
+    for target in loaded_config.targets:
+        provider = load_provider(target.provider)
+        provider.resolve_target_filters(
+            target=target, include_override=include, exclude_override=exclude
+        )
 
 
 def _add_common_config_args(parser: argparse.ArgumentParser) -> None:
@@ -192,12 +196,6 @@ def _create_results_run_dir(*, config_file: Path) -> Path:
     return run_dir
 
 
-def _target_results_dir_name(config_branch: ConfigBranch) -> str:
-    if config_branch is not ConfigBranch.TARGETS:
-        raise ValueError(f"Unsupported config branch: {config_branch}")
-    return "targets"
-
-
 def _safe_result_filename(name: str) -> str:
     safe_name = "".join(
         character if character.isalnum() or character in {".", "-", "_"} else "_"
@@ -222,7 +220,7 @@ def _write_run_results(
     *, config_file: Path, engine_result: EngineResult
 ) -> WrittenRunResults:
     run_dir = _create_results_run_dir(config_file=config_file)
-    target_results_dir = run_dir / _target_results_dir_name(engine_result.config_branch)
+    target_results_dir = run_dir / "targets"
     target_results_dir.mkdir()
 
     recorder = BenchmarkRecorder(enabled=engine_result.benchmark is not None)
@@ -336,7 +334,6 @@ def _run_single_config_file(*, config_file: Path, args: argparse.Namespace) -> i
         config_file=config_file, engine_result=engine_result
     )
     run_configured_post_processors(
-        config_branch=loaded_config.branch,
         targets=loaded_config.targets,
         target_results=engine_result.target_results,
         run_dir=written_results.run_dir,
@@ -373,8 +370,7 @@ def _cmd_auth_check(args: argparse.Namespace) -> int:
         auth_payload: dict[str, str | list[dict[str, object]]] = {
             "generated_at": engine_result.generated_at,
             "auth": [
-                auth_result.to_dict(config_branch=loaded_config.branch)
-                for auth_result in engine_result.auth_results
+                auth_result.to_dict() for auth_result in engine_result.auth_results
             ],
         }
 
@@ -417,12 +413,13 @@ def _print_grouped_listing(
 
     current_source: str | None = None
     for descriptor in descriptors:
-        if descriptor.source != current_source:
+        source_label = str(descriptor.source)
+        if source_label != current_source:
             if current_source is not None:
                 print()
 
-            print(f"{descriptor.source}:")
-            current_source = descriptor.source
+            print(f"{source_label}:")
+            current_source = source_label
 
         print(f"  - {descriptor.name}")
 
@@ -460,7 +457,7 @@ def _select_detail_descriptor(
         )
 
     if len(matches) > 1:
-        source_display = ", ".join(descriptor.source for descriptor in matches)
+        source_display = ", ".join(str(descriptor.source) for descriptor in matches)
         raise ValueError(
             f"{label.capitalize()} '{name}' is ambiguous; found in multiple "
             f"sources: {source_display}"
@@ -535,12 +532,6 @@ def _select_task_descriptors(
     ]
 
 
-def _select_tasks(task_names: list[str]) -> list[TaskDescriptor]:
-    return _select_task_descriptors(
-        descriptors=discover_tasks().tasks, task_names=task_names
-    )
-
-
 def _validate_selected_tasks(task_names: list[str] | None) -> None:
     discovery = discover_tasks()
     errors: list[str] = []
@@ -558,19 +549,13 @@ def _validate_selected_tasks(task_names: list[str] | None) -> None:
     else:
         errors.extend(_discovery_issue_messages(discovery.issues))
 
-    resolved = []
-    for descriptor in descriptors:
-        try:
-            run = descriptor.load()
-        except Exception as exc:
-            errors.append(f"{descriptor.name} ({descriptor.source}): {exc}")
-            continue
-
-        resolved.append(
-            ResolvedTask(name=descriptor.name, run=run, depends_on=[], optional=False)
+    provider_catalogs = getattr(discovery, "provider_catalogs", {})
+    errors.extend(
+        task_catalog_ambiguity_errors(
+            provider_catalogs, task_names=set(task_names) if task_names else None
         )
-
-    errors.extend(task_validation_errors(resolved))
+    )
+    errors.extend(task_validation_errors(descriptors))
     _raise_validation_errors(errors)
 
 
@@ -592,12 +577,6 @@ def _select_processor_descriptors(
     return [
         descriptor for descriptor in descriptors if descriptor.name in requested_names
     ]
-
-
-def _select_processors(processor_names: list[str]) -> list[ProcessorDescriptor]:
-    return _select_processor_descriptors(
-        descriptors=discover_processors().processors, processor_names=processor_names
-    )
 
 
 def _validate_selected_processors(processor_names: list[str] | None) -> None:

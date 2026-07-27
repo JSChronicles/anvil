@@ -87,7 +87,7 @@ testpaths = ["tests"]
 
 [tool.coverage.run]
 omit = [
-    "src/anvil/tasks/*",
+    "src/anvil/providers/tasks/*",
 ]
 
 # Keep release assets empty; update and stage uv.lock without uploading it.
@@ -125,6 +125,29 @@ task-tags = ["TODO", "FIXME", "HACK"]
 
 [tool.ruff.format]
 skip-magic-trailing-comma = true
+
+[tool.ty.analysis]
+# Cloud SDKs are imported lazily from optional extras. Matplotlib is used only
+# by the optional benchmark chart generator.
+allowed-unresolved-imports = [
+  "azure.**",
+  "github",
+  "google.**",
+  "matplotlib.**",
+]
+
+[[tool.ty.overrides]]
+include = ["tests/**"]
+
+[tool.ty.overrides.rules]
+# Tests intentionally use lightweight structural doubles and heterogeneous
+# dictionaries instead of constructing third-party SDK and runtime objects.
+invalid-argument-type = "ignore"
+unresolved-attribute = "ignore"
+unsupported-operator = "ignore"
+not-iterable = "ignore"
+not-subscriptable = "ignore"
+invalid-assignment = "ignore"
 
 [tool.uv]
 exclude-newer = "1 week"

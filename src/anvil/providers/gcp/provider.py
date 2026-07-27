@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
-from anvil.descriptors import ConfigBranch, MODE_GCP_ORGANIZATION, TargetDescriptor
+from anvil.descriptors import TargetDescriptor
 from anvil.execution_context import ExecutionContext
 from anvil.providers.base import (
     ExecutionTarget,
@@ -12,13 +12,24 @@ from anvil.providers.base import (
     ProviderExecutionPlan,
     ProviderExecutionRuntime,
     ProviderMetadata,
+    ProviderPreparation,
+    ProviderPreparationCache,
     ProviderRegion,
     configured_or_default_regions,
+    narrow_include,
+    validate_region_selectors,
+    validate_string_options,
 )
 from anvil.regions import is_region_selector, resolve_location_selectors
 from anvil.results import ExecutionStatus
 
 DEFAULT_REGIONS = ("us-central1",)
+MODE_ORGANIZATION = "organization"
+MODE_PROJECTS = "projects"
+SUPPORTED_MODES = frozenset({MODE_ORGANIZATION, MODE_PROJECTS})
+SUPPORTED_OPTIONS = frozenset(
+    {"credentials_path", "organization_id", "quota_project_id"}
+)
 GCP_AVAILABLE_REGION_STATUS = "UP"
 GCP_AVAILABLE_REGION_STATUSES = {GCP_AVAILABLE_REGION_STATUS}
 
@@ -297,19 +308,54 @@ class GcpProvider:
     def validate_target(self, target: TargetDescriptor) -> None:
         """Validate GCP support for organization and explicit project targets."""
 
-        if target.config_branch is not ConfigBranch.TARGETS:
-            raise ValueError(
-                "GCP provider supports targets config (schema_version: 2) only"
-            )
         if target.provider != self.metadata.name:
             raise ValueError("GCP provider supports provider 'gcp' targets only")
+        if target.mode not in SUPPORTED_MODES:
+            raise ValueError(f"Unsupported GCP target mode: {target.mode}")
+        validate_string_options(target=target, allowed_options=SUPPORTED_OPTIONS)
+        validate_region_selectors(
+            target=target, selectors_allowed=target.mode == MODE_PROJECTS
+        )
         if target.include is not None and target.exclude is not None:
             raise ValueError("GCP include and exclude filters are mutually exclusive")
+
+    def resolve_target_filters(
+        self,
+        *,
+        target: TargetDescriptor,
+        include_override: list[str] | None,
+        exclude_override: list[str] | None,
+    ) -> tuple[list[str] | None, list[str] | None]:
+        """Apply GCP discovery overrides or narrow configured projects."""
+
+        if target.mode == MODE_ORGANIZATION or target.include is None:
+            include = (
+                include_override if include_override is not None else target.include
+            )
+            exclude = (
+                exclude_override if exclude_override is not None else target.exclude
+            )
+        else:
+            if exclude_override is not None:
+                raise ValueError(
+                    "GCP projects with configured include do not allow --exclude"
+                )
+            include = narrow_include(
+                configured=target.include, override=include_override
+            )
+            exclude = None
+
+        self.validate_target(replace(target, include=include, exclude=exclude))
+        return include, exclude
 
     def auth_cache_key(self, target: TargetDescriptor) -> object | None:
         """Return a provider auth cache identity without loading GCP SDKs."""
 
-        return (self.metadata.name, target.profile)
+        return (
+            self.metadata.name,
+            target.provider_options.get("credentials_path"),
+            target.provider_options.get("quota_project_id"),
+        )
 
     def auth_check(self, target: TargetDescriptor) -> ProviderAuthResult:
         """Report deferred GCP auth checks without live SDK calls."""
@@ -331,6 +377,21 @@ class GcpProvider:
             )
         ]
 
+    def prepare_target(
+        self,
+        *,
+        target: TargetDescriptor,
+        context: ExecutionContext,
+        include: list[str] | None,
+        exclude: list[str] | None,
+        cache: ProviderPreparationCache,
+        benchmark: dict[str, object] | None,
+    ) -> ProviderPreparation:
+        """Return empty preflight state for GCP target resolution."""
+
+        self.validate_target(target)
+        return ProviderPreparation()
+
     def resolve_execution_targets(
         self,
         *,
@@ -338,12 +399,15 @@ class GcpProvider:
         regions: list[str],
         include: list[str] | None,
         exclude: list[str] | None,
+        preparation: object | None = None,
     ) -> ProviderExecutionPlan:
         """Resolve GCP project IDs deterministically."""
 
         self.validate_target(target)
+        if preparation is not None:
+            raise TypeError("GCP does not accept provider preparation data")
 
-        if target.mode == MODE_GCP_ORGANIZATION:
+        if target.mode == MODE_ORGANIZATION:
             raise NotImplementedError(
                 "GCP organization discovery is not implemented yet. "
                 "Use provider.mode 'projects' with include for explicit projects."
@@ -410,6 +474,7 @@ class GcpProvider:
             name=project_id,
             type="project",
             provider=self.metadata.name,
+            regions=list(locations),
             metadata={"project_id": project_id},
             provider_data=data,
         )

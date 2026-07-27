@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from anvil.descriptors import ConfigBranch, TargetDescriptor
+from anvil.descriptors import TargetDescriptor
 from anvil.execution_context import ExecutionContext
-from anvil.account import AccountAccessStrategy
-from anvil.organization import OrganizationResolver
+from anvil.providers.aws.account import AccountAccessStrategy
+from anvil.providers.aws.config import DEFAULT_ORGANIZATION_ROLE_NAME
+from anvil.providers.aws.organization import OrganizationResolver
 from anvil.providers.aws.regions import AwsRegionService
 
 
@@ -40,20 +41,16 @@ class FailingSessionFactory:
 
 def _context(*, regions: list[str] | None = None) -> ExecutionContext:
     return ExecutionContext(
-        regions=regions or ["us-east-1"],
-        role_name="TestRole",
-        dry_run=True,
-        tasks=[],
-        metadata={},
+        regions=regions or ["us-east-1"], dry_run=True, tasks=[], metadata={}
     )
 
 
 def _target(**kwargs) -> TargetDescriptor:
     return TargetDescriptor(
-        config_branch=ConfigBranch.TARGETS,
         name="org-a",
+        provider="aws",
         mode="organization",
-        profile="profile-a",
+        provider_options={"profile": "profile-a"},
         regions=kwargs.pop("regions", ["us-east-1"]),
         **kwargs,
     )
@@ -188,6 +185,7 @@ def test_resolve_accounts_uses_default_management_account_direct_mode():
     assert accounts[0].access_strategy is AccountAccessStrategy.BASE_SESSION
     assert accounts[1].is_management is False
     assert accounts[1].access_strategy is AccountAccessStrategy.ASSUME_ROLE
+    assert accounts[1].role_name == DEFAULT_ORGANIZATION_ROLE_NAME
     assert accounts[0]._regions == ["us-east-1"]
     assert accounts[1]._regions == ["us-east-1"]
 

@@ -36,12 +36,10 @@ Prefer explicit type checks over assuming YAML input shape. Validate lists, bool
 ```python
 if dry_run:
     __LOGGER__.info(
-        f"(dry-run) Would delete IAM user {user_name} in target "
-        f"{execution_target_id}"
+        f"(dry-run) Would delete IAM user {user_name} in target {execution_target_id}"
     )
     actions.record(
-        f"(dry-run) Would delete IAM user {user_name} in target "
-        f"{execution_target_id}"
+        f"(dry-run) Would delete IAM user {user_name} in target {execution_target_id}"
     )
     return {"planned": True, "deleted": False, "user_name": user_name}
 

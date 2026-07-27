@@ -10,19 +10,14 @@ import subprocess
 import threading
 import time
 import tomllib
-from collections.abc import Callable, Iterator, Mapping
-from dataclasses import dataclass
+from collections.abc import Callable, Iterable, Iterator, Mapping
+from dataclasses import dataclass, replace
 from pathlib import Path
 from types import ModuleType
-from typing import Any
+from typing import Any, Protocol, cast
 from urllib.parse import urlparse
 
-from anvil.descriptors import (
-    ConfigBranch,
-    MODE_GITHUB_ORGANIZATIONS,
-    MODE_GITHUB_REPOSITORIES,
-    TargetDescriptor,
-)
+from anvil.descriptors import TargetDescriptor
 from anvil.execution_context import ExecutionContext
 from anvil.providers.base import (
     ExecutionTarget,
@@ -30,12 +25,31 @@ from anvil.providers.base import (
     ProviderExecutionPlan,
     ProviderExecutionRuntime,
     ProviderMetadata,
+    ProviderPreparation,
+    ProviderPreparationCache,
     ProviderRegion,
     configured_or_default_regions,
+    narrow_include,
+    validate_region_selectors,
+    validate_string_options,
 )
 from anvil.results import ExecutionStatus
 
 __LOGGER__ = logging.getLogger(__name__)
+MODE_ORGANIZATIONS = "organizations"
+MODE_REPOSITORIES = "repositories"
+SUPPORTED_MODES = frozenset({MODE_ORGANIZATIONS, MODE_REPOSITORIES})
+SUPPORTED_OPTIONS = frozenset(
+    {
+        "api_url",
+        "api_version",
+        "token_env",
+        "app_id",
+        "private_key_env",
+        "private_key_path",
+        "profile",
+    }
+)
 
 DEFAULT_REGIONS = ("global",)
 DEFAULT_GITHUB_API_VERSION = "2022-11-28"
@@ -58,6 +72,16 @@ GITHUB_LOGIN_PATTERN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9]
 GITHUB_REPOSITORY_PATTERN = re.compile(
     r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[^/\s]+$"
 )
+
+
+class _GitHubClient(Protocol):
+    """PyGithub operations used by the cached client wrapper."""
+
+    def get_repo(self, full_name_or_id: str) -> object: ...
+
+    def get_organization(self, login: str) -> object: ...
+
+    def search_code(self, *, query: str, highlight: bool) -> Iterable[object]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,7 +211,7 @@ class _RateLimitedSearchResults:
     def __init__(
         self,
         *,
-        results: object,
+        results: Iterable[object],
         rate_key: object,
         rate_gate: GitHubRateGate,
         page_size: int,
@@ -248,7 +272,7 @@ class CachedGitHubClient:
         rate_key: object | None = None,
         rate_gate: GitHubRateGate = _GITHUB_RATE_GATE,
     ) -> None:
-        self._client = client
+        self._client = cast(_GitHubClient, client)
         self._rate_key = rate_key
         self._rate_gate = rate_gate
         self._repositories: dict[str, object] = {}
@@ -814,7 +838,7 @@ class GitHubSessionFactory:
         )
 
     def _settings_from_options(
-        self, *, options: dict[str, object], source: str, fail_on_missing: bool
+        self, *, options: Mapping[str, object], source: str, fail_on_missing: bool
     ) -> GitHubAuthSettings:
         api_url = self._string_option(provider_options=options, option_name="api_url")
         api_version = self._string_option(
@@ -920,7 +944,7 @@ class GitHubSessionFactory:
         tried = ", ".join([*GITHUB_FALLBACK_TOKEN_ENVS, ".netrc", "gh auth token"])
         raise RuntimeError(f"GitHub authentication failed. Tried: {tried}")
 
-    def _private_key(self, *, options: dict[str, object], source: str) -> str:
+    def _private_key(self, *, options: Mapping[str, object], source: str) -> str:
         private_key_env = self._string_option(
             provider_options=options, option_name="private_key_env"
         )
@@ -969,7 +993,7 @@ class GitHubSessionFactory:
         return token.strip()
 
     @staticmethod
-    def _has_explicit_auth_options(provider_options: dict[str, object]) -> bool:
+    def _has_explicit_auth_options(provider_options: Mapping[str, object]) -> bool:
         return any(
             option_name in provider_options for option_name in GITHUB_PROFILE_OPTIONS
         )
@@ -1132,7 +1156,7 @@ class GitHubSessionFactory:
 
     @staticmethod
     def _required_string_option(
-        *, provider_options: dict[str, object], option_name: str, source: str
+        *, provider_options: Mapping[str, object], option_name: str, source: str
     ) -> str:
         option = provider_options.get(option_name)
         if not isinstance(option, str) or not option.strip():
@@ -1141,7 +1165,7 @@ class GitHubSessionFactory:
 
     @staticmethod
     def _required_int_option(
-        *, provider_options: dict[str, object], option_name: str
+        *, provider_options: Mapping[str, object], option_name: str
     ) -> int:
         option = provider_options.get(option_name)
         if not isinstance(option, str) or not option.strip():
@@ -1157,7 +1181,7 @@ class GitHubSessionFactory:
 
     @staticmethod
     def _string_option(
-        *, provider_options: dict[str, object], option_name: str
+        *, provider_options: Mapping[str, object], option_name: str
     ) -> str | None:
         option = provider_options.get(option_name)
         return option if isinstance(option, str) else None
@@ -1217,12 +1241,20 @@ class GithubProvider:
     def validate_target(self, target: TargetDescriptor) -> None:
         """Validate GitHub's first schema v2 target modes."""
 
-        if target.config_branch is not ConfigBranch.TARGETS:
-            raise ValueError(
-                "GitHub provider supports targets config (schema_version: 2) only"
-            )
-        if target.mode not in {MODE_GITHUB_ORGANIZATIONS, MODE_GITHUB_REPOSITORIES}:
+        if target.provider != self.metadata.name:
+            raise ValueError("GitHub provider supports provider 'github' targets only")
+        if target.mode not in SUPPORTED_MODES:
             raise ValueError(f"Unsupported GitHub target mode: {target.mode}")
+        validate_string_options(target=target, allowed_options=SUPPORTED_OPTIONS)
+        validate_region_selectors(target=target, selectors_allowed=False)
+        if (
+            target.provider_options.get("profile") is not None
+            and len(target.provider_options) > 1
+        ):
+            raise ValueError(
+                "GitHub provider.options.profile cannot be combined with inline "
+                "GitHub auth options"
+            )
         if not target.include:
             raise ValueError(
                 f"GitHub mode '{target.mode}' requires include with owner or "
@@ -1232,6 +1264,21 @@ class GithubProvider:
             raise ValueError(f"GitHub mode '{target.mode}' does not allow exclude")
         self._validate_include_values(mode=target.mode, include=target.include)
         self._validate_code_search_isolation(target=target)
+
+    def resolve_target_filters(
+        self,
+        *,
+        target: TargetDescriptor,
+        include_override: list[str] | None,
+        exclude_override: list[str] | None,
+    ) -> tuple[list[str] | None, list[str] | None]:
+        """Narrow configured GitHub owners or repositories."""
+
+        if exclude_override is not None:
+            raise ValueError(f"GitHub mode '{target.mode}' does not allow --exclude")
+        include = narrow_include(configured=target.include, override=include_override)
+        self.validate_target(replace(target, include=include, exclude=None))
+        return include, None
 
     def auth_cache_key(self, target: TargetDescriptor) -> object | None:
         """Return a stable auth cache identity without importing PyGithub."""
@@ -1272,6 +1319,21 @@ class GithubProvider:
             )
         ]
 
+    def prepare_target(
+        self,
+        *,
+        target: TargetDescriptor,
+        context: ExecutionContext,
+        include: list[str] | None,
+        exclude: list[str] | None,
+        cache: ProviderPreparationCache,
+        benchmark: dict[str, object] | None,
+    ) -> ProviderPreparation:
+        """Return empty preflight state for GitHub target resolution."""
+
+        self.validate_target(target)
+        return ProviderPreparation()
+
     def resolve_execution_targets(
         self,
         *,
@@ -1279,14 +1341,17 @@ class GithubProvider:
         regions: list[str],
         include: list[str] | None,
         exclude: list[str] | None,
+        preparation: object | None = None,
     ) -> ProviderExecutionPlan:
         """Resolve configured GitHub organizations or repositories."""
 
         self.validate_target(target)
+        if preparation is not None:
+            raise TypeError("GitHub does not accept provider preparation data")
         if exclude is not None:
             raise ValueError(f"GitHub mode '{target.mode}' does not allow exclude")
 
-        if target.mode == MODE_GITHUB_ORGANIZATIONS:
+        if target.mode == MODE_ORGANIZATIONS:
             owner_logins = include or target.include or []
             if _is_code_search_only_target(target=target):
                 target_ids = owner_logins
@@ -1305,6 +1370,7 @@ class GithubProvider:
             self._execution_target(
                 target_id=target_id,
                 target_type=target_type,
+                regions=regions,
                 provider_options=target.provider_options,
             )
             for target_id in target_ids
@@ -1362,7 +1428,12 @@ class GithubProvider:
         return GithubExecutionRuntime(data=execution_target.provider_data)
 
     def _execution_target(
-        self, *, target_id: str, target_type: str, provider_options: dict[str, object]
+        self,
+        *,
+        target_id: str,
+        target_type: str,
+        regions: list[str],
+        provider_options: dict[str, object],
     ) -> ExecutionTarget:
         data = GithubExecutionTargetData(
             target_id=target_id,
@@ -1375,12 +1446,13 @@ class GithubProvider:
             name=target_id,
             type=target_type,
             provider=self.metadata.name,
+            regions=list(regions),
             metadata={"github_target": target_id, "github_target_type": target_type},
             provider_data=data,
         )
 
     def _validate_include_values(self, *, mode: str | None, include: list[str]) -> None:
-        if mode == MODE_GITHUB_ORGANIZATIONS:
+        if mode == MODE_ORGANIZATIONS:
             invalid = [
                 target_id
                 for target_id in include
@@ -1426,11 +1498,6 @@ def create_provider_instance() -> GithubProvider:
     """Create the first-party GitHub provider."""
 
     return GithubProvider()
-
-
-GitHubExecutionTargetData = GithubExecutionTargetData
-GitHubExecutionRuntime = GithubExecutionRuntime
-GitHubProvider = GithubProvider
 
 
 def _is_not_found(error: Exception) -> bool:

@@ -4,7 +4,7 @@ import threading
 import time
 from dataclasses import dataclass
 
-from anvil.descriptors import ConfigBranch, TargetDescriptor
+from anvil.descriptors import TargetDescriptor
 from anvil.execution_context import ExecutionContext
 from anvil.providers.base import ExecutionTarget, ProviderMetadata
 from anvil.results import ExecutionStatus
@@ -39,7 +39,11 @@ class _Runtime:
 
 
 class _Provider:
-    metadata = ProviderMetadata(name="azure", display_name="Azure")
+    metadata = ProviderMetadata(
+        name="azure",
+        display_name="Azure",
+        supported_task_scopes=frozenset({"region", "target"}),
+    )
 
     def __init__(self, *, calls: dict[str, object]) -> None:
         self._calls = calls
@@ -56,7 +60,6 @@ class _Provider:
 
 def _target(*, max_workers: int = 1) -> TargetDescriptor:
     return TargetDescriptor(
-        config_branch=ConfigBranch.TARGETS,
         name="provider-target",
         provider="azure",
         mode="subscriptions",
@@ -74,6 +77,7 @@ def _execution_target(
         name=name or target_id,
         type="resource",
         provider="azure",
+        regions=regions or ["region-a"],
         provider_data=_ProviderData(locations=regions or ["region-a"]),
     )
 
@@ -87,7 +91,6 @@ def _context(
 ) -> ExecutionContext:
     return ExecutionContext(
         regions=regions or ["region-a"],
-        role_name=None,
         dry_run=False,
         tasks=tasks or [],
         metadata={},
@@ -378,7 +381,7 @@ def test_provider_result_keeps_region_and_task_order_stable() -> None:
     ]
 
 
-def test_provider_sequential_regions_share_action_recorder() -> None:
+def test_provider_regions_isolate_and_persist_task_actions() -> None:
     seen_actions: list[list[str]] = []
 
     def run(**kwargs):
@@ -398,7 +401,8 @@ def test_provider_sequential_regions_share_action_recorder() -> None:
     )
 
     assert result.status is ExecutionStatus.SUCCESS
-    assert seen_actions == [[], ["region-a"]]
+    assert seen_actions == [[], []]
+    assert [task.actions for task in result.tasks] == [["region-a"], ["region-b"]]
 
 
 def test_provider_benchmark_records_entity_worker_metrics() -> None:

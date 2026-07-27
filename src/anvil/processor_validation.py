@@ -9,11 +9,12 @@ processors against result data.
 from __future__ import annotations
 
 from collections.abc import Callable
-from inspect import Parameter, signature
+from inspect import getdoc, getmodule
 
+from anvil._components import validate_keyword_only_invocation
 from anvil.processor_loader import ProcessorDescriptor
 
-REQUIRED_RUN_KWARGS: set[str] = {"context", "output", "metadata"}
+PROCESSOR_RUN_KWARGS = frozenset({"context", "output", "metadata"})
 
 
 class ProcessorValidationError(ValueError):
@@ -58,6 +59,7 @@ def processor_validation_errors(processors: list[ProcessorDescriptor]) -> list[s
                 )
 
             _validate_processor_run_signature(name=processor.name, run=run)
+            _validate_processor_detail_docstring(name=processor.name, run=run)
 
         except Exception as exc:
             errors.append(f"{processor.name} ({processor.source}): {exc}")
@@ -67,26 +69,22 @@ def processor_validation_errors(processors: list[ProcessorDescriptor]) -> list[s
 
 def _validate_processor_run_signature(*, name: str, run: Callable) -> None:
     try:
-        sig = signature(run)
-    except (TypeError, ValueError) as exc:
+        validate_keyword_only_invocation(run, keyword_names=PROCESSOR_RUN_KWARGS)
+    except ValueError as exc:
         raise ProcessorValidationError(
-            f"unable to inspect run() signature for processor '{name}'"
+            f"processor '{name}' has incompatible run() signature: {exc}"
         ) from exc
 
-    parameters = sig.parameters
-    accepts_extra_kwargs = any(
-        parameter.kind is Parameter.VAR_KEYWORD for parameter in parameters.values()
-    )
-    missing = REQUIRED_RUN_KWARGS - set(parameters)
-    if missing and not accepts_extra_kwargs:
-        raise ProcessorValidationError(
-            f"processor '{name}' is missing required run() parameters: "
-            f"{sorted(missing)}"
-        )
 
-    for parameter in parameters.values():
-        if parameter.kind is Parameter.POSITIONAL_ONLY:
-            raise ProcessorValidationError(
-                f"processor '{name}' uses positional-only parameter "
-                f"'{parameter.name}', which is not supported"
-            )
+def _validate_processor_detail_docstring(*, name: str, run: Callable) -> None:
+    doc = getdoc(run)
+    if doc is None:
+        module = getmodule(run)
+        if module is not None:
+            doc = getdoc(module)
+
+    if doc is None:
+        raise ProcessorValidationError(
+            f"processor '{name}' is missing detail documentation; add a "
+            "Google-style run() docstring for 'anvil list --processors --detail'"
+        )

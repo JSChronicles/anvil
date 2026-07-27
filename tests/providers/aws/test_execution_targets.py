@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from anvil.descriptors import ConfigBranch, TargetDescriptor
+from anvil.descriptors import TargetDescriptor
 from anvil.providers.aws.provider import (
     AwsExecutionTargetData,
     AwsPreflightData,
@@ -57,11 +57,10 @@ def test_resolve_execution_targets_maps_explicit_assume_role_accounts(monkeypatc
         "anvil.providers.aws.provider.SessionFactory", lambda: session_factory
     )
     target = TargetDescriptor(
-        config_branch=ConfigBranch.TARGETS,
         name="selected",
+        provider="aws",
         mode="accounts",
-        profile="tooling",
-        role_name="SecurityAccessRole",
+        provider_options={"profile": "tooling", "role_name": "SecurityAccessRole"},
         include=["111111111111", "222222222222"],
     )
 
@@ -72,7 +71,6 @@ def test_resolve_execution_targets_maps_explicit_assume_role_accounts(monkeypatc
         exclude=target.exclude,
     )
 
-    assert plan.exclusive_execution_key is None
     assert [execution_target.id for execution_target in plan.execution_targets] == [
         "111111111111",
         "222222222222",
@@ -96,10 +94,10 @@ def test_resolve_execution_targets_maps_explicit_direct_profile_account(monkeypa
         "anvil.providers.aws.provider.SessionFactory", lambda: session_factory
     )
     target = TargetDescriptor(
-        config_branch=ConfigBranch.TARGETS,
         name="current",
+        provider="aws",
         mode="accounts",
-        profile="dev-admin",
+        provider_options={"profile": "dev-admin"},
         include=["111111111111"],
     )
 
@@ -124,7 +122,6 @@ def test_resolve_execution_targets_maps_explicit_assume_role_accounts_with_provi
         "anvil.providers.aws.provider.SessionFactory", lambda: session_factory
     )
     target = TargetDescriptor(
-        config_branch=ConfigBranch.TARGETS,
         name="selected",
         provider="aws",
         mode="accounts",
@@ -139,7 +136,6 @@ def test_resolve_execution_targets_maps_explicit_assume_role_accounts_with_provi
         exclude=target.exclude,
     )
 
-    assert plan.exclusive_execution_key is None
     assert [execution_target.id for execution_target in plan.execution_targets] == [
         "111111111111",
         "222222222222",
@@ -153,10 +149,10 @@ def test_resolve_execution_targets_maps_organization_accounts_and_execution_key(
     session_factory = FakeSessionFactory()
     base_session = BaseSession(profile_name="shared")
     target = TargetDescriptor(
-        config_branch=ConfigBranch.TARGETS,
         name="org-a",
+        provider="aws",
         mode="organization",
-        profile="shared",
+        provider_options={"profile": "shared"},
         include=["222222222222"],
     )
 
@@ -165,12 +161,11 @@ def test_resolve_execution_targets_maps_organization_accounts_and_execution_key(
         regions=["us-east-1"],
         include=target.include,
         exclude=target.exclude,
-        preflight_data=_preflight_data(
+        preparation=_preflight_data(
             session_factory=session_factory, base_session=base_session
         ),
     )
 
-    assert plan.exclusive_execution_key == "o-shared"
     assert [execution_target.id for execution_target in plan.execution_targets] == [
         "222222222222"
     ]
@@ -188,7 +183,6 @@ def test_resolve_execution_targets_maps_organization_accounts_with_provider_opti
     session_factory = FakeSessionFactory()
     base_session = BaseSession(profile_name="shared")
     target = TargetDescriptor(
-        config_branch=ConfigBranch.TARGETS,
         name="org-a",
         provider="aws",
         mode="organization",
@@ -201,12 +195,11 @@ def test_resolve_execution_targets_maps_organization_accounts_with_provider_opti
         regions=["us-east-1"],
         include=target.include,
         exclude=target.exclude,
-        preflight_data=_preflight_data(
+        preparation=_preflight_data(
             session_factory=session_factory, base_session=base_session
         ),
     )
 
-    assert plan.exclusive_execution_key == "o-shared"
     assert [execution_target.id for execution_target in plan.execution_targets] == [
         "222222222222"
     ]
@@ -215,10 +208,7 @@ def test_resolve_execution_targets_maps_organization_accounts_with_provider_opti
 
 def test_resolve_execution_targets_preserves_unknown_include_warning(caplog):
     target = TargetDescriptor(
-        config_branch=ConfigBranch.TARGETS,
-        name="org-a",
-        mode="organization",
-        include=["999999999999"],
+        name="org-a", provider="aws", mode="organization", include=["999999999999"]
     )
 
     plan = AwsProvider().resolve_execution_targets(
@@ -226,7 +216,7 @@ def test_resolve_execution_targets_preserves_unknown_include_warning(caplog):
         regions=["us-east-1"],
         include=target.include,
         exclude=target.exclude,
-        preflight_data=_preflight_data(
+        preparation=_preflight_data(
             session_factory=FakeSessionFactory(),
             discovered_accounts={
                 "111111111111": {
@@ -243,10 +233,7 @@ def test_resolve_execution_targets_preserves_unknown_include_warning(caplog):
 
 def test_resolve_execution_targets_preserves_unknown_exclude_warning(caplog):
     target = TargetDescriptor(
-        config_branch=ConfigBranch.TARGETS,
-        name="org-a",
-        mode="organization",
-        exclude=["999999999999"],
+        name="org-a", provider="aws", mode="organization", exclude=["999999999999"]
     )
 
     plan = AwsProvider().resolve_execution_targets(
@@ -254,7 +241,7 @@ def test_resolve_execution_targets_preserves_unknown_exclude_warning(caplog):
         regions=["us-east-1"],
         include=target.include,
         exclude=target.exclude,
-        preflight_data=_preflight_data(
+        preparation=_preflight_data(
             session_factory=FakeSessionFactory(),
             discovered_accounts={
                 "111111111111": {

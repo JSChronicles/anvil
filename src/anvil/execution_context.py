@@ -9,11 +9,10 @@ from anvil.task_loader import ResolvedTask
 @dataclass(frozen=True, slots=True)
 class ExecutionContext:
     """
-    Immutable execution configuration shared across org and account execution.
+    Immutable execution configuration shared across provider target execution.
     """
 
     regions: list[str]
-    role_name: str | None
     dry_run: bool
     tasks: list[ResolvedTask]
     metadata: dict[str, object]

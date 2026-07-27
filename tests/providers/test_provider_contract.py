@@ -18,6 +18,38 @@ from anvil.providers.github import (
 )
 
 
+class _CompleteProvider:
+    metadata = ProviderMetadata(
+        name="complete", display_name="Complete", supported_task_scopes=frozenset()
+    )
+
+    def validate_target(self, target):
+        return None
+
+    def resolve_target_filters(self, *, target, include_override, exclude_override):
+        return target.include, target.exclude
+
+    def auth_cache_key(self, target):
+        return None
+
+    def auth_check(self, target):
+        return None
+
+    def discover_regions(self, target):
+        return []
+
+    def prepare_target(self, *, target, context, include, exclude, cache, benchmark):
+        return None
+
+    def resolve_execution_targets(
+        self, *, target, regions, include, exclude, preparation=None
+    ):
+        return None
+
+    def prepare_execution_runtime(self, *, target, execution_target, context):
+        return None
+
+
 def test_first_party_providers_satisfy_provider_contract():
     providers = [
         create_aws_provider_instance(),
@@ -65,87 +97,50 @@ def test_validate_resolved_regions_rejects_invalid_values(regions):
 
 
 def test_provider_contract_rejects_empty_metadata_name():
-    class BrokenProvider:
-        metadata = ProviderMetadata(name="", display_name="Broken")
-
-        def validate_target(self, target):
-            return None
-
-        def default_regions(self, target):
-            return []
-
-        def auth_cache_key(self, target):
-            return None
-
-        def auth_check(self, target):
-            return None
-
-        def discover_regions(self, target):
-            return []
-
-        def resolve_execution_targets(self, *, target, regions, include, exclude):
-            return None
-
-        def prepare_execution_runtime(self, *, target, execution_target, context):
-            return None
+    class BrokenProvider(_CompleteProvider):
+        metadata = ProviderMetadata(
+            name="", display_name="Broken", supported_task_scopes=frozenset()
+        )
 
     with pytest.raises(ValueError, match="metadata name"):
         validate_provider_contract(BrokenProvider())
 
 
 def test_provider_contract_rejects_empty_display_name():
-    class BrokenProvider:
-        metadata = ProviderMetadata(name="broken", display_name="")
-
-        def validate_target(self, target):
-            return None
-
-        def default_regions(self, target):
-            return []
-
-        def auth_cache_key(self, target):
-            return None
-
-        def auth_check(self, target):
-            return None
-
-        def discover_regions(self, target):
-            return []
-
-        def resolve_execution_targets(self, *, target, regions, include, exclude):
-            return None
-
-        def prepare_execution_runtime(self, *, target, execution_target, context):
-            return None
+    class BrokenProvider(_CompleteProvider):
+        metadata = ProviderMetadata(
+            name="broken", display_name="", supported_task_scopes=frozenset()
+        )
 
     with pytest.raises(ValueError, match="display_name"):
         validate_provider_contract(BrokenProvider())
 
 
 def test_provider_contract_rejects_missing_contract_parameter():
-    class BrokenProvider:
-        metadata = ProviderMetadata(name="broken", display_name="Broken")
+    class BrokenProvider(_CompleteProvider):
+        metadata = ProviderMetadata(
+            name="broken", display_name="Broken", supported_task_scopes=frozenset()
+        )
 
-        def validate_target(self, target):
-            return None
-
-        def default_regions(self, target):
-            return []
-
-        def auth_cache_key(self, target):
-            return None
-
-        def auth_check(self, target):
-            return None
-
-        def discover_regions(self, target):
-            return []
-
-        def resolve_execution_targets(self, *, target, regions, include):
-            return None
-
-        def prepare_execution_runtime(self, *, target, execution_target, context):
+        def resolve_execution_targets(  # ty: ignore[invalid-method-override]
+            self, *, target, regions, include
+        ):
             return None
 
     with pytest.raises(TypeError, match="resolve_execution_targets.*exclude"):
+        validate_provider_contract(BrokenProvider())
+
+
+def test_provider_contract_rejects_missing_preparation_parameter():
+    class BrokenProvider(_CompleteProvider):
+        metadata = ProviderMetadata(
+            name="broken", display_name="Broken", supported_task_scopes=frozenset()
+        )
+
+        def resolve_execution_targets(  # ty: ignore[invalid-method-override]
+            self, *, target, regions, include, exclude
+        ):
+            return None
+
+    with pytest.raises(TypeError, match="resolve_execution_targets.*preparation"):
         validate_provider_contract(BrokenProvider())

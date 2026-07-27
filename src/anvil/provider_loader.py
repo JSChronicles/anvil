@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import importlib
-from collections.abc import Callable
 from dataclasses import dataclass
 from functools import lru_cache
 from importlib.metadata import EntryPoint, entry_points
@@ -11,6 +10,7 @@ from typing import cast
 
 from anvil._components import (
     ComponentCatalog,
+    ComponentDescriptor,
     ComponentKind,
     ComponentOrigin,
     ComponentResolver,
@@ -26,15 +26,7 @@ _STOCK_PROVIDER_PACKAGE = "anvil.providers"
 _RESERVED_PROVIDER_CHILDREN = frozenset({"base", "tasks"})
 
 
-@dataclass(frozen=True, slots=True)
-class ProviderDescriptor:
-    """Provider metadata and lazy loader used by CLI discovery."""
-
-    name: str
-    display_name: str
-    load: Callable[[], Provider]
-    source: str
-    description: str | None = None
+ProviderDescriptor = ComponentDescriptor[Provider]
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,7 +92,6 @@ def _provider_catalog_for_entry_points(
         origin=ComponentOrigin.STOCK, package=_STOCK_PROVIDER_PACKAGE, label="stock"
     )
     stock_descriptors, stock_issues = PackageComponentSource(
-        kind=ComponentKind.PROVIDER,
         package_name=_STOCK_PROVIDER_PACKAGE,
         source=stock_source,
         component_loader=_load_provider_from_package,
@@ -116,7 +107,6 @@ def _provider_catalog_for_entry_points(
         package_name = entry_point_value.split(":", maxsplit=1)[0]
         source = _entry_point_source(entry_point)
         package_descriptors, package_issues = PackageComponentSource(
-            kind=ComponentKind.PROVIDER,
             package_name=package_name,
             source=source,
             component_loader=_load_provider_from_package,
@@ -140,34 +130,28 @@ def _provider_catalog_for_entry_points(
     return ComponentCatalog.build(catalog.descriptors, duplicate_issues)
 
 
+@lru_cache(maxsize=1)
 def _provider_catalog() -> ComponentCatalog[Provider]:
+    """Return the process-local provider discovery snapshot."""
+
     return _provider_catalog_for_entry_points(
         tuple(entry_points(group=PROVIDER_PACKAGE_ENTRY_POINT_GROUP))
     )
 
 
-def _display_name(name: str) -> str:
-    known_initialisms = {"aws": "AWS", "gcp": "GCP", "github": "GitHub"}
-    return known_initialisms.get(name, name.replace("_", " ").title())
+def _clear_provider_caches() -> None:
+    """Clear provider discovery snapshots and derived catalogs."""
 
-
-def _public_descriptor(descriptor) -> ProviderDescriptor:
-    return ProviderDescriptor(
-        name=descriptor.name,
-        display_name=_display_name(descriptor.name),
-        load=descriptor.load,
-        source=str(descriptor.source),
-    )
+    _provider_catalog.cache_clear()
+    _provider_catalog_for_entry_points.cache_clear()
 
 
 def discover_providers() -> ProviderDiscoveryResult:
     """Discover provider folders without constructing providers."""
 
     catalog = _provider_catalog()
-    unique_descriptors = [candidates[0] for candidates in catalog.inventory.values()]
     return ProviderDiscoveryResult(
-        providers=[_public_descriptor(item) for item in unique_descriptors],
-        issues=list(catalog.issues),
+        providers=list(catalog.descriptors), issues=list(catalog.issues)
     )
 
 

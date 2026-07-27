@@ -8,7 +8,7 @@ from functools import lru_cache
 from jsonschema import Draft202012Validator
 from referencing import Registry, Resource
 
-from anvil.descriptors import ConfigBranch, LoadedConfig, TargetDescriptor
+from anvil.descriptors import LoadedConfig, TargetDescriptor
 
 __LOGGER__ = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ def _load_schema_file(schema_file: str) -> dict:
         return json.load(handle)
 
 
-def _detect_config_branch(config: dict) -> ConfigBranch:
+def _validate_config_shape(config: dict) -> None:
     if config.get("schema_version") != 2:
         raise ValueError(
             "Unsupported config schema. Anvil v0.30 requires "
@@ -36,8 +36,6 @@ def _detect_config_branch(config: dict) -> ConfigBranch:
 
     if "targets" not in config:
         raise ValueError("schema_version 2 configs must contain top-level 'targets'")
-
-    return ConfigBranch.TARGETS
 
 
 @lru_cache(maxsize=1)
@@ -50,13 +48,13 @@ def _format_schema_error_location(*, config: dict, error) -> str:
     location = ".".join(str(path) for path in path_parts) or "root"
 
     if len(path_parts) >= 2 and isinstance(path_parts[1], int):
-        branch_name = path_parts[0]
+        collection_name = path_parts[0]
         entry_index = path_parts[1]
 
-        if branch_name not in {branch.value for branch in ConfigBranch}:
+        if collection_name != "targets":
             return location
 
-        entries = config.get(branch_name, [])
+        entries = config.get(collection_name, [])
         if not isinstance(entries, list) or not (0 <= entry_index < len(entries)):
             return location
 
@@ -68,8 +66,7 @@ def _format_schema_error_location(*, config: dict, error) -> str:
         if not isinstance(entry_name, str) or not entry_name.strip():
             return location
 
-        label = {ConfigBranch.TARGETS.value: "target"}[branch_name]
-        return f"{label} '{entry_name}' ({location})"
+        return f"target '{entry_name}' ({location})"
 
     return location
 
@@ -105,7 +102,7 @@ def validate_config_schema(*, config: dict) -> None:
             "schema_version: 2 with top-level 'targets'."
         )
 
-    _detect_config_branch(config)
+    _validate_config_shape(config)
     schema = _load_targets_schema()
     registry = _build_schema_registry()
 
@@ -128,24 +125,22 @@ def load_config_descriptors(*, config: dict) -> LoadedConfig:
 
     Assumes schema validation has already succeeded.
     """
-    branch = _detect_config_branch(config)
-    entries = config[branch.value]
+    _validate_config_shape(config)
+    entries = config["targets"]
     max_parallel_targets = config.get("max_parallel_targets", 1)
 
     targets: list[TargetDescriptor] = []
 
     for index, entry in enumerate(entries, start=1):
         if not isinstance(entry, dict):
-            raise ValueError(f"{branch.value} entry #{index} must be a mapping")
+            raise ValueError(f"targets entry #{index} must be a mapping")
 
         normalized_entry = _normalize_target_entry(entry=entry, index=index)
-        targets.append(TargetDescriptor(config_branch=branch, **normalized_entry))
+        targets.append(TargetDescriptor(**normalized_entry))
 
     validate_target_descriptors(targets=targets)
 
-    return LoadedConfig(
-        branch=branch, max_parallel_targets=max_parallel_targets, targets=targets
-    )
+    return LoadedConfig(max_parallel_targets=max_parallel_targets, targets=targets)
 
 
 def _normalize_target_entry(*, entry: dict, index: int) -> dict:
@@ -177,6 +172,8 @@ def validate_target_descriptors(*, targets: list[TargetDescriptor]) -> None:
     """
     Validate semantic correctness across loaded target descriptors.
     """
+    from anvil.provider_loader import load_provider
+
     seen_names: set[str] = set()
 
     for target in targets:
@@ -184,12 +181,14 @@ def validate_target_descriptors(*, targets: list[TargetDescriptor]) -> None:
             raise ValueError(f"Duplicate target name detected: '{target.name}'")
 
         seen_names.add(target.name)
+        provider = load_provider(target.provider)
+        provider.validate_target(target)
 
         combined_concurrency = target.max_workers * target.max_parallel_regions
         if target.fail_fast and combined_concurrency > 10:
             __LOGGER__.warning(
                 f"Target '{target.name}' has fail_fast enabled with "
-                f"combined account-region concurrency={combined_concurrency} "
+                f"combined entity-region concurrency={combined_concurrency} "
                 f"(max_workers={target.max_workers}, "
                 f"max_parallel_regions={target.max_parallel_regions})"
             )
