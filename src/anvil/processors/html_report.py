@@ -3,9 +3,8 @@ from __future__ import annotations
 import html
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
-from anvil.descriptors import ConfigBranch
 from anvil.results import TargetResult
 
 if TYPE_CHECKING:
@@ -64,22 +63,14 @@ def _default_output_path(context: ProcessorRunContext) -> Path:
 def _load_records(*, context: ProcessorRunContext) -> list[dict[str, object]]:
     records: list[dict[str, object]] = []
     if context.target_result is not None:
-        records.extend(
-            _records_from_target_result(
-                target_result=context.target_result, config_branch=context.config_branch
-            )
-        )
+        records.extend(_records_from_target_result(target_result=context.target_result))
     else:
         for target_result in context.target_results:
             if not _matches_context_target(
                 context=context, target_result=target_result
             ):
                 continue
-            records.extend(
-                _records_from_target_result(
-                    target_result=target_result, config_branch=context.config_branch
-                )
-            )
+            records.extend(_records_from_target_result(target_result=target_result))
 
     return records
 
@@ -93,33 +84,23 @@ def _matches_context_target(
     if isinstance(target_result, TargetResult):
         return target_result.target_name == context.target_name
 
-    target_type = _target_type(context.config_branch)
-    target_name = _string_value(target_result.get(target_type)) or _string_value(
-        target_result.get("target")
-    )
+    target_name = _string_value(target_result.get("target"))
     return target_name == context.target_name
 
 
 def _records_from_target_result(
-    *, target_result: TargetResult | dict[str, object], config_branch: ConfigBranch
+    *, target_result: TargetResult | dict[str, object]
 ) -> list[dict[str, object]]:
     if isinstance(target_result, TargetResult):
-        return _records_from_target_dict(
-            target_result=target_result.to_dict(), config_branch=config_branch
-        )
+        return _records_from_target_dict(target_result=target_result.to_dict())
 
-    return _records_from_target_dict(
-        target_result=target_result, config_branch=config_branch
-    )
+    return _records_from_target_dict(target_result=target_result)
 
 
 def _records_from_target_dict(
-    *, target_result: dict[str, object], config_branch: ConfigBranch
+    *, target_result: dict[str, object]
 ) -> list[dict[str, object]]:
-    target_type = _target_type(config_branch)
-    target_name = _string_value(target_result.get(target_type)) or _string_value(
-        target_result.get("target")
-    )
+    target_name = _string_value(target_result.get("target"))
     entities = target_result.get("entities", [])
     if not isinstance(entities, list):
         return []
@@ -128,10 +109,10 @@ def _records_from_target_dict(
     for entity_result in entities:
         if not isinstance(entity_result, dict):
             continue
+        entity_result = cast(dict[str, object], entity_result)
 
         entity_record = {
-            "target_type": target_type,
-            target_type: target_name,
+            "target_type": "target",
             "target": target_name,
             "generated_at": target_result.get("generated_at"),
             "dry_run": target_result.get("dry_run"),
@@ -155,6 +136,7 @@ def _records_from_target_dict(
         for task_result in tasks:
             if not isinstance(task_result, dict):
                 continue
+            task_result = cast(dict[str, object], task_result)
             records.append(
                 {
                     **entity_record,
@@ -168,12 +150,6 @@ def _records_from_target_dict(
             )
 
     return records
-
-
-def _target_type(config_branch: ConfigBranch) -> str:
-    if config_branch is not ConfigBranch.TARGETS:
-        raise ValueError(f"Unsupported config branch: {config_branch}")
-    return "target"
 
 
 def _timed_status_record(record: dict[str, object]) -> dict[str, object]:

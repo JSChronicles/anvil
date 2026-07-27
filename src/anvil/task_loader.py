@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from functools import lru_cache
 from importlib.metadata import entry_points
+from types import MappingProxyType
 
 from anvil._components import (
     ComponentCatalog,
@@ -19,6 +20,7 @@ from anvil._components import (
     ComponentSource,
     DiscoveryIssue,
     PackageComponentSource,
+    source_from_entry_point,
 )
 
 UNIVERSAL_TASK_PACKAGE = "anvil.providers.tasks"
@@ -74,6 +76,7 @@ class TaskDiscoveryResult:
 
     tasks: list[TaskDescriptor]
     issues: list[DiscoveryIssue]
+    provider_catalogs: Mapping[str, ComponentCatalog[Callable]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,14 +114,14 @@ def _load_task_component(
 
 @lru_cache(maxsize=512)
 def _load_provider_task_callable(*, provider_name: str, task_name: str) -> Callable:
-    descriptor_index, discovery_issues = _provider_task_discovery(provider_name)
-    descriptors = descriptor_index.get(task_name, [])
+    catalog = _provider_task_catalog(provider_name)
+    descriptors = catalog.inventory.get(task_name, ())
     if not descriptors:
         issue_detail = ""
-        if discovery_issues:
+        if catalog.issues:
             issue_lines = "; ".join(
                 f"{issue.name} ({issue.source}): {issue.error}"
-                for issue in discovery_issues
+                for issue in catalog.issues
             )
             issue_detail = (
                 f" Discovery of one or more task sources failed: {issue_lines}"
@@ -132,33 +135,14 @@ def _load_provider_task_callable(*, provider_name: str, task_name: str) -> Calla
 
     return ComponentResolver(
         kind=ComponentKind.TASK,
-        catalog=ComponentCatalog(descriptors=tuple(descriptors)),
+        catalog=catalog,
         error_type=TaskConfigError,
         context=f"for provider '{provider_name}'",
     ).load(task_name)
 
 
-def _provider_task_packages(provider_name: str) -> tuple[tuple[str, str], ...]:
-    return (
-        ("universal", UNIVERSAL_TASK_PACKAGE),
-        (provider_name, f"{PROVIDER_TASK_PACKAGE_PREFIX}.{provider_name}.tasks"),
-    )
-
-
-def _provider_task_entry_point_groups(
-    provider_name: str,
-) -> tuple[tuple[str, str], ...]:
-    return (
-        ("universal", UNIVERSAL_TASK_ENTRY_POINT_GROUP),
-        (
-            provider_name,
-            f"{PROVIDER_TASK_ENTRY_POINT_GROUP_PREFIX}.{provider_name}.tasks",
-        ),
-    )
-
-
 def _iter_package_task_descriptors(
-    *, package_name: str, source: str
+    *, package_name: str, source_label: str, provider_name: str | None
 ) -> list[TaskDescriptor]:
     try:
         package_spec = importlib.util.find_spec(package_name)
@@ -179,11 +163,10 @@ def _iter_package_task_descriptors(
     component_source = ComponentSource(
         origin=ComponentOrigin.STOCK,
         package=package_name,
-        label=source,
-        provider=None if source == "universal" else source,
+        label=source_label,
+        provider=provider_name,
     )
     descriptors, issues = PackageComponentSource(
-        kind=ComponentKind.TASK,
         package_name=package_name,
         source=component_source,
         component_loader=_load_task_component,
@@ -195,28 +178,20 @@ def _iter_package_task_descriptors(
 
 
 def _iter_plugin_task_descriptors(
-    *, entry_point_group: str, source_prefix: str
+    *, entry_point_group: str, label_prefix: str, provider_name: str | None
 ) -> tuple[list[TaskDescriptor], list[DiscoveryIssue]]:
     descriptors: list[TaskDescriptor] = []
     issues: list[DiscoveryIssue] = []
 
     for entry_point in entry_points(group=entry_point_group):
-        distribution = entry_point.dist.name if entry_point.dist is not None else None
-        source = f"{source_prefix} {distribution or 'unpackaged'}"
         package_name = entry_point.value.split(":", maxsplit=1)[0]
-        component_source = ComponentSource(
-            origin=ComponentOrigin.PLUGIN,
+        component_source = source_from_entry_point(
+            entry_point=entry_point,
             package=package_name,
-            label=source,
-            distribution=(
-                entry_point.dist.name if entry_point.dist is not None else None
-            ),
-            entry_point_group=entry_point_group,
-            entry_point_name=entry_point.name,
-            provider=None if source_prefix.startswith("universal") else source_prefix,
+            label_prefix=label_prefix,
+            provider=provider_name,
         )
         discovered, source_issues = PackageComponentSource(
-            kind=ComponentKind.TASK,
             package_name=package_name,
             source=component_source,
             component_loader=_load_task_component,
@@ -227,33 +202,60 @@ def _iter_plugin_task_descriptors(
     return descriptors, issues
 
 
-@lru_cache(maxsize=16)
-def _provider_task_discovery(
-    provider_name: str,
-) -> tuple[dict[str, tuple[TaskDescriptor, ...]], tuple[DiscoveryIssue, ...]]:
-    catalog_descriptors: list[CatalogDescriptor[Callable]] = []
+@lru_cache(maxsize=1)
+def _universal_task_catalog() -> ComponentCatalog[Callable]:
+    descriptors: list[CatalogDescriptor[Callable]] = []
     issues: list[DiscoveryIssue] = []
 
-    for source, package_name in _provider_task_packages(provider_name):
-        catalog_descriptors.extend(
-            _iter_package_task_descriptors(package_name=package_name, source=source)
+    descriptors.extend(
+        _iter_package_task_descriptors(
+            package_name=UNIVERSAL_TASK_PACKAGE,
+            source_label="universal",
+            provider_name=None,
         )
+    )
+    plugin_descriptors, plugin_issues = _iter_plugin_task_descriptors(
+        entry_point_group=UNIVERSAL_TASK_ENTRY_POINT_GROUP,
+        label_prefix="universal plugin:",
+        provider_name=None,
+    )
+    descriptors.extend(plugin_descriptors)
+    issues.extend(plugin_issues)
+    return ComponentCatalog.build(descriptors, issues)
 
-    for source, entry_point_group in _provider_task_entry_point_groups(provider_name):
-        plugin_descriptors, plugin_issues = _iter_plugin_task_descriptors(
-            entry_point_group=entry_point_group, source_prefix=f"{source} plugin:"
+
+@lru_cache(maxsize=16)
+def _provider_specific_task_catalog(provider_name: str) -> ComponentCatalog[Callable]:
+    descriptors: list[CatalogDescriptor[Callable]] = []
+    issues: list[DiscoveryIssue] = []
+
+    descriptors.extend(
+        _iter_package_task_descriptors(
+            package_name=f"{PROVIDER_TASK_PACKAGE_PREFIX}.{provider_name}.tasks",
+            source_label=provider_name,
+            provider_name=provider_name,
         )
-        issues.extend(plugin_issues)
-        catalog_descriptors.extend(plugin_descriptors)
+    )
+    plugin_descriptors, plugin_issues = _iter_plugin_task_descriptors(
+        entry_point_group=(
+            f"{PROVIDER_TASK_ENTRY_POINT_GROUP_PREFIX}.{provider_name}.tasks"
+        ),
+        label_prefix=f"{provider_name} plugin:",
+        provider_name=provider_name,
+    )
+    descriptors.extend(plugin_descriptors)
+    issues.extend(plugin_issues)
+    return ComponentCatalog.build(descriptors, issues)
 
-    catalog = ComponentCatalog.build(catalog_descriptors, issues)
-    return dict(catalog.inventory), catalog.issues
 
-
-def _provider_task_descriptor_index(
-    provider_name: str,
-) -> dict[str, tuple[TaskDescriptor, ...]]:
-    return _provider_task_discovery(provider_name)[0]
+@lru_cache(maxsize=16)
+def _provider_task_catalog(provider_name: str) -> ComponentCatalog[Callable]:
+    universal_catalog = _universal_task_catalog()
+    provider_catalog = _provider_specific_task_catalog(provider_name)
+    return ComponentCatalog.build(
+        (*universal_catalog.descriptors, *provider_catalog.descriptors),
+        (*universal_catalog.issues, *provider_catalog.issues),
+    )
 
 
 def provider_task_descriptor_index(
@@ -263,16 +265,16 @@ def provider_task_descriptor_index(
 
     return {
         name: list(descriptors)
-        for name, descriptors in _provider_task_descriptor_index(provider_name).items()
+        for name, descriptors in _provider_task_catalog(provider_name).inventory.items()
     }
 
 
 def _clear_task_caches() -> None:
     _load_provider_task_callable.cache_clear()
     _resolve_tasks_cached.cache_clear()
-    cache_clear = getattr(_provider_task_discovery, "cache_clear", None)
-    if cache_clear is not None:
-        cache_clear()
+    _provider_task_catalog.cache_clear()
+    _provider_specific_task_catalog.cache_clear()
+    _universal_task_catalog.cache_clear()
 
 
 # ============================================================================
@@ -496,17 +498,19 @@ def discover_tasks() -> TaskDiscoveryResult:
 
     tasks: set[TaskDescriptor] = set()
     issues: set[DiscoveryIssue] = set()
+    provider_catalogs: dict[str, ComponentCatalog[Callable]] = {}
     for provider_name in sorted({provider.name for provider in list_providers()}):
-        index, provider_issues = _provider_task_discovery(provider_name)
-        for descriptors in index.values():
-            tasks.update(descriptors)
-        issues.update(provider_issues)
+        catalog = _provider_task_catalog(provider_name)
+        provider_catalogs[provider_name] = catalog
+        tasks.update(catalog.descriptors)
+        issues.update(catalog.issues)
 
     return TaskDiscoveryResult(
         tasks=sorted(tasks, key=lambda task: (str(task.source), task.name)),
         issues=sorted(
             issues, key=lambda issue: (str(issue.source), issue.name, issue.error)
         ),
+        provider_catalogs=MappingProxyType(provider_catalogs),
     )
 
 

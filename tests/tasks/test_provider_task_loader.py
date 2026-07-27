@@ -5,7 +5,7 @@ import inspect
 
 import pytest
 
-from anvil._components import ComponentOrigin, ComponentSource
+from anvil._components import ComponentCatalog, ComponentOrigin, ComponentSource
 from anvil.task_loader import TaskConfigError, TaskDescriptor
 
 SUPPORTED_TASK_SCOPES = frozenset({"region", "target"})
@@ -141,37 +141,20 @@ def test_duplicate_universal_and_provider_task_name_is_ambiguous(monkeypatch):
     task_loader = importlib.import_module("anvil.task_loader")
     _clear_task_loader_caches(task_loader)
 
-    monkeypatch.setattr(
-        task_loader,
-        "_provider_task_descriptor_index",
-        lambda provider_name: {
-            "shared": (
-                _descriptor("shared", "universal"),
-                _descriptor("shared", provider_name),
-            )
-        },
+    catalog = ComponentCatalog.build(
+        [_descriptor("shared", "universal"), _descriptor("shared", "aws")]
     )
     monkeypatch.setattr(
-        task_loader,
-        "_provider_task_discovery",
-        lambda provider_name: (
-            {
-                "shared": (
-                    _descriptor("shared", "universal"),
-                    _descriptor("shared", provider_name),
-                )
-            },
-            (),
-        ),
+        task_loader, "_provider_task_catalog", lambda provider_name: catalog
     )
 
     index = task_loader.provider_task_descriptor_index(provider_name="aws")
 
     assert [str(descriptor.source) for descriptor in index["shared"]] == [
-        "universal",
         "aws",
+        "universal",
     ]
-    with pytest.raises(TaskConfigError, match="ambiguous.*universal.*aws"):
+    with pytest.raises(TaskConfigError, match="ambiguous.*aws.*universal"):
         task_loader.resolve_tasks(
             task_specs=[{"name": "shared"}],
             provider_name="aws",
@@ -183,9 +166,9 @@ def test_provider_descriptor_index_adds_provider_package_tasks(monkeypatch):
     task_loader = importlib.import_module("anvil.task_loader")
     _clear_task_loader_caches(task_loader)
 
-    def fake_package_descriptors(*, package_name, source):
-        if source == "example":
-            return [_descriptor("aws_only", source)]
+    def fake_package_descriptors(*, package_name, source_label, provider_name):
+        if source_label == "example":
+            return [_descriptor("aws_only", source_label)]
         return []
 
     monkeypatch.setattr(
@@ -207,9 +190,9 @@ def test_resolve_tasks_accepts_non_aws_provider_name(monkeypatch):
     task_loader = importlib.import_module("anvil.task_loader")
     _clear_task_loader_caches(task_loader)
 
-    def fake_package_descriptors(*, package_name, source):
-        if source == "universal":
-            return [_descriptor("shared_task", source)]
+    def fake_package_descriptors(*, package_name, source_label, provider_name):
+        if source_label == "universal":
+            return [_descriptor("shared_task", source_label)]
         return []
 
     monkeypatch.setattr(
@@ -233,13 +216,13 @@ def test_provider_descriptor_index_builds_once_for_multiple_configured_tasks(
     _clear_task_loader_caches(task_loader)
     calls = {"packages": 0}
 
-    def fake_package_descriptors(*, package_name, source):
+    def fake_package_descriptors(*, package_name, source_label, provider_name):
         calls["packages"] += 1
-        if source == "build_once":
+        if source_label == "build_once":
             return [
-                _descriptor("alpha", source),
-                _descriptor("beta", source),
-                _descriptor("gamma", source),
+                _descriptor("alpha", source_label),
+                _descriptor("beta", source_label),
+                _descriptor("gamma", source_label),
             ]
         return []
 
@@ -266,12 +249,39 @@ def test_discover_tasks_includes_github_provider_list(monkeypatch):
     task_loader = importlib.import_module("anvil.task_loader")
     seen: list[str] = []
 
-    def fake_discovery(provider_name):
+    def fake_catalog(provider_name):
         seen.append(provider_name)
-        return {}, ()
+        return ComponentCatalog.build([])
 
-    monkeypatch.setattr(task_loader, "_provider_task_discovery", fake_discovery)
+    monkeypatch.setattr(task_loader, "_provider_task_catalog", fake_catalog)
 
     task_loader.discover_tasks()
 
     assert seen == ["aws", "azure", "gcp", "github"]
+
+
+def test_discover_tasks_scans_universal_sources_once(monkeypatch):
+    task_loader = importlib.import_module("anvil.task_loader")
+    package_sources: list[str] = []
+
+    def fake_package_descriptors(*, package_name, source_label, provider_name):
+        package_sources.append(source_label)
+        return []
+
+    monkeypatch.setattr(
+        task_loader, "_iter_package_task_descriptors", fake_package_descriptors
+    )
+    monkeypatch.setattr(
+        task_loader, "_iter_plugin_task_descriptors", lambda **kwargs: ([], [])
+    )
+    _clear_task_loader_caches(task_loader)
+
+    task_loader.discover_tasks()
+
+    assert package_sources.count("universal") == 1
+    assert sorted(source for source in package_sources if source != "universal") == [
+        "aws",
+        "azure",
+        "gcp",
+        "github",
+    ]

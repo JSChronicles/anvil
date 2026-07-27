@@ -58,8 +58,8 @@ from anvil.result_query import (
 )
 from anvil.results import EngineResult, EngineState
 from anvil.runner import run_auth_checks, run_multiple_targets
-from anvil.task_loader import ResolvedTask, TaskDescriptor, discover_tasks, list_tasks
-from anvil.task_validation import task_validation_errors
+from anvil.task_loader import TaskDescriptor, discover_tasks, list_tasks
+from anvil.task_validation import task_catalog_ambiguity_errors, task_validation_errors
 from anvil.validators import load_config_descriptors, validate_config_schema
 
 __LOGGER__ = logging.getLogger(__name__)
@@ -337,7 +337,6 @@ def _run_single_config_file(*, config_file: Path, args: argparse.Namespace) -> i
         config_file=config_file, engine_result=engine_result
     )
     run_configured_post_processors(
-        config_branch=loaded_config.branch,
         targets=loaded_config.targets,
         target_results=engine_result.target_results,
         run_dir=written_results.run_dir,
@@ -554,19 +553,13 @@ def _validate_selected_tasks(task_names: list[str] | None) -> None:
     else:
         errors.extend(_discovery_issue_messages(discovery.issues))
 
-    resolved = []
-    for descriptor in descriptors:
-        try:
-            run = descriptor.load()
-        except Exception as exc:
-            errors.append(f"{descriptor.name} ({descriptor.source}): {exc}")
-            continue
-
-        resolved.append(
-            ResolvedTask(name=descriptor.name, run=run, depends_on=[], optional=False)
+    provider_catalogs = getattr(discovery, "provider_catalogs", {})
+    errors.extend(
+        task_catalog_ambiguity_errors(
+            provider_catalogs, task_names=set(task_names) if task_names else None
         )
-
-    errors.extend(task_validation_errors(resolved))
+    )
+    errors.extend(task_validation_errors(descriptors))
     _raise_validation_errors(errors)
 
 

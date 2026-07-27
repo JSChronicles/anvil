@@ -537,7 +537,6 @@ def test_run_configured_post_processors_runs_successful_targets(monkeypatch):
     monkeypatch.setattr(processor_loader, "run_processors", fake_run_processors)
 
     processor_loader.run_configured_post_processors(
-        config_branch=loaded_config.branch,
         targets=loaded_config.targets,
         target_results=engine_result.target_results,
         run_dir=written_results.run_dir,
@@ -587,7 +586,6 @@ def test_run_configured_post_processors_skips_failed_targets(monkeypatch):
     monkeypatch.setattr(processor_loader, "run_processors", fake_run_processors)
 
     processor_loader.run_configured_post_processors(
-        config_branch=loaded_config.branch,
         targets=loaded_config.targets,
         target_results=engine_result.target_results,
         run_dir=written_results.run_dir,
@@ -638,7 +636,6 @@ def test_run_configured_post_processors_runs_failure_opt_in(monkeypatch):
     monkeypatch.setattr(processor_loader, "run_processors", fake_run_processors)
 
     processor_loader.run_configured_post_processors(
-        config_branch=loaded_config.branch,
         targets=loaded_config.targets,
         target_results=[target_result],
         run_dir=written_results.run_dir,

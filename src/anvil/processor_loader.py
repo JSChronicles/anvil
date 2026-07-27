@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from collections.abc import Callable
+from dataclasses import dataclass, field, replace
 from functools import lru_cache
 from pathlib import Path
 
@@ -20,7 +20,7 @@ from anvil._components import (
     PackageComponentSource,
     source_from_entry_point,
 )
-from anvil.descriptors import ConfigBranch, TargetDescriptor
+from anvil.descriptors import TargetDescriptor
 from anvil.results import TargetResult
 
 __LOGGER__ = logging.getLogger(__name__)
@@ -61,16 +61,61 @@ class ProcessorDiscoveryResult:
 class ProcessorRunContext:
     """Completed run data passed to post-run processors."""
 
-    config_branch: ConfigBranch
     run_dir: Path
     summary_path: Path
     summary: dict[str, object]
     target_result_paths: dict[str, Path]
     target_name: str | None = None
-    target_result: dict[str, object] | None = None
-    target_result_path: Path | None = None
     target_metadata: dict[str, object] = field(default_factory=dict)
-    target_results: Sequence[dict[str, object]] = field(default_factory=list)
+    target_results: tuple[dict[str, object], ...] = ()
+
+    def __post_init__(self) -> None:
+        """Snapshot mutable inputs and validate target-selection invariants."""
+
+        object.__setattr__(self, "summary", dict(self.summary))
+        object.__setattr__(self, "target_result_paths", dict(self.target_result_paths))
+        object.__setattr__(self, "target_metadata", dict(self.target_metadata))
+        object.__setattr__(
+            self,
+            "target_results",
+            tuple(dict(target_result) for target_result in self.target_results),
+        )
+
+        if self.target_name is None:
+            if self.target_metadata:
+                raise ValueError("target_metadata requires a selected processor target")
+            return
+
+        matching_results = [
+            target_result
+            for target_result in self.target_results
+            if target_result.get("target") == self.target_name
+        ]
+        if len(matching_results) != 1:
+            raise ValueError(
+                f"selected processor target '{self.target_name}' must have "
+                "exactly one matching target result"
+            )
+
+    @property
+    def target_result(self) -> dict[str, object] | None:
+        """Return the selected target result, if this is a target-level run."""
+
+        if self.target_name is None:
+            return None
+        return next(
+            target_result
+            for target_result in self.target_results
+            if target_result.get("target") == self.target_name
+        )
+
+    @property
+    def target_result_path(self) -> Path | None:
+        """Return the selected target's result path, if available."""
+
+        if self.target_name is None:
+            return None
+        return self.target_result_paths.get(self.target_name)
 
 
 # ============================================================================
@@ -197,7 +242,6 @@ def _processor_specs_by_target_name(
 
 def run_configured_post_processors(
     *,
-    config_branch: ConfigBranch,
     targets: list[TargetDescriptor],
     target_results: list[TargetResult],
     run_dir: Path,
@@ -224,16 +268,13 @@ def run_configured_post_processors(
                 continue
 
         context = ProcessorRunContext(
-            config_branch=config_branch,
             run_dir=run_dir,
             summary_path=summary_path,
             summary=summary,
             target_result_paths=target_result_paths,
             target_name=target_result.target_name,
-            target_result=target_result.to_dict(),
-            target_result_path=target_result_paths.get(target_result.target_name),
             target_metadata=dict(target.metadata),
-            target_results=[target_result.to_dict()],
+            target_results=(target_result.to_dict(),),
         )
 
         resolved_specs: list[ProcessorSpec] = []
@@ -294,7 +335,6 @@ def _processor_catalog_for_entry_points(
         origin=ComponentOrigin.STOCK, package="anvil.processors", label="stock"
     )
     stock_descriptors, stock_issues = PackageComponentSource(
-        kind=ComponentKind.PROCESSOR,
         package_name="anvil.processors",
         source=stock_source,
         component_loader=_load_processor_from_package,
@@ -306,7 +346,6 @@ def _processor_catalog_for_entry_points(
         package_name = entry_point.value.split(":", maxsplit=1)[0]
         source = source_from_entry_point(entry_point=entry_point, package=package_name)
         plugin_descriptors, plugin_issues = PackageComponentSource(
-            kind=ComponentKind.PROCESSOR,
             package_name=package_name,
             source=source,
             component_loader=_load_processor_from_package,
@@ -328,7 +367,6 @@ def _processor_catalog() -> ComponentCatalog[Callable]:
 # ============================================================================
 
 
-@lru_cache(maxsize=128)
 def load_processor_callable(processor_name: str) -> Callable:
     """Resolve a processor run callable by name."""
     return ComponentResolver(
@@ -336,6 +374,12 @@ def load_processor_callable(processor_name: str) -> Callable:
         catalog=_processor_catalog(),
         error_type=ProcessorConfigError,
     ).load(processor_name)
+
+
+def _clear_processor_caches() -> None:
+    """Clear the processor discovery cache."""
+
+    _processor_catalog_for_entry_points.cache_clear()
 
 
 def discover_processors() -> ProcessorDiscoveryResult:
@@ -362,11 +406,18 @@ def run_processors(
 
     for spec in specs:
         run = load_processor_callable(spec.processor)
+        invocation_context = replace(context)
         __LOGGER__.info(
             f"Running processor '{spec.processor}' for target "
             f"'{context.target_name or 'run'}'"
         )
-        results.append(run(context=context, output=spec.output, metadata=spec.metadata))
+        results.append(
+            run(
+                context=invocation_context,
+                output=spec.output,
+                metadata=dict(spec.metadata),
+            )
+        )
 
     return results
 
@@ -397,12 +448,11 @@ def load_completed_run_context(*, results_dir: Path) -> ProcessorRunContext:
         target_result_paths[target_name] = result_path
 
     return ProcessorRunContext(
-        config_branch=ConfigBranch.TARGETS,
         run_dir=results_dir,
         summary_path=summary_path,
         summary=summary,
         target_result_paths=target_result_paths,
-        target_results=target_results,
+        target_results=tuple(target_results),
     )
 
 

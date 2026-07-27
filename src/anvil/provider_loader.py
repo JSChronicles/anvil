@@ -92,7 +92,6 @@ def _provider_catalog_for_entry_points(
         origin=ComponentOrigin.STOCK, package=_STOCK_PROVIDER_PACKAGE, label="stock"
     )
     stock_descriptors, stock_issues = PackageComponentSource(
-        kind=ComponentKind.PROVIDER,
         package_name=_STOCK_PROVIDER_PACKAGE,
         source=stock_source,
         component_loader=_load_provider_from_package,
@@ -108,7 +107,6 @@ def _provider_catalog_for_entry_points(
         package_name = entry_point_value.split(":", maxsplit=1)[0]
         source = _entry_point_source(entry_point)
         package_descriptors, package_issues = PackageComponentSource(
-            kind=ComponentKind.PROVIDER,
             package_name=package_name,
             source=source,
             component_loader=_load_provider_from_package,

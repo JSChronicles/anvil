@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
-from anvil.descriptors import ConfigBranch
 from anvil.results import TargetResult
 
 if TYPE_CHECKING:
@@ -86,12 +85,12 @@ def _collect_sarif_results(
                             "sarif_report requires every sarif_findings entry "
                             "to be a mapping"
                         )
+                    raw_finding = cast(dict[str, object], raw_finding)
                     sarif_result, rule = _convert_finding(
                         finding=raw_finding,
                         target_result=target_result,
                         entity_result=entity_result,
                         task_result=task_result,
-                        config_branch=context.config_branch,
                     )
                     rule_id = _required_string(rule, "id", "finding.rule")
                     existing_rule = rules.get(rule_id)
@@ -129,7 +128,9 @@ def _entity_results(*, target_result: dict[str, object]) -> list[dict[str, objec
     if not isinstance(entities, list):
         return []
 
-    return [item for item in entities if isinstance(item, dict)]
+    return [
+        cast(dict[str, object], item) for item in entities if isinstance(item, dict)
+    ]
 
 
 def _task_results(*, entity_result: dict[str, object]) -> list[dict[str, object]]:
@@ -137,7 +138,9 @@ def _task_results(*, entity_result: dict[str, object]) -> list[dict[str, object]
     if not isinstance(task_results, list):
         return []
 
-    return [item for item in task_results if isinstance(item, dict)]
+    return [
+        cast(dict[str, object], item) for item in task_results if isinstance(item, dict)
+    ]
 
 
 def _convert_finding(
@@ -146,7 +149,6 @@ def _convert_finding(
     target_result: dict[str, object],
     entity_result: dict[str, object],
     task_result: dict[str, object],
-    config_branch: ConfigBranch,
 ) -> tuple[dict[str, object], dict[str, object]]:
     rule = _rule_descriptor(finding=finding)
     rule_id = _required_string(rule, "id", "finding.rule")
@@ -165,7 +167,6 @@ def _convert_finding(
             target_result=target_result,
             entity_result=entity_result,
             task_result=task_result,
-            config_branch=config_branch,
         ),
     }
     if isinstance(fingerprint, str) and fingerprint.strip():
@@ -178,6 +179,7 @@ def _rule_descriptor(*, finding: dict[str, object]) -> dict[str, object]:
     raw_rule = finding.get("rule")
     if not isinstance(raw_rule, dict):
         raise RuntimeError("sarif_report requires finding.rule to be a mapping")
+    raw_rule = cast(dict[str, object], raw_rule)
 
     rule_id = _required_string(raw_rule, "id", "finding.rule")
     rule: dict[str, object] = {"id": rule_id}
@@ -236,6 +238,7 @@ def _locations(*, finding: dict[str, object]) -> list[dict[str, object]]:
 def _location(raw_location: object) -> dict[str, object]:
     if not isinstance(raw_location, dict):
         raise RuntimeError("sarif_report requires every location to be a mapping")
+    raw_location = cast(dict[str, object], raw_location)
 
     uri = _required_string(raw_location, "uri", "finding.location")
     physical_location: dict[str, object] = {"artifactLocation": {"uri": uri}}
@@ -272,10 +275,7 @@ def _result_properties(
     target_result: dict[str, object],
     entity_result: dict[str, object],
     task_result: dict[str, object],
-    config_branch: ConfigBranch,
 ) -> dict[str, object]:
-    if config_branch is not ConfigBranch.TARGETS:
-        raise ValueError(f"Unsupported config branch: {config_branch}")
     target_key = "target"
 
     properties: dict[str, object] = {
@@ -289,7 +289,7 @@ def _result_properties(
     }
     raw_properties = finding.get("properties")
     if isinstance(raw_properties, dict):
-        properties.update(raw_properties)
+        properties.update(cast(dict[str, object], raw_properties))
 
     return {key: value for key, value in properties.items() if value is not None}
 

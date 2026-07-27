@@ -154,6 +154,10 @@ def test_provider_specific_plugin_task_resolves_only_for_own_provider(
         task_specs=[{"name": task_name}], provider_name=provider_name
     )
     assert execution.ordered[0].run() == f"{provider_name}-plugin"
+    descriptor = task_loader.provider_task_descriptor_index(
+        provider_name=provider_name
+    )[task_name][0]
+    assert descriptor.source.provider == provider_name
 
     other_providers = {"aws", "azure", "gcp", "github"} - {provider_name}
     for other_provider in other_providers:
@@ -243,7 +247,7 @@ def test_duplicate_same_distribution_plugin_names_fail_full_task_validation(
             task_specs=[{"name": "duplicated_plugin_task"}], provider_name="aws"
         )
 
-    with pytest.raises(ValueError, match="duplicate task name: duplicated_plugin_task"):
+    with pytest.raises(ValueError, match="ambiguous for provider"):
         cli._validate_selected_tasks([])
 
 
@@ -260,9 +264,7 @@ def test_duplicate_same_distribution_plugin_names_fail_selected_task_validation(
     importlib.invalidate_caches()
     _clear_task_loader_caches()
 
-    with pytest.raises(
-        ValueError, match="duplicate task name: selected_duplicate_plugin_task"
-    ):
+    with pytest.raises(ValueError, match="ambiguous for provider"):
         cli._validate_selected_tasks(["selected_duplicate_plugin_task"])
 
 
@@ -329,7 +331,7 @@ def test_discover_processors_includes_real_plugin_entry_point(monkeypatch, tmp_p
     )
     monkeypatch.syspath_prepend(str(tmp_path))
     importlib.invalidate_caches()
-    processor_loader.load_processor_callable.cache_clear()
+    processor_loader._clear_processor_caches()
 
     descriptors = processor_loader.discover_processors().processors
     descriptor = next(

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import importlib
 
-from anvil._components import ComponentOrigin, ComponentSource
+from anvil._components import ComponentCatalog, ComponentOrigin, ComponentSource
 from anvil.task_loader import TaskDescriptor
 
 
@@ -27,21 +27,9 @@ def _patch_provider_tasks(monkeypatch, task_loader, load_calls: list[str]) -> No
             ),
         )
 
+    catalog = ComponentCatalog.build([descriptor("alpha"), descriptor("beta")])
     monkeypatch.setattr(
-        task_loader,
-        "_provider_task_descriptor_index",
-        lambda provider_name: {
-            "alpha": (descriptor("alpha"),),
-            "beta": (descriptor("beta"),),
-        },
-    )
-    monkeypatch.setattr(
-        task_loader,
-        "_provider_task_discovery",
-        lambda provider_name: (
-            {"alpha": [descriptor("alpha")], "beta": [descriptor("beta")]},
-            (),
-        ),
+        task_loader, "_provider_task_catalog", lambda provider_name: catalog
     )
     task_loader._load_provider_task_callable.cache_clear()
     task_loader._resolve_tasks_cached.cache_clear()

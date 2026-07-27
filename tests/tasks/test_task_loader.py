@@ -2,7 +2,12 @@ import pytest
 import sys
 from types import ModuleType
 
-from anvil._components import ComponentDescriptor, ComponentOrigin, ComponentSource
+from anvil._components import (
+    ComponentCatalog,
+    ComponentDescriptor,
+    ComponentOrigin,
+    ComponentSource,
+)
 from anvil.task_loader import (
     TaskConfigError,
     TaskDescriptor,
@@ -39,17 +44,16 @@ def _resolve(task_specs):
 
 
 def _mock_provider_tasks(monkeypatch, names: list[str]) -> None:
+    catalog = ComponentCatalog.build(_descriptor(name) for name in names)
+
     def fake_index(provider_name: str):
-        return {name: [_descriptor(name)] for name in names}
+        return {
+            name: list(descriptors) for name, descriptors in catalog.inventory.items()
+        }
 
     monkeypatch.setattr("anvil.task_loader.provider_task_descriptor_index", fake_index)
     monkeypatch.setattr(
-        "anvil.task_loader._provider_task_descriptor_index",
-        lambda provider_name: {name: (_descriptor(name),) for name in names},
-    )
-    monkeypatch.setattr(
-        "anvil.task_loader._provider_task_discovery",
-        lambda provider_name: ({name: [_descriptor(name)] for name in names}, ()),
+        "anvil.task_loader._provider_task_catalog", lambda provider_name: catalog
     )
     resolve_tasks.__globals__["_resolve_tasks_cached"].cache_clear()
     resolve_tasks.__globals__["_load_provider_task_callable"].cache_clear()

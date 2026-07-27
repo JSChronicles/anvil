@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import importlib
 
-from anvil._components import ComponentOrigin, ComponentSource
+from anvil._components import ComponentCatalog, ComponentOrigin, ComponentSource
 from anvil.providers.base import (
     ProviderAuthResult,
     ProviderExecutionPlan,
@@ -33,12 +33,14 @@ def test_run_path_reuses_cached_task_resolution(monkeypatch):
         label="test",
         provider="test",
     )
-    task_index = {
-        "alpha": (TaskDescriptor("alpha", source, lambda: alpha_run),),
-        "beta": (TaskDescriptor("beta", source, lambda: beta_run),),
-    }
+    task_catalog = ComponentCatalog.build(
+        [
+            TaskDescriptor("alpha", source, lambda: alpha_run),
+            TaskDescriptor("beta", source, lambda: beta_run),
+        ]
+    )
     monkeypatch.setattr(
-        task_loader, "_provider_task_discovery", lambda provider_name: (task_index, ())
+        task_loader, "_provider_task_catalog", lambda provider_name: task_catalog
     )
     task_loader._load_provider_task_callable.cache_clear()
     task_loader._resolve_tasks_cached.cache_clear()

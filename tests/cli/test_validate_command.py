@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from anvil._components import ComponentOrigin, ComponentSource
+from anvil._components import ComponentCatalog, ComponentOrigin, ComponentSource
 from anvil.providers.base import ProviderMetadata
 
 
@@ -162,7 +162,6 @@ def test_validate_selected_tasks_validates_all_when_no_names(monkeypatch):
 
     cli._validate_selected_tasks([])
 
-    assert seen["loaded"] == ["count_vpc", "noop"]
     assert seen["validated"] == ["count_vpc", "noop"]
 
 
@@ -205,7 +204,6 @@ def test_validate_selected_tasks_validates_selected_names(monkeypatch):
 
     cli._validate_selected_tasks(["noop"])
 
-    assert seen["loaded"] == ["noop"]
     assert seen["validated"] == ["noop"]
 
 
@@ -215,21 +213,25 @@ def test_validate_all_tasks_reports_duplicate_provider_task_names(monkeypatch):
     def valid_run(**kwargs):
         return None
 
+    descriptors = [
+        cli.TaskDescriptor(
+            name="shared", load=lambda: valid_run, source=_source("universal")
+        ),
+        cli.TaskDescriptor(
+            name="shared", load=lambda: valid_run, source=_source("aws")
+        ),
+    ]
     monkeypatch.setattr(
         cli,
         "discover_tasks",
         lambda: SimpleNamespace(
-            tasks=[
-                cli.TaskDescriptor(
-                    name="shared", load=lambda: valid_run, source="universal"
-                ),
-                cli.TaskDescriptor(name="shared", load=lambda: valid_run, source="aws"),
-            ],
+            tasks=descriptors,
             issues=[],
+            provider_catalogs={"aws": ComponentCatalog.build(descriptors)},
         ),
     )
 
-    with pytest.raises(ValueError, match="duplicate task name: shared"):
+    with pytest.raises(ValueError, match="ambiguous for provider 'aws'"):
         cli._validate_selected_tasks([])
 
 
@@ -239,22 +241,28 @@ def test_validate_selected_tasks_reports_duplicate_provider_task_names(monkeypat
     def valid_run(**kwargs):
         return None
 
+    shared_descriptors = [
+        cli.TaskDescriptor(
+            name="shared", load=lambda: valid_run, source=_source("universal")
+        ),
+        cli.TaskDescriptor(
+            name="shared", load=lambda: valid_run, source=_source("aws")
+        ),
+    ]
     monkeypatch.setattr(
         cli,
         "discover_tasks",
         lambda: SimpleNamespace(
             tasks=[
-                cli.TaskDescriptor(
-                    name="shared", load=lambda: valid_run, source="universal"
-                ),
-                cli.TaskDescriptor(name="shared", load=lambda: valid_run, source="aws"),
+                *shared_descriptors,
                 cli.TaskDescriptor(name="other", load=lambda: valid_run, source="aws"),
             ],
             issues=[],
+            provider_catalogs={"aws": ComponentCatalog.build(shared_descriptors)},
         ),
     )
 
-    with pytest.raises(ValueError, match="duplicate task name: shared"):
+    with pytest.raises(ValueError, match="ambiguous for provider 'aws'"):
         cli._validate_selected_tasks(["shared"])
 
 
@@ -467,6 +475,8 @@ def test_validate_selected_known_processor_ignores_unrelated_discovery_issues(
     cli = _import_cli_or_skip()
 
     def run(*, context, output, metadata):
+        """Run a known processor."""
+
         return None
 
     monkeypatch.setattr(

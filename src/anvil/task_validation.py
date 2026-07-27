@@ -2,105 +2,108 @@
 Task validation for Anvil.
 
 This module performs *structural* validation of task definitions.
-It does not execute tasks or perform any AWS interactions.
+It imports task callables for inspection but does not execute them.
 """
 
 from __future__ import annotations
 
-from inspect import Parameter, getdoc, getmodule, signature
+from collections.abc import Callable, Mapping, Sequence
+from inspect import getdoc, getmodule
 
-# Required keyword arguments for all task run() functions.
-REQUIRED_RUN_KWARGS: set[str] = {
-    "provider",
-    "execution_target_id",
-    "execution_target_name",
-    "execution_target_type",
-    "region",
-    "session",
-    "dry_run",
-    "metadata",
-    "actions",
-}
+from anvil._components import (
+    ComponentCatalog,
+    ComponentDescriptor,
+    validate_keyword_only_invocation,
+)
+from anvil.task_context import TaskCallContext
 
 
 class TaskValidationError(ValueError):
     """Raised when a task fails structural validation."""
 
 
-def validate_tasks(tasks: list) -> None:
+TaskDescriptor = ComponentDescriptor[Callable]
+
+
+def validate_tasks(tasks: Sequence[TaskDescriptor]) -> None:
+    """Validate discovered task descriptors without executing tasks."""
+
     errors = task_validation_errors(tasks)
     if errors:
         raise TaskValidationError("\n  - " + "\n  - ".join(errors))
 
 
-def task_validation_errors(tasks: list) -> list[str]:
-    """Return structural validation errors for task definitions."""
+def task_validation_errors(tasks: Sequence[TaskDescriptor]) -> list[str]:
+    """Return structural validation errors for task descriptors."""
+
     errors: list[str] = []
-    seen_names: set[str] = set()
 
     for task in tasks:
         try:
             if not isinstance(task.name, str) or not task.name:
                 raise TaskValidationError("task name must be a non-empty string")
 
-            if task.name in seen_names:
-                raise TaskValidationError(f"duplicate task name: {task.name}")
+            if not callable(task.load):
+                raise TaskValidationError(f"task '{task.name}'.load is not callable")
 
-            seen_names.add(task.name)
+            run = task.load()
+            if not callable(run):
+                raise TaskValidationError(
+                    f"task '{task.name}' is missing required run() function"
+                )
 
-            if not hasattr(task, "run"):
-                raise TaskValidationError(f"task '{task.name}' is missing run()")
+            _validate_task_run_signature(name=task.name, run=run)
+            _validate_task_detail_docstring(name=task.name, run=run)
 
-            if not callable(task.run):
-                raise TaskValidationError(f"task '{task.name}'.run is not callable")
-
-            _validate_task_run_signature(task)
-            _validate_task_detail_docstring(task)
-
-        except TaskValidationError as exc:
-            errors.append(str(exc))
+        except Exception as exc:
+            errors.append(f"{task.name} ({task.source}): {exc}")
 
     return errors
 
 
-def _validate_task_run_signature(task) -> None:
+def task_catalog_ambiguity_errors(
+    provider_catalogs: Mapping[str, ComponentCatalog[Callable]],
+    *,
+    task_names: set[str] | None = None,
+) -> list[str]:
+    """Return provider-scoped task ambiguity errors."""
+
+    errors: list[str] = []
+    for provider_name, catalog in sorted(provider_catalogs.items()):
+        for name, candidates in catalog.inventory.items():
+            if task_names is not None and name not in task_names:
+                continue
+            if len(candidates) < 2:
+                continue
+
+            sources = ", ".join(str(candidate.source) for candidate in candidates)
+            errors.append(
+                f"task '{name}' is ambiguous for provider '{provider_name}'; "
+                f"found in multiple sources: {sources}"
+            )
+    return errors
+
+
+def _validate_task_run_signature(*, name: str, run: Callable) -> None:
     try:
-        sig = signature(task.run)
-    except (TypeError, ValueError) as exc:
+        validate_keyword_only_invocation(
+            run, keyword_names=TaskCallContext.keyword_names()
+        )
+    except ValueError as exc:
         raise TaskValidationError(
-            f"unable to inspect run() signature for task '{task.name}'"
+            f"task '{name}' has incompatible run() signature: {exc}"
         ) from exc
 
-    parameters = sig.parameters
 
-    accepts_extra_kwargs = any(
-        param.kind is Parameter.VAR_KEYWORD for param in parameters.values()
-    )
-    parameter_names = set(parameters)
-    missing = REQUIRED_RUN_KWARGS - parameter_names
-    if missing and not accepts_extra_kwargs:
-        raise TaskValidationError(
-            f"task '{task.name}' is missing required run() parameters: "
-            f"{sorted(missing)}"
-        )
-
-    for param in parameters.values():
-        if param.kind is Parameter.POSITIONAL_ONLY:
-            raise TaskValidationError(
-                f"task '{task.name}' uses positional-only parameter "
-                f"'{param.name}', which is not supported"
-            )
-
-
-def _validate_task_detail_docstring(task) -> None:
-    doc = getdoc(task.run)
+def _validate_task_detail_docstring(*, name: str, run: Callable) -> None:
+    doc = getdoc(run)
     if doc is None:
-        module = getmodule(task.run)
+        module = getmodule(run)
         if module is not None:
             doc = getdoc(module)
 
     if doc is None:
         raise TaskValidationError(
-            f"task '{task.name}' is missing detail documentation; add a "
+            f"task '{name}' is missing detail documentation; add a "
             "Google-style run() docstring for 'anvil list --tasks --detail'"
         )

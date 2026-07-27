@@ -74,7 +74,6 @@ def test_package_source_discovers_children_without_importing_them(
     importlib.invalidate_caches()
 
     source = PackageComponentSource(
-        kind=ComponentKind.TASK,
         package_name="synthetic_components",
         source=_source("stock", "synthetic_components"),
         component_loader=lambda package, name, origin: (package, name, origin.label),
@@ -99,7 +98,6 @@ def test_package_source_isolates_broken_package_root(
     importlib.invalidate_caches()
 
     descriptors, issues = PackageComponentSource(
-        kind=ComponentKind.PROVIDER,
         package_name="broken_components",
         source=_source("plugin: broken", "broken_components"),
         component_loader=lambda package, name, source: object(),

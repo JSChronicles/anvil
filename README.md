@@ -268,7 +268,9 @@ Run focused validation categories:
 anvil validate --tasks --processors --auth --config-file ./yaml/orgs.yaml
 ```
 
-`--tasks` and `--processors` validate discovery and callable signatures.
+`--tasks` and `--processors` validate discovery, keyword-only callable
+signatures, and operator-facing detail documentation. Validation rejects
+additional required parameters that Anvil cannot supply at runtime.
 `--providers` validates the provider contract. `--auth` validates cloud access
 for the configured targets after loading and validating the config file.
 
@@ -279,6 +281,11 @@ See more at [Task validation](https://opsfoundry.dev/anvil/task-contract/#task-v
 Processors run after a target finishes and turn Anvil results into reports or
 integration artifacts. Use them for formats that should stay outside task logic,
 such as HTML, SARIF, Markdown, JSON summaries, tickets, or notification payloads.
+Processor modules expose a documented keyword-only
+`run(*, context, output, metadata)` callable. `context.target_results` is the
+canonical result collection; target-level runs additionally set
+`context.target_name`, from which `target_result` and `target_result_path` are
+derived. Treat context data and processor metadata as invocation snapshots.
 Target `post_run` processor output is written under the run's `reports`
 directory, so `output: smoke.html` becomes `<run_dir>/reports/smoke.html`.
 

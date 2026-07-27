@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 
-from anvil.descriptors import ConfigBranch
 from anvil.processor_loader import (
     ProcessorDescriptor,
     ProcessorRunContext,
@@ -19,7 +18,6 @@ from anvil.processors import html_report
 
 def _context(tmp_path: Path) -> ProcessorRunContext:
     return ProcessorRunContext(
-        config_branch=ConfigBranch.TARGETS,
         run_dir=tmp_path,
         summary_path=tmp_path / "summary.json",
         summary={"state": "completed_success"},
@@ -29,6 +27,8 @@ def _context(tmp_path: Path) -> ProcessorRunContext:
 
 def test_validate_processors_accepts_valid_processor():
     def run(*, context, output, metadata):
+        """Run a valid processor."""
+
         return None
 
     validate_processors(
@@ -38,6 +38,8 @@ def test_validate_processors_accepts_valid_processor():
 
 def test_validate_processors_rejects_duplicate_names():
     def run(*, context, output, metadata):
+        """Run a duplicate processor."""
+
         return None
 
     with pytest.raises(ProcessorValidationError, match="duplicate processor name"):
@@ -79,7 +81,7 @@ def test_load_processor_rejects_duplicate_catalog_candidates(monkeypatch):
         "_processor_catalog",
         lambda: ComponentCatalog.build(descriptors),
     )
-    processor_loader.load_processor_callable.cache_clear()
+    processor_loader._clear_processor_caches()
 
     with pytest.raises(processor_loader.ProcessorConfigError, match="ambiguous"):
         processor_loader.load_processor_callable("shared")
@@ -87,9 +89,45 @@ def test_load_processor_rejects_duplicate_catalog_candidates(monkeypatch):
 
 def test_validate_processors_rejects_missing_contract_parameter():
     def run(*, context, output):
+        """Run an invalid processor."""
+
         return None
 
     with pytest.raises(ProcessorValidationError, match="metadata"):
+        validate_processors(
+            [ProcessorDescriptor(name="summary", load=lambda: run, source="stock")]
+        )
+
+
+def test_validate_processors_rejects_additional_required_parameter():
+    def run(*, context, output, metadata, extra):
+        """Run an invalid processor with an unsupplied parameter."""
+
+        return None
+
+    with pytest.raises(ProcessorValidationError, match="extra"):
+        validate_processors(
+            [ProcessorDescriptor(name="summary", load=lambda: run, source="stock")]
+        )
+
+
+def test_validate_processors_requires_keyword_only_contract_parameters():
+    def run(context, *, output, metadata):
+        """Run an invalid processor with a positional-or-keyword parameter."""
+
+        return None
+
+    with pytest.raises(ProcessorValidationError, match="keyword-only"):
+        validate_processors(
+            [ProcessorDescriptor(name="summary", load=lambda: run, source="stock")]
+        )
+
+
+def test_validate_processors_rejects_missing_detail_docstring():
+    def run(*, context, output, metadata):
+        return None
+
+    with pytest.raises(ProcessorValidationError, match="detail documentation"):
         validate_processors(
             [ProcessorDescriptor(name="summary", load=lambda: run, source="stock")]
         )
@@ -121,6 +159,72 @@ def test_run_processors_executes_in_declaration_order(monkeypatch, tmp_path):
     assert seen == [("first", "one.md", {"include": True}), ("second", "two.md", {})]
 
 
+def test_run_processors_isolates_processor_metadata(monkeypatch, tmp_path):
+    def mutate(*, context, output, metadata):
+        metadata["changed"] = True
+
+    monkeypatch.setattr(
+        "anvil.processor_loader.load_processor_callable", lambda processor_name: mutate
+    )
+    spec = ProcessorSpec("mutate", metadata={"original": True})
+
+    run_processors(specs=[spec], context=_context(tmp_path))
+
+    assert spec.metadata == {"original": True}
+
+
+def test_run_processors_isolates_top_level_context_data(monkeypatch, tmp_path):
+    observed_states: list[str] = []
+
+    def first(*, context, output, metadata):
+        context.summary["state"] = "mutated"
+
+    def second(*, context, output, metadata):
+        observed_states.append(str(context.summary["state"]))
+
+    processors = {"first": first, "second": second}
+    monkeypatch.setattr(
+        "anvil.processor_loader.load_processor_callable",
+        lambda processor_name: processors[processor_name],
+    )
+    context = _context(tmp_path)
+
+    run_processors(
+        specs=[ProcessorSpec("first"), ProcessorSpec("second")], context=context
+    )
+
+    assert observed_states == ["completed_success"]
+    assert context.summary == {"state": "completed_success"}
+
+
+def test_processor_context_derives_selected_result_and_path(tmp_path):
+    target_path = tmp_path / "targets" / "production.json"
+    context = ProcessorRunContext(
+        run_dir=tmp_path,
+        summary_path=tmp_path / "summary.json",
+        summary={},
+        target_result_paths={"production": target_path},
+        target_name="production",
+        target_metadata={"team": "security"},
+        target_results=({"target": "production", "entities": []},),
+    )
+
+    assert context.target_result == {"target": "production", "entities": []}
+    assert context.target_result_path == target_path
+
+
+def test_processor_context_rejects_inconsistent_selected_target(tmp_path):
+    with pytest.raises(ValueError, match="exactly one matching"):
+        ProcessorRunContext(
+            run_dir=tmp_path,
+            summary_path=tmp_path / "summary.json",
+            summary={},
+            target_result_paths={},
+            target_name="production",
+            target_results=({"target": "sandbox"},),
+        )
+
+
 def test_load_completed_run_context_reads_current_results_directory(tmp_path):
     run_dir = tmp_path / "results" / "smoke" / "2026-06-02T120000Z"
     target_dir = run_dir / "targets"
@@ -138,10 +242,9 @@ def test_load_completed_run_context_reads_current_results_directory(tmp_path):
 
     context = load_completed_run_context(results_dir=run_dir)
 
-    assert context.config_branch is ConfigBranch.TARGETS
     assert context.summary == {"state": "completed_success"}
     assert context.target_result_paths == {"production": target_path}
-    assert context.target_results == [{"target": "production", "entities": []}]
+    assert context.target_results == ({"target": "production", "entities": []},)
 
 
 def test_load_completed_run_context_allows_missing_summary(tmp_path):
@@ -162,7 +265,6 @@ def test_load_completed_run_context_allows_missing_summary(tmp_path):
 
 def test_html_report_load_records_scopes_to_context_target_name(tmp_path):
     context = ProcessorRunContext(
-        config_branch=ConfigBranch.TARGETS,
         run_dir=tmp_path,
         summary_path=tmp_path / "summary.json",
         summary={"state": "completed_success"},
@@ -203,7 +305,6 @@ def test_html_report_load_records_scopes_to_context_target_name(tmp_path):
 
 def test_html_report_load_records_keeps_whole_run_context(tmp_path):
     context = ProcessorRunContext(
-        config_branch=ConfigBranch.TARGETS,
         run_dir=tmp_path,
         summary_path=tmp_path / "summary.json",
         summary={"state": "completed_success"},
