@@ -74,8 +74,6 @@ def test_write_run_results_uses_config_stem_and_run_id_directories(monkeypatch):
     from pathlib import Path
     from types import SimpleNamespace
 
-    from anvil.descriptors import ConfigBranch
-
     cli = _import_cli_or_skip()
     scratch_dir = (Path("tests") / "_tmp" / "cli-smoke").resolve()
     run_dir = scratch_dir / "results" / "orgs" / "2026-05-01T120000Z"
@@ -85,11 +83,9 @@ def test_write_run_results_uses_config_stem_and_run_id_directories(monkeypatch):
     jsonl_path = run_dir / "results.jsonl"
 
     engine_result = SimpleNamespace(
-        config_branch=ConfigBranch.TARGETS,
         benchmark=None,
         target_results=[
             SimpleNamespace(
-                config_branch=ConfigBranch.TARGETS,
                 target_name="org2",
                 generated_at="2026-04-30T00:00:00+00:00",
                 dry_run=True,
@@ -238,14 +234,12 @@ def test_print_failure_followups_uses_results_file_command(capsys, monkeypatch):
 
 
 def test_build_rerun_targets_narrows_entities_regions_and_task_dependencies():
-    from anvil.descriptors import ConfigBranch, LoadedConfig, TargetDescriptor
+    from anvil.descriptors import LoadedConfig, TargetDescriptor
     from anvil.result_query import build_rerun_targets
 
     loaded_config = LoadedConfig(
-        branch=ConfigBranch.TARGETS,
         targets=[
             TargetDescriptor(
-                config_branch=ConfigBranch.TARGETS,
                 name="org-a",
                 provider="aws",
                 mode="organization",
@@ -258,14 +252,13 @@ def test_build_rerun_targets_narrows_entities_regions_and_task_dependencies():
                 ],
             ),
             TargetDescriptor(
-                config_branch=ConfigBranch.TARGETS,
                 name="org-b",
                 provider="aws",
                 mode="organization",
                 regions=["us-east-1"],
                 tasks=[{"name": "inventory"}],
             ),
-        ],
+        ]
     )
 
     targets = build_rerun_targets(
@@ -498,13 +491,12 @@ def test_run_configured_post_processors_runs_successful_targets(monkeypatch):
     from pathlib import Path
     from types import SimpleNamespace
 
-    from anvil.descriptors import ConfigBranch, LoadedConfig, TargetDescriptor
+    from anvil.descriptors import LoadedConfig, TargetDescriptor
     import anvil.processor_loader as processor_loader
 
     seen = {}
 
     target = TargetDescriptor(
-        config_branch=ConfigBranch.TARGETS,
         name="org-a",
         provider="aws",
         mode="organization",
@@ -517,7 +509,7 @@ def test_run_configured_post_processors_runs_successful_targets(monkeypatch):
             }
         ],
     )
-    loaded_config = LoadedConfig(branch=ConfigBranch.TARGETS, targets=[target])
+    loaded_config = LoadedConfig(targets=[target])
     target_result_payload = {"target": "org-a", "provider": "aws"}
     target_result = SimpleNamespace(
         target_name="org-a", has_failures=False, to_dict=lambda: target_result_payload
@@ -559,17 +551,16 @@ def test_run_configured_post_processors_skips_failed_targets(monkeypatch):
     from pathlib import Path
     from types import SimpleNamespace
 
-    from anvil.descriptors import ConfigBranch, LoadedConfig, TargetDescriptor
+    from anvil.descriptors import LoadedConfig, TargetDescriptor
     import anvil.processor_loader as processor_loader
 
     target = TargetDescriptor(
-        config_branch=ConfigBranch.TARGETS,
         name="org-a",
         provider="aws",
         mode="organization",
         post_run=[{"processor": "summary_markdown"}],
     )
-    loaded_config = LoadedConfig(branch=ConfigBranch.TARGETS, targets=[target])
+    loaded_config = LoadedConfig(targets=[target])
     engine_result = SimpleNamespace(
         target_results=[SimpleNamespace(target_name="org-a", has_failures=True)]
     )
@@ -599,12 +590,11 @@ def test_run_configured_post_processors_runs_failure_opt_in(monkeypatch):
     from pathlib import Path
     from types import SimpleNamespace
 
-    from anvil.descriptors import ConfigBranch, LoadedConfig, TargetDescriptor
+    from anvil.descriptors import LoadedConfig, TargetDescriptor
     import anvil.processor_loader as processor_loader
 
     seen = {}
     target = TargetDescriptor(
-        config_branch=ConfigBranch.TARGETS,
         name="org-a",
         provider="aws",
         mode="organization",
@@ -617,7 +607,7 @@ def test_run_configured_post_processors_runs_failure_opt_in(monkeypatch):
             },
         ],
     )
-    loaded_config = LoadedConfig(branch=ConfigBranch.TARGETS, targets=[target])
+    loaded_config = LoadedConfig(targets=[target])
     target_result_payload = {"target": "org-a", "provider": "aws"}
     target_result = SimpleNamespace(
         target_name="org-a", has_failures=True, to_dict=lambda: target_result_payload

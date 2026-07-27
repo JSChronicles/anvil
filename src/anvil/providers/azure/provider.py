@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 
 from anvil.benchmark import BenchmarkRecorder
-from anvil.descriptors import ConfigBranch, TargetDescriptor
+from anvil.descriptors import TargetDescriptor
 from anvil.execution_context import ExecutionContext
 from anvil.providers.base import (
     ExecutionTarget,
@@ -357,10 +357,6 @@ class AzureProvider:
     def validate_target(self, target: TargetDescriptor) -> None:
         """Validate Azure support for tenant discovery and explicit subscriptions."""
 
-        if target.config_branch is not ConfigBranch.TARGETS:
-            raise ValueError(
-                "Azure provider supports targets config (schema_version: 2) only"
-            )
         if target.provider != self.metadata.name:
             raise ValueError("Azure provider supports provider 'azure' targets only")
         if target.mode not in SUPPORTED_MODES:

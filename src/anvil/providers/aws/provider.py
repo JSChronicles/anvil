@@ -5,7 +5,7 @@ from dataclasses import dataclass, replace
 from boto3.session import Session
 
 from anvil.benchmark import BenchmarkRecorder
-from anvil.descriptors import ConfigBranch, TargetDescriptor
+from anvil.descriptors import TargetDescriptor
 from anvil.execution_context import ExecutionContext
 from anvil.providers.aws.account import (
     Account,
@@ -159,10 +159,7 @@ class AwsProvider:
         self._region_service = region_service or AwsRegionService()
 
     def validate_target(self, target: TargetDescriptor) -> None:
-        """Validate that the target is one of the existing AWS config branches."""
-
-        if target.config_branch is not ConfigBranch.TARGETS:
-            raise ValueError(f"Unsupported AWS target branch: {target.config_branch}")
+        """Validate an AWS target descriptor."""
         if target.provider != self.metadata.name:
             raise ValueError("AWS provider supports provider 'aws' targets only")
         if target.mode not in SUPPORTED_MODES:

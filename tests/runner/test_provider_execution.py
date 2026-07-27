@@ -4,7 +4,7 @@ import threading
 import time
 from dataclasses import dataclass
 
-from anvil.descriptors import ConfigBranch, TargetDescriptor
+from anvil.descriptors import TargetDescriptor
 from anvil.execution_context import ExecutionContext
 from anvil.providers.base import ExecutionTarget, ProviderMetadata
 from anvil.results import ExecutionStatus
@@ -60,7 +60,6 @@ class _Provider:
 
 def _target(*, max_workers: int = 1) -> TargetDescriptor:
     return TargetDescriptor(
-        config_branch=ConfigBranch.TARGETS,
         name="provider-target",
         provider="azure",
         mode="subscriptions",

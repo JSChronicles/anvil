@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 
-from anvil.descriptors import ConfigBranch
 from anvil.result_query import (
     ResultFilters,
     build_jsonl_records_for_target,
@@ -39,7 +38,6 @@ def _task_result(
 
 def _target_result() -> TargetResult:
     return TargetResult.create(
-        config_branch=ConfigBranch.TARGETS,
         target_name="engineering",
         provider="aws",
         dry_run=True,
@@ -189,10 +187,8 @@ def test_build_rerun_targets_includes_interrupted_task_dependencies():
     from anvil.descriptors import LoadedConfig, TargetDescriptor
 
     loaded_config = LoadedConfig(
-        branch=ConfigBranch.TARGETS,
         targets=[
             TargetDescriptor(
-                config_branch=ConfigBranch.TARGETS,
                 name="org-a",
                 provider="aws",
                 mode="organization",
@@ -202,7 +198,7 @@ def test_build_rerun_targets_includes_interrupted_task_dependencies():
                     {"name": "cleanup", "depends_on": ["inventory"]},
                 ],
             )
-        ],
+        ]
     )
 
     targets = build_rerun_targets(

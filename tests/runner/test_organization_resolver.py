@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from anvil.descriptors import ConfigBranch, TargetDescriptor
+from anvil.descriptors import TargetDescriptor
 from anvil.execution_context import ExecutionContext
 from anvil.providers.aws.account import AccountAccessStrategy
 from anvil.providers.aws.config import DEFAULT_ORGANIZATION_ROLE_NAME
@@ -47,7 +47,6 @@ def _context(*, regions: list[str] | None = None) -> ExecutionContext:
 
 def _target(**kwargs) -> TargetDescriptor:
     return TargetDescriptor(
-        config_branch=ConfigBranch.TARGETS,
         name="org-a",
         provider="aws",
         mode="organization",

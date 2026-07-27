@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from anvil.descriptors import ConfigBranch, TargetDescriptor
+from anvil.descriptors import TargetDescriptor
 from anvil.providers.aws.provider import AwsProvider
 from anvil.providers.azure.provider import AzureProvider
 
@@ -16,7 +16,6 @@ def _target(
     provider_options: dict[str, object] | None = None,
 ) -> TargetDescriptor:
     return TargetDescriptor(
-        config_branch=ConfigBranch.TARGETS,
         name=f"{provider}-{mode}",
         provider=provider,
         mode=mode,

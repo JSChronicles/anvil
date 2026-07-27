@@ -127,3 +127,16 @@ def test_provider_contract_rejects_missing_contract_parameter():
 
     with pytest.raises(TypeError, match="resolve_execution_targets.*exclude"):
         validate_provider_contract(BrokenProvider())
+
+
+def test_provider_contract_rejects_missing_preparation_parameter():
+    class BrokenProvider(_CompleteProvider):
+        metadata = ProviderMetadata(
+            name="broken", display_name="Broken", supported_task_scopes=frozenset()
+        )
+
+        def resolve_execution_targets(self, *, target, regions, include, exclude):
+            return None
+
+    with pytest.raises(TypeError, match="resolve_execution_targets.*preparation"):
+        validate_provider_contract(BrokenProvider())

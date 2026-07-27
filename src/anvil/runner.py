@@ -17,7 +17,7 @@ from dataclasses import dataclass, field, replace
 
 from anvil.benchmark import BenchmarkRecorder
 from anvil.actions import ActionRecorder
-from anvil.descriptors import ConfigBranch, TargetDescriptor
+from anvil.descriptors import TargetDescriptor
 from anvil.execution_context import ExecutionContext
 from anvil.provider_loader import load_provider
 from anvil.providers.base import (
@@ -38,7 +38,6 @@ from anvil.results import (
     TaskResult,
 )
 from anvil.task_context import TaskCallContext
-from anvil.task_invocation import invoke_task
 from anvil.task_loader import ResolvedExecution, ResolvedTask, TaskScope, resolve_tasks
 
 __LOGGER__ = logging.getLogger(__name__)
@@ -526,7 +525,7 @@ def _execute_provider_region(
                 metadata=context.metadata,
                 actions=actions,
             )
-            result = invoke_task(task.run, context=task_context)
+            result = task.run(**task_context.to_kwargs())
         except Exception as error:
             task_ended_perf = time.perf_counter()
             task_ended_at = datetime.datetime.now(datetime.UTC).isoformat()
@@ -952,7 +951,6 @@ def _execute_provider_targets(
         )
 
     return TargetResult.create(
-        config_branch=target.config_branch,
         target_name=target.name,
         provider=target.provider,
         dry_run=context.dry_run,
@@ -996,7 +994,6 @@ def run_prepared_target(*, prepared_target: PreparedTarget) -> TargetExecutionOu
         return TargetExecutionOutcome(
             index=prepared_target.index,
             target_result=TargetResult.create(
-                config_branch=target.config_branch,
                 target_name=target.name,
                 provider=target.provider,
                 dry_run=context.dry_run,
@@ -1041,7 +1038,6 @@ def run_prepared_target(*, prepared_target: PreparedTarget) -> TargetExecutionOu
         )
     except Exception as error:
         target_result = TargetResult.create(
-            config_branch=target.config_branch,
             target_name=target.name,
             provider=target.provider,
             dry_run=context.dry_run,
@@ -1084,9 +1080,6 @@ def run_auth_checks(*, targets: list[TargetDescriptor]) -> EngineResult:
     """
     Run authentication checks only. Does not resolve tasks or execute targets.
     """
-    config_branch: ConfigBranch = (
-        targets[0].config_branch if targets else ConfigBranch.TARGETS
-    )
     auth_results: list[AuthResult] = []
     auth_cache = AuthCheckCache()
 
@@ -1108,7 +1101,6 @@ def run_auth_checks(*, targets: list[TargetDescriptor]) -> EngineResult:
             auth_results.append(auth_result)
 
     return EngineResult.create(
-        config_branch=config_branch,
         state=_engine_state_from_auth_results(auth_results=auth_results),
         auth_results=auth_results,
         target_results=[],
@@ -1243,9 +1235,6 @@ def run_multiple_targets(
     cli_exclude: list[str] | None,
     benchmark_enabled: bool = False,
 ) -> EngineResult:
-    config_branch: ConfigBranch = (
-        targets[0].config_branch if targets else ConfigBranch.TARGETS
-    )
     recorder = BenchmarkRecorder(enabled=benchmark_enabled)
     with recorder.phase("run_multiple_targets_seconds"):
         auth_results, target_results, engine_state = _run_target_pipeline(
@@ -1261,7 +1250,6 @@ def run_multiple_targets(
     )
 
     return EngineResult.create(
-        config_branch=config_branch,
         state=engine_state,
         auth_results=auth_results,
         target_results=target_results,

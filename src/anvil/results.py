@@ -4,14 +4,6 @@ import datetime
 from dataclasses import dataclass, field
 from enum import Enum
 
-from anvil.descriptors import ConfigBranch
-
-
-def _result_labels(config_branch: ConfigBranch) -> tuple[str, str]:
-    if config_branch is not ConfigBranch.TARGETS:
-        raise ValueError(f"Unsupported config branch: {config_branch}")
-    return "target", "targets"
-
 
 class ExecutionStatus(str, Enum):
     SUCCESS = "success"
@@ -88,11 +80,9 @@ class AuthResult(TimedResult):
     def is_error(self) -> bool:
         return self.status.is_error
 
-    def to_dict(self, *, config_branch: ConfigBranch) -> dict[str, object]:
-        singular_key, _ = _result_labels(config_branch)
-
+    def to_dict(self) -> dict[str, object]:
         return {
-            singular_key: self.target_name,
+            "target": self.target_name,
             "status": self.status.value,
             "source": self.source,
             "started_at": self.started_at,
@@ -137,7 +127,6 @@ class EntityResult(TimedResult):
 
 @dataclass(frozen=True, slots=True)
 class TargetResult:
-    config_branch: ConfigBranch
     target_name: str
     provider: str
     generated_at: str
@@ -169,10 +158,8 @@ class TargetResult:
         )
 
     def to_dict(self) -> dict[str, object]:
-        singular_key, _ = _result_labels(self.config_branch)
-
         payload: dict[str, object] = {
-            singular_key: self.target_name,
+            "target": self.target_name,
             "provider": self.provider,
             "generated_at": self.generated_at,
             "dry_run": self.dry_run,
@@ -189,7 +176,6 @@ class TargetResult:
     def create(
         cls,
         *,
-        config_branch: ConfigBranch,
         target_name: str,
         provider: str,
         dry_run: bool,
@@ -198,7 +184,6 @@ class TargetResult:
         benchmark: dict[str, object] | None = None,
     ) -> TargetResult:
         return cls(
-            config_branch=config_branch,
             target_name=target_name,
             provider=provider,
             generated_at=datetime.datetime.now(datetime.UTC).isoformat(),
@@ -215,7 +200,6 @@ class EngineResult:
     Top-level result container for a full config-driven execution.
     """
 
-    config_branch: ConfigBranch
     state: EngineState
     generated_at: str
     auth_results: list[AuthResult]
@@ -244,16 +228,11 @@ class EngineResult:
         )
 
     def to_dict(self) -> dict[str, object]:
-        _, plural_key = _result_labels(self.config_branch)
-
         payload: dict[str, object] = {
             "state": self.state.value,
             "generated_at": self.generated_at,
-            "auth": [
-                auth_result.to_dict(config_branch=self.config_branch)
-                for auth_result in self.auth_results
-            ],
-            plural_key: [
+            "auth": [auth_result.to_dict() for auth_result in self.auth_results],
+            "targets": [
                 target_result.to_dict() for target_result in self.target_results
             ],
         }
@@ -266,14 +245,12 @@ class EngineResult:
     def create(
         cls,
         *,
-        config_branch: ConfigBranch,
         state: EngineState,
         auth_results: list[AuthResult],
         target_results: list[TargetResult],
         benchmark: dict[str, object] | None = None,
     ) -> EngineResult:
         return cls(
-            config_branch=config_branch,
             state=state,
             generated_at=datetime.datetime.now(datetime.UTC).isoformat(),
             auth_results=auth_results,
@@ -285,13 +262,8 @@ class EngineResult:
         """
         Build a high-level summary of the execution suitable for CLI output.
         """
-        singular_key, plural_key = _result_labels(self.config_branch)
-
         target_summaries: list[dict[str, object]] = []
-        auth_results = [
-            auth_result.to_dict(config_branch=self.config_branch)
-            for auth_result in self.auth_results
-        ]
+        auth_results = [auth_result.to_dict() for auth_result in self.auth_results]
         total_failed_entities = 0
         total_interrupted_entities = 0
         total_failed_tasks = 0
@@ -323,7 +295,7 @@ class EngineResult:
 
             target_summaries.append(
                 {
-                    singular_key: target_result.target_name,
+                    "target": target_result.target_name,
                     "total_entities": target_result.total_entities,
                     "failed_entities": len(failed_entities),
                     "interrupted_entities": len(interrupted_entities),
@@ -342,7 +314,7 @@ class EngineResult:
             "state": self.state.value,
             "generated_at": self.generated_at,
             "auth": auth_results,
-            plural_key: target_summaries,
+            "targets": target_summaries,
             "total_failed_entities": total_failed_entities,
             "total_interrupted_entities": total_interrupted_entities,
             "total_failed_tasks": total_failed_tasks,

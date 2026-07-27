@@ -4,7 +4,7 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 
-from anvil.descriptors import ConfigBranch, TargetDescriptor
+from anvil.descriptors import TargetDescriptor
 from anvil.execution_context import ExecutionContext
 from anvil.providers.base import (
     ExecutionTarget,
@@ -308,10 +308,6 @@ class GcpProvider:
     def validate_target(self, target: TargetDescriptor) -> None:
         """Validate GCP support for organization and explicit project targets."""
 
-        if target.config_branch is not ConfigBranch.TARGETS:
-            raise ValueError(
-                "GCP provider supports targets config (schema_version: 2) only"
-            )
         if target.provider != self.metadata.name:
             raise ValueError("GCP provider supports provider 'gcp' targets only")
         if target.mode not in SUPPORTED_MODES:

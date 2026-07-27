@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from anvil.providers.aws.account import AccountAccessStrategy
 from anvil.providers.aws.account_resolver import AccountResolver
-from anvil.descriptors import ConfigBranch, TargetDescriptor
+from anvil.descriptors import TargetDescriptor
 from anvil.execution_context import ExecutionContext
 
 
@@ -17,7 +17,6 @@ def _context() -> ExecutionContext:
 
 def test_resolve_accounts_uses_assume_role_strategy_when_role_name_is_configured():
     descriptor = TargetDescriptor(
-        config_branch=ConfigBranch.TARGETS,
         name="selected",
         provider="aws",
         mode="accounts",
@@ -46,7 +45,6 @@ def test_resolve_accounts_uses_assume_role_strategy_when_role_name_is_configured
 
 def test_resolve_accounts_uses_direct_profile_strategy_without_role_name():
     descriptor = TargetDescriptor(
-        config_branch=ConfigBranch.TARGETS,
         name="current",
         provider="aws",
         mode="accounts",

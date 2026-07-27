@@ -211,8 +211,6 @@ def test_schema_accepts_multicloud_target_shapes():
 
     validators.validate_config_schema(config=config)
     loaded = validators.load_config_descriptors(config=config)
-
-    assert loaded.branch.value == "targets"
     assert [(target.provider, target.mode) for target in loaded.targets] == [
         ("aws", "organization"),
         ("aws", "accounts"),

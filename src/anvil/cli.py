@@ -24,7 +24,7 @@ import yaml
 
 from anvil._components import DiscoveryIssue as DiscoveryIssue
 from anvil.benchmark import BenchmarkRecorder
-from anvil.descriptors import ConfigBranch, LoadedConfig
+from anvil.descriptors import LoadedConfig
 from anvil.processor_loader import (
     ProcessorDescriptor,
     ProcessorSpec,
@@ -100,8 +100,11 @@ class DiagnosticCheck:
 class ListableDescriptor(Protocol):
     """Descriptor fields needed for grouped CLI listing."""
 
-    name: str
-    source: object
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def source(self) -> object: ...
 
 
 class DetailDescriptor(ListableDescriptor, Protocol):
@@ -193,12 +196,6 @@ def _create_results_run_dir(*, config_file: Path) -> Path:
     return run_dir
 
 
-def _target_results_dir_name(config_branch: ConfigBranch) -> str:
-    if config_branch is not ConfigBranch.TARGETS:
-        raise ValueError(f"Unsupported config branch: {config_branch}")
-    return "targets"
-
-
 def _safe_result_filename(name: str) -> str:
     safe_name = "".join(
         character if character.isalnum() or character in {".", "-", "_"} else "_"
@@ -223,7 +220,7 @@ def _write_run_results(
     *, config_file: Path, engine_result: EngineResult
 ) -> WrittenRunResults:
     run_dir = _create_results_run_dir(config_file=config_file)
-    target_results_dir = run_dir / _target_results_dir_name(engine_result.config_branch)
+    target_results_dir = run_dir / "targets"
     target_results_dir.mkdir()
 
     recorder = BenchmarkRecorder(enabled=engine_result.benchmark is not None)
@@ -373,8 +370,7 @@ def _cmd_auth_check(args: argparse.Namespace) -> int:
         auth_payload: dict[str, str | list[dict[str, object]]] = {
             "generated_at": engine_result.generated_at,
             "auth": [
-                auth_result.to_dict(config_branch=loaded_config.branch)
-                for auth_result in engine_result.auth_results
+                auth_result.to_dict() for auth_result in engine_result.auth_results
             ],
         }
 

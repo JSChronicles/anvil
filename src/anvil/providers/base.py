@@ -132,7 +132,7 @@ class ExecutionTarget:
 
 @dataclass(frozen=True, slots=True)
 class ProviderExecutionPlan:
-    """Execution targets and provider-owned scheduling metadata."""
+    """Resolved provider execution targets."""
 
     execution_targets: list[ExecutionTarget]
 
@@ -254,7 +254,13 @@ def validate_provider_contract(provider: Provider) -> None:
             "cache",
             "benchmark",
         },
-        "resolve_execution_targets": {"target", "regions", "include", "exclude"},
+        "resolve_execution_targets": {
+            "target",
+            "regions",
+            "include",
+            "exclude",
+            "preparation",
+        },
         "prepare_execution_runtime": {"target", "execution_target", "context"},
     }
     for method_name, required_parameters in required_methods.items():

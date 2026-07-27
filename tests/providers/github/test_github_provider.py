@@ -9,7 +9,7 @@ from types import ModuleType
 
 import pytest
 
-from anvil.descriptors import ConfigBranch, TargetDescriptor
+from anvil.descriptors import TargetDescriptor
 from anvil.execution_context import ExecutionContext
 from anvil.providers.base import ExecutionTarget
 from anvil.providers.github import create_provider_instance
@@ -223,7 +223,6 @@ class CountingProfileConfig(GitHubProfileConfig):
 
 def _target(**overrides) -> TargetDescriptor:
     values = {
-        "config_branch": ConfigBranch.TARGETS,
         "name": "github-repositories",
         "provider": "github",
         "mode": "repositories",

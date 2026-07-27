@@ -533,7 +533,9 @@ def test_validate_selected_providers_validates_all_when_no_names(monkeypatch):
         ):
             return None
 
-        def resolve_execution_targets(self, *, target, regions, include, exclude):
+        def resolve_execution_targets(
+            self, *, target, regions, include, exclude, preparation=None
+        ):
             return None
 
         def prepare_execution_runtime(self, *, target, execution_target, context):
@@ -689,7 +691,7 @@ def test_validate_config_file_alone_runs_offline_config_validation(monkeypatch, 
     )
 
     calls = []
-    loaded_config = SimpleNamespace(branch=cli.ConfigBranch.TARGETS, targets=[])
+    loaded_config = SimpleNamespace(targets=[])
     monkeypatch.setattr(
         cli,
         "_load_targets_from_config_file",

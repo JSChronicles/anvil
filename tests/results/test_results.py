@@ -1,4 +1,3 @@
-from anvil.descriptors import ConfigBranch
 from anvil.results import (
     EngineResult,
     EngineState,
@@ -25,7 +24,6 @@ def _entity_result(*, entity_id: str, status: ExecutionStatus) -> EntityResult:
 
 def test_engine_summary_counts_interrupted_entities() -> None:
     target_result = TargetResult.create(
-        config_branch=ConfigBranch.TARGETS,
         target_name="org-a",
         provider="aws",
         dry_run=True,
@@ -38,7 +36,6 @@ def test_engine_summary_counts_interrupted_entities() -> None:
         ],
     )
     engine_result = EngineResult(
-        config_branch=ConfigBranch.TARGETS,
         state=EngineState.CANCELLED,
         generated_at="2026-03-25T00:00:00+00:00",
         auth_results=[],

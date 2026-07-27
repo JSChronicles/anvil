@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from dataclasses import replace
 from pathlib import Path
 
-from anvil.descriptors import ConfigBranch, LoadedConfig, TargetDescriptor
+from anvil.descriptors import LoadedConfig, TargetDescriptor
 from anvil.results import EntityResult, TargetResult, TaskResult
 
 
@@ -68,13 +68,11 @@ def build_jsonl_records_for_target(
     target_result: TargetResult, *, config_file: Path | None = None
 ) -> list[dict[str, object]]:
     """Build flattened entity and task records for a target result."""
-    target_type = _target_type(target_result.config_branch)
     records: list[dict[str, object]] = []
 
     for entity_result in target_result.entities:
         entity_record = _base_entity_record(
             target_result=target_result,
-            target_type=target_type,
             entity_result=entity_result,
             config_file=config_file,
         )
@@ -315,12 +313,6 @@ def format_records_table(
     )
 
 
-def _target_type(config_branch: ConfigBranch) -> str:
-    if config_branch is not ConfigBranch.TARGETS:
-        raise ValueError(f"Unsupported config branch: {config_branch}")
-    return "target"
-
-
 def _timed_status_record(result: EntityResult | TaskResult) -> dict[str, object]:
     return {
         "status": result.status.value,
@@ -333,13 +325,11 @@ def _timed_status_record(result: EntityResult | TaskResult) -> dict[str, object]
 def _base_entity_record(
     *,
     target_result: TargetResult,
-    target_type: str,
     entity_result: EntityResult,
     config_file: Path | None,
 ) -> dict[str, object]:
     record: dict[str, object] = {
-        "target_type": target_type,
-        target_type: target_result.target_name,
+        "target_type": "target",
         "target": target_result.target_name,
         "generated_at": target_result.generated_at,
         "dry_run": target_result.dry_run,

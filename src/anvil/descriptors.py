@@ -1,11 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import StrEnum
-
-
-class ConfigBranch(StrEnum):
-    TARGETS = "targets"
 
 
 @dataclass(frozen=True, slots=True)
@@ -16,7 +11,6 @@ class TargetDescriptor:
     Public configs load from schema_version: 2 top-level targets.
     """
 
-    config_branch: ConfigBranch
     name: str
     provider: str
     mode: str
@@ -72,12 +66,8 @@ class TargetDescriptor:
         object.__setattr__(self, "include", normalized_include)
         object.__setattr__(self, "exclude", normalized_exclude)
 
-        if self.config_branch is ConfigBranch.TARGETS:
-            if self.include is not None and self.exclude is not None:
-                raise ValueError("include and exclude cannot both be set")
-            return
-
-        raise ValueError(f"Unsupported config branch: {self.config_branch}")
+        if self.include is not None and self.exclude is not None:
+            raise ValueError("include and exclude cannot both be set")
 
     def _validate_provider_options(self) -> None:
         if not isinstance(self.provider_options, dict):
@@ -161,6 +151,5 @@ class TargetDescriptor:
 
 @dataclass(frozen=True, slots=True)
 class LoadedConfig:
-    branch: ConfigBranch
     targets: list[TargetDescriptor]
     max_parallel_targets: int = 1

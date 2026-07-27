@@ -10,7 +10,7 @@ from anvil.providers.aws.account import (
     MINIMUM_ASSUMED_CREDENTIAL_REFRESH_WINDOW,
     AccountAccessStrategy,
 )
-from anvil.descriptors import ConfigBranch, TargetDescriptor
+from anvil.descriptors import TargetDescriptor
 from anvil.execution_context import ExecutionContext
 from anvil.providers.aws.provider import AwsExecutionTargetData, AwsProvider
 from anvil.providers.base import ExecutionTarget
@@ -92,7 +92,6 @@ class RecordingSessionFactory:
 
 def _target() -> TargetDescriptor:
     return TargetDescriptor(
-        config_branch=ConfigBranch.TARGETS,
         name="selected",
         provider="aws",
         mode="accounts",

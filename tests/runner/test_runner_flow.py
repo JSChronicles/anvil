@@ -4,7 +4,7 @@ import threading
 from collections import deque
 from types import SimpleNamespace
 
-from anvil.descriptors import ConfigBranch, TargetDescriptor
+from anvil.descriptors import TargetDescriptor
 from anvil.execution_context import ExecutionContext
 from anvil.providers.base import (
     ExecutionTarget,
@@ -29,7 +29,6 @@ from anvil.task_loader import ResolvedExecution, ResolvedTask
 
 def _target(**overrides) -> TargetDescriptor:
     values = {
-        "config_branch": ConfigBranch.TARGETS,
         "name": "target-a",
         "provider": "test",
         "mode": "fleet",

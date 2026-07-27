@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from anvil.descriptors import ConfigBranch, TargetDescriptor
+from anvil.descriptors import TargetDescriptor
 from anvil.providers.aws.provider import (
     AwsExecutionTargetData,
     AwsPreflightData,
@@ -57,7 +57,6 @@ def test_resolve_execution_targets_maps_explicit_assume_role_accounts(monkeypatc
         "anvil.providers.aws.provider.SessionFactory", lambda: session_factory
     )
     target = TargetDescriptor(
-        config_branch=ConfigBranch.TARGETS,
         name="selected",
         provider="aws",
         mode="accounts",
@@ -95,7 +94,6 @@ def test_resolve_execution_targets_maps_explicit_direct_profile_account(monkeypa
         "anvil.providers.aws.provider.SessionFactory", lambda: session_factory
     )
     target = TargetDescriptor(
-        config_branch=ConfigBranch.TARGETS,
         name="current",
         provider="aws",
         mode="accounts",
@@ -124,7 +122,6 @@ def test_resolve_execution_targets_maps_explicit_assume_role_accounts_with_provi
         "anvil.providers.aws.provider.SessionFactory", lambda: session_factory
     )
     target = TargetDescriptor(
-        config_branch=ConfigBranch.TARGETS,
         name="selected",
         provider="aws",
         mode="accounts",
@@ -152,7 +149,6 @@ def test_resolve_execution_targets_maps_organization_accounts_and_execution_key(
     session_factory = FakeSessionFactory()
     base_session = BaseSession(profile_name="shared")
     target = TargetDescriptor(
-        config_branch=ConfigBranch.TARGETS,
         name="org-a",
         provider="aws",
         mode="organization",
@@ -187,7 +183,6 @@ def test_resolve_execution_targets_maps_organization_accounts_with_provider_opti
     session_factory = FakeSessionFactory()
     base_session = BaseSession(profile_name="shared")
     target = TargetDescriptor(
-        config_branch=ConfigBranch.TARGETS,
         name="org-a",
         provider="aws",
         mode="organization",
@@ -213,11 +208,7 @@ def test_resolve_execution_targets_maps_organization_accounts_with_provider_opti
 
 def test_resolve_execution_targets_preserves_unknown_include_warning(caplog):
     target = TargetDescriptor(
-        config_branch=ConfigBranch.TARGETS,
-        name="org-a",
-        provider="aws",
-        mode="organization",
-        include=["999999999999"],
+        name="org-a", provider="aws", mode="organization", include=["999999999999"]
     )
 
     plan = AwsProvider().resolve_execution_targets(
@@ -242,11 +233,7 @@ def test_resolve_execution_targets_preserves_unknown_include_warning(caplog):
 
 def test_resolve_execution_targets_preserves_unknown_exclude_warning(caplog):
     target = TargetDescriptor(
-        config_branch=ConfigBranch.TARGETS,
-        name="org-a",
-        provider="aws",
-        mode="organization",
-        exclude=["999999999999"],
+        name="org-a", provider="aws", mode="organization", exclude=["999999999999"]
     )
 
     plan = AwsProvider().resolve_execution_targets(

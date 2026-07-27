@@ -27,19 +27,12 @@ def test_run_single_config_file_passes_run_controls(
 ):
     from pathlib import Path
 
-    from anvil.descriptors import ConfigBranch, TargetDescriptor
+    from anvil.descriptors import TargetDescriptor
 
     cli = _import_cli_or_skip()
 
-    target = TargetDescriptor(
-        config_branch=ConfigBranch.TARGETS,
-        name="target-a",
-        provider="aws",
-        mode="organization",
-    )
-    loaded_config = SimpleNamespace(
-        branch=ConfigBranch.TARGETS, targets=[target], max_parallel_targets=4
-    )
+    target = TargetDescriptor(name="target-a", provider="aws", mode="organization")
+    loaded_config = SimpleNamespace(targets=[target], max_parallel_targets=4)
     seen = {}
 
     monkeypatch.setattr(
@@ -74,21 +67,19 @@ def test_run_single_config_file_passes_run_controls(
 
 
 def test_validate_cli_overrides_rejects_explicit_mode_exclude():
-    from anvil.descriptors import ConfigBranch, LoadedConfig, TargetDescriptor
+    from anvil.descriptors import LoadedConfig, TargetDescriptor
 
     cli = _import_cli_or_skip()
     loaded_config = LoadedConfig(
-        branch=ConfigBranch.TARGETS,
         targets=[
             TargetDescriptor(
-                config_branch=ConfigBranch.TARGETS,
                 name="aws-accounts",
                 provider="aws",
                 mode="accounts",
                 provider_options={"role_name": "AuditRole"},
                 include=["111111111111"],
             )
-        ],
+        ]
     )
 
     with pytest.raises(ValueError, match="AWS mode 'accounts'.*--exclude"):

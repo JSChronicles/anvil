@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from anvil.descriptors import ConfigBranch, TargetDescriptor
+from anvil.descriptors import TargetDescriptor
 from anvil.execution_context import ExecutionContext
 from anvil.providers.gcp.provider import (
     GcpExecutionTargetData,
@@ -88,7 +88,6 @@ class FakeSessionFactory:
 
 def _target(**overrides) -> TargetDescriptor:
     values = {
-        "config_branch": ConfigBranch.TARGETS,
         "name": "gcp-projects",
         "provider": "gcp",
         "mode": "projects",
@@ -117,12 +116,7 @@ def test_gcp_provider_metadata_and_default_locations():
 
 def test_gcp_provider_rejects_organization_targets():
     provider = GcpProvider()
-    target = TargetDescriptor(
-        config_branch=ConfigBranch.TARGETS,
-        name="folder",
-        provider="gcp",
-        mode="folders",
-    )
+    target = TargetDescriptor(name="folder", provider="gcp", mode="folders")
 
     with pytest.raises(ValueError, match="Unsupported GCP target mode"):
         provider.validate_target(target)
@@ -240,7 +234,6 @@ def test_gcp_project_discovery_resolves_listed_projects():
 def test_gcp_organization_mode_reports_deferred_discovery():
     provider = GcpProvider(session_factory=FakeSessionFactory())
     target = _target(
-        config_branch=ConfigBranch.TARGETS,
         mode="organization",
         include=["project-a"],
         provider_options={"organization_id": "123456789012"},

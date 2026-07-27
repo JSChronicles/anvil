@@ -17,7 +17,7 @@ from types import ModuleType
 from typing import Any
 from urllib.parse import urlparse
 
-from anvil.descriptors import ConfigBranch, TargetDescriptor
+from anvil.descriptors import TargetDescriptor
 from anvil.execution_context import ExecutionContext
 from anvil.providers.base import (
     ExecutionTarget,
@@ -1231,10 +1231,6 @@ class GithubProvider:
     def validate_target(self, target: TargetDescriptor) -> None:
         """Validate GitHub's first schema v2 target modes."""
 
-        if target.config_branch is not ConfigBranch.TARGETS:
-            raise ValueError(
-                "GitHub provider supports targets config (schema_version: 2) only"
-            )
         if target.provider != self.metadata.name:
             raise ValueError("GitHub provider supports provider 'github' targets only")
         if target.mode not in SUPPORTED_MODES:

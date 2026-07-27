@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from anvil.descriptors import ConfigBranch, TargetDescriptor
+from anvil.descriptors import TargetDescriptor
 from anvil.execution_context import ExecutionContext
 from anvil.providers.base import ProviderAuthResult, ProviderMetadata
 from anvil.results import AuthResult, EngineState, ExecutionStatus, TargetResult
@@ -20,7 +20,6 @@ from anvil.runner import (
 
 def _target(*, name: str, profile: str, mode: str = "organization") -> TargetDescriptor:
     return TargetDescriptor(
-        config_branch=ConfigBranch.TARGETS,
         name=name,
         provider="test",
         mode=mode,
@@ -93,7 +92,6 @@ def _outcome(prepared_target: PreparedTarget) -> TargetExecutionOutcome:
     return TargetExecutionOutcome(
         index=prepared_target.index,
         target_result=TargetResult.create(
-            config_branch=target.config_branch,
             target_name=target.name,
             provider=target.provider,
             dry_run=False,

@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from anvil.descriptors import ConfigBranch, TargetDescriptor
+from anvil.descriptors import TargetDescriptor
 from anvil.execution_context import ExecutionContext
 from anvil.providers.azure.provider import (
     AzureExecutionTargetData,
@@ -115,7 +115,6 @@ class FakeSessionFactory:
 
 def _target(**overrides) -> TargetDescriptor:
     values = {
-        "config_branch": ConfigBranch.TARGETS,
         "name": "azure-subscriptions",
         "mode": "subscriptions",
         "provider": "azure",
@@ -129,7 +128,6 @@ def _target(**overrides) -> TargetDescriptor:
 
 def _raw_target(**overrides):
     values = {
-        "config_branch": ConfigBranch.TARGETS,
         "name": "azure-subscriptions",
         "mode": "subscriptions",
         "include": ["sub-a"],
@@ -158,12 +156,7 @@ def test_azure_provider_metadata_and_default_locations():
 
 def test_azure_provider_rejects_organization_targets():
     provider = AzureProvider()
-    target = TargetDescriptor(
-        config_branch=ConfigBranch.TARGETS,
-        name="mgmt",
-        provider="azure",
-        mode="organization",
-    )
+    target = TargetDescriptor(name="mgmt", provider="azure", mode="organization")
 
     with pytest.raises(ValueError, match="Unsupported Azure target mode"):
         provider.validate_target(target)
@@ -482,7 +475,6 @@ def test_azure_tenant_mode_discovers_subscriptions_with_filters():
     )
     provider = AzureProvider(session_factory=session_factory)
     target = _target(
-        config_branch=ConfigBranch.TARGETS,
         mode="tenant",
         include=["sub-b"],
         provider_options={
