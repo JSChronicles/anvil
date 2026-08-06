@@ -19,7 +19,8 @@ targets:
   fail_fast: true
   dry_run: true
   tasks:
-  - name: get_project_info
+  - id: project_inventory
+    name: get_project_info
   post_run:
   - processor: html_report
     output: gcp-project-inventory.html

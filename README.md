@@ -129,6 +129,10 @@ targets:
 
 Task compatibility is determined by package location.
 
+For schema-v2 invocation IDs, dependency-data selection, `always_run` recovery,
+module-declared scopes, and configured-target fan-in/fan-out, see
+[Task workflows](docs/task-workflows.md).
+
 - `anvil.providers.tasks.<task>` is universal and can run for any provider.
 - `anvil.providers.aws.tasks.<task>` is AWS-only.
 - `anvil.providers.azure.tasks.<task>` is Azure-only.
