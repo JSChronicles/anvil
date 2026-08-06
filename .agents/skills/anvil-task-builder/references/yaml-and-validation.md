@@ -18,15 +18,37 @@ targets:
     dry_run: true
     tasks:
       - name: inventory_users
-      - name: remove_iam_user
+      - id: remove_example_user
+        name: remove_iam_user
         depends_on:
           - inventory_users
-        optional: false
+        dependency_data:
+          users:
+            task_id: inventory_users
+            path: result.users
     metadata:
       user_name: example-user
 ```
 
-Use `depends_on` when task order matters. Use `optional: true` only when failure should not fail the account or block dependent work.
+`name` selects the discovered component. `id` identifies one configured use and
+defaults to `name` when omitted. If a component is repeated, give every use an
+explicit unique ID.
+
+Use effective IDs in `depends_on`; Anvil does not fall back to component names.
+Normal dependents require every dependency to succeed. Use `always_run: true`
+with at least one dependency for cleanup that should run after unsuccessful
+work.
+
+`dependency_data` selects runtime values from tasks listed directly in
+`depends_on`. Omit `path` for the complete producer `TaskResult`, use
+`path: result` for its returned value, or select nested mapping values such as
+`path: result.users`. Existing null values are valid; missing paths produce a
+consumer task error before its `run()` function is called.
+
+Task scope is module-declared with `TASK_SCOPE`; do not put scope in YAML.
+
+For a complete configured-target fan-out/fan-in and recovery example, see
+`examples/17-aws-config-cleanup-workflow.yaml`.
 
 ## Region Selection
 

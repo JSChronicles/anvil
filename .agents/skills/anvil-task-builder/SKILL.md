@@ -50,7 +50,7 @@ Load only the reference files needed for the current task:
 - For AWS read-only and mutating task implementation patterns, read `references/aws-task-patterns.md`.
 - For GitHub REST task helpers, repository target rules, and metadata helpers, read `references/github-task-patterns.md`.
 - For SARIF-compatible `detect_` tasks and `sarif_findings` output, read `references/sarif-detection-tasks.md`.
-- For YAML examples, dependencies, optional tasks, and validation commands, read `references/yaml-and-validation.md`.
+- For YAML examples, invocation IDs, dependencies, dependency data, and validation commands, read `references/yaml-and-validation.md`.
 
 ## Review Behavior
 

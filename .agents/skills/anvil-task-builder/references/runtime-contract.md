@@ -56,6 +56,7 @@ def run(
     session,
     dry_run: bool,
     metadata: dict[str, object],
+    dependency_data: dict[str, object],
     actions: ActionRecorder,
 ) -> dict:
 ```
@@ -74,9 +75,11 @@ Runtime facts:
 
 - The provided `session` is already scoped to the provider target and region.
 - Tasks run once per concrete region by default. A task module may declare
-  `TASK_SCOPE = "target"` to run once per execution target instead.
-- Providers declare which task scopes they support. AWS supports only the
-  default `region` scope; Azure, GCP, and GitHub support `region` and `target`.
+  `TASK_SCOPE = "target"` to run once per execution target or
+  `TASK_SCOPE = "configured_target"` to run once for the configured YAML target.
+- Providers declare which task scopes they support. AWS supports
+  `configured_target` and `region`; Azure, GCP, and GitHub support `region` and
+  `target`.
 - A target-scoped task receives the first resolved concrete provider location
   as `region`, and its session uses that location. No synthetic target-scope or
   global sentinel is introduced. GitHub's `global` value is a real provider
@@ -87,10 +90,12 @@ Runtime facts:
   itself, or ignores it because the API is target-wide.
 - For region-scoped tasks, `region` is the current task execution region. AWS
   sessions also expose `session.region_name`.
-- Operator-provided task inputs come from `metadata`.
-- Tasks should treat metadata as read-only configuration.
-  Anvil isolates changes to top-level metadata keys,
-  but not changes inside nested lists or dictionaries.
+- Operator-provided static task inputs come from `metadata`. Target metadata is
+  recursively merged with task metadata, with task values taking precedence.
+- Runtime dependency inputs come from `dependency_data`. They are selected from
+  direct dependency `TaskResult` objects and are never merged into `metadata`.
+- Tasks should treat both mappings as read-only. Anvil deep-copies nested
+  mappings and lists for every invocation.
 - `actions` is an `ActionRecorder` for audit-level actions.
 - Returned values are included in Anvil result JSON.
 - The engine already includes execution context such as target identity, `region`, and `dry_run` in normal results.
@@ -119,6 +124,7 @@ def run(
     session,
     dry_run: bool,
     metadata: dict[str, object],
+    dependency_data: dict[str, object],
     actions: ActionRecorder,
 ) -> dict:
     """Check the current provider target and return a simple status payload.
@@ -132,6 +138,7 @@ def run(
         session: Provider runtime session scoped to the target and region.
         dry_run: Whether Anvil is running in dry-run mode.
         metadata: Task metadata from YAML. This task does not require metadata.
+        dependency_data: Runtime dependency inputs. This task requires none.
         actions: Action recorder provided by the Anvil engine.
 
     Returns:
@@ -148,3 +155,31 @@ def run(
 ```
 
 First-party provider tasks should use the provider-neutral signature above.
+
+## Invocation identity and dependencies
+
+YAML `name` selects the discovered component. YAML `id` identifies one
+configured invocation and defaults to `name` when omitted. `depends_on` and
+`dependency_data.task_id` always reference effective invocation IDs. Component
+names are not a dependency fallback.
+
+The same component may be configured more than once only when every occurrence
+has an explicit, unique ID. Results preserve both `task_id` and `task_name`.
+
+Normal tasks run only when every dependency succeeds. An `always_run` task waits
+for every dependency to settle and then runs even after errors, interruption, or
+skips, provided its dependency chain began. Successful finalization does not
+erase an upstream failure.
+
+Use `TaskExecutionError` when a task must report failure while retaining
+JSON-serializable recovery data:
+
+```python
+from anvil.task_errors import TaskExecutionError
+
+
+raise TaskExecutionError(
+    "Mutation partially failed",
+    partial_result={"attachments": detached_attachments},
+)
+```

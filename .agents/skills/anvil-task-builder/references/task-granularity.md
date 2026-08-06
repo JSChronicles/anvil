@@ -6,7 +6,7 @@ Prefer separate tasks when:
 
 - The tasks have different safety profiles, especially read-only vs mutating.
 - They are commonly run independently.
-- They need different optional or fail-fast behavior.
+- They need different failure, cleanup, or dependency behavior.
 - A dependency relationship is meaningful to the workflow.
 - Combining them would make the result shape confusing or too broad.
 
