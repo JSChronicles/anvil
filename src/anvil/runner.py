@@ -703,6 +703,45 @@ def _requires_task_instance_scheduler(tasks: list[ResolvedTask]) -> bool:
     return False
 
 
+def _task_result_barrier_stages(tasks: list[ResolvedTask]) -> dict[str, int]:
+    """Return stable result-order stages for topologically ordered tasks.
+
+    A dependency from a narrower scope to a broader scope creates a fan-in
+    barrier. Advancing the broader consumer to the next stage keeps every
+    producer ahead of it while preserving the established scope-first,
+    region-major ordering within each stage.
+
+    Args:
+        tasks: Resolved tasks in dependency order.
+
+    Returns:
+        Result-order stage keyed by effective task invocation ID.
+    """
+
+    scope_breadth = {
+        TaskScope.REGION: 0,
+        TaskScope.TARGET: 1,
+        TaskScope.CONFIGURED_TARGET: 2,
+    }
+    task_scopes: dict[str, TaskScope] = {}
+    stages: dict[str, int] = {}
+    for task in tasks:
+        stages[task.id] = max(
+            (
+                stages[dependency_id]
+                + int(
+                    scope_breadth[task.scope]
+                    > scope_breadth[task_scopes[dependency_id]]
+                )
+                for dependency_id in task.depends_on
+            ),
+            default=0,
+        )
+        task_scopes[task.id] = task.scope
+
+    return stages
+
+
 def _execute_provider_region(
     *,
     execution_target: ExecutionTarget,
@@ -1269,6 +1308,7 @@ def _execute_provider_task_graph(
         configured_target=configured_execution_target,
     )
     task_order = {task.id: index for index, task in enumerate(context.tasks)}
+    task_result_stages = _task_result_barrier_stages(context.tasks)
     target_order = {
         execution_target.id: index
         for index, execution_target in enumerate(execution_targets)
@@ -1487,6 +1527,7 @@ def _execute_provider_task_graph(
         }
         target_task_results.sort(
             key=lambda item: (
+                task_result_stages[item.key.task_id],
                 0 if item.key.scope is TaskScope.TARGET else 1,
                 region_order.get(item.key.region, len(region_order)),
                 task_order[item.key.task_id],

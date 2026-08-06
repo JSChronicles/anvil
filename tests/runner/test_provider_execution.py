@@ -285,6 +285,11 @@ def test_region_results_release_target_fan_in_in_configured_region_order() -> No
 
     assert result.status is ExecutionStatus.SUCCESS
     assert received == [["region-a", "region-b"]]
+    assert [(task.task_id, task.region) for task in result.tasks] == [
+        ("regional", "region-a"),
+        ("regional", "region-b"),
+        ("summary", "region-a"),
+    ]
     assert result.benchmark is not None
     assert result.benchmark["target"]["task_count"] == 1
     assert {
