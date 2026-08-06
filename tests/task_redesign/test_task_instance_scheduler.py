@@ -99,6 +99,55 @@ def test_scheduler_releases_fan_in_barrier_only_after_every_region_settles() -> 
     assert summary_inputs == [["region-a", "region-b"]]
 
 
+def test_dependency_preparation_reads_each_fan_in_result_once() -> None:
+    scheduler_module = importlib.import_module("anvil.task_scheduler")
+    prepare_dependency_results = getattr(
+        scheduler_module, "_prepare_dependency_results", None
+    )
+    assert callable(prepare_dependency_results)
+
+    plan = plan_task_instances(
+        tasks=[
+            _task("regional", TaskScope.REGION),
+            _task("summary", TaskScope.TARGET, depends_on=["regional"]),
+        ],
+        execution_targets=[_target("target", ["region-a", "region-b", "region-c"])],
+        configured_target=None,
+    )
+    instances_by_key = {instance.key: instance for instance in plan.instances}
+    summary = next(
+        instance for instance in plan.instances if instance.task.id == "summary"
+    )
+
+    class CountingResults(dict):
+        lookup_count = 0
+
+        def get(self, key, default=None):
+            self.lookup_count += 1
+            return super().get(key, default)
+
+    results_by_key = CountingResults(
+        {
+            dependency: _result(instances_by_key[dependency])
+            for dependency in summary.dependencies
+        }
+    )
+    eligibility, grouped = prepare_dependency_results(
+        instance=summary,
+        results_by_key=results_by_key,
+        activated_keys=set(summary.dependencies),
+        stop_reason=None,
+    )
+
+    assert eligibility.should_run
+    assert results_by_key.lookup_count == len(summary.dependencies)
+    assert [result.region for result in grouped["regional"]] == [
+        "region-a",
+        "region-b",
+        "region-c",
+    ]
+
+
 def test_scheduler_bounds_concurrency_and_serializes_one_region_coordinate() -> None:
     scheduler = _scheduler_api()
     plan = plan_task_instances(

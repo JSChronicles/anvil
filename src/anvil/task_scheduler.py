@@ -251,10 +251,6 @@ def execute_task_instance_plan(
                 _, key = heapq.heappop(coordinate_ready)
                 instance = instances_by_key[key]
 
-                direct_results = {
-                    dependency: results_by_key[dependency]
-                    for dependency in instance.dependencies
-                }
                 stop_reason = (
                     "fail_fast"
                     if fail_fast_triggered
@@ -264,9 +260,9 @@ def execute_task_instance_plan(
                     )
                     else ("cancelled_before_start" if cancel_event.is_set() else None)
                 )
-                eligibility = task_instance_eligibility(
+                eligibility, grouped_dependency_results = _prepare_dependency_results(
                     instance=instance,
-                    dependency_results=direct_results,
+                    results_by_key=results_by_key,
                     activated_keys=activated_keys,
                     stop_reason=stop_reason,
                 )
@@ -291,9 +287,7 @@ def execute_task_instance_plan(
                 future = executor.submit(
                     _execute_safely,
                     instance=instance,
-                    dependency_results=_group_dependency_results(
-                        instance=instance, results_by_key=results_by_key
-                    ),
+                    dependency_results=grouped_dependency_results,
                     execute=execute,
                 )
                 active_futures[future] = (instance, coordinate)
@@ -344,17 +338,47 @@ def execute_task_instance_plan(
     return TaskInstanceSchedule(results=ordered_results)
 
 
-def _group_dependency_results(
-    *, instance: TaskInstance, results_by_key: Mapping[TaskInstanceKey, TaskResult]
-) -> dict[str, TaskResult | tuple[TaskResult, ...]]:
-    grouped: dict[str, list[TaskResult]] = {}
-    for dependency in instance.dependencies:
-        grouped.setdefault(dependency.task_id, []).append(results_by_key[dependency])
+def _prepare_dependency_results(
+    *,
+    instance: TaskInstance,
+    results_by_key: Mapping[TaskInstanceKey, TaskResult],
+    activated_keys: set[TaskInstanceKey],
+    stop_reason: str | None,
+) -> tuple[TaskInstanceEligibility, dict[str, TaskResult | tuple[TaskResult, ...]]]:
+    """Prepare eligibility and executor dependency inputs in one traversal."""
 
-    return {
+    missing_dependencies: list[TaskInstanceKey] = []
+    direct_results: list[TaskResult] = []
+    grouped: dict[str, list[TaskResult]] = {}
+    chain_activated = not instance.dependencies
+    for dependency in instance.dependencies:
+        result = results_by_key.get(dependency)
+        if result is None:
+            missing_dependencies.append(dependency)
+            continue
+        direct_results.append(result)
+        grouped.setdefault(dependency.task_id, []).append(result)
+        if dependency in activated_keys:
+            chain_activated = True
+
+    if missing_dependencies:
+        missing = ", ".join(key.task_id for key in missing_dependencies)
+        raise RuntimeError(
+            f"Task instance '{instance.key.task_id}' dependencies have not "
+            f"settled: {missing}"
+        )
+
+    eligibility = task_dependency_eligibility(
+        task=instance.task,
+        dependency_results=direct_results,
+        chain_activated=chain_activated,
+        stop_reason=stop_reason,
+    )
+    grouped_results = {
         task_id: values[0] if len(values) == 1 else tuple(values)
         for task_id, values in grouped.items()
     }
+    return eligibility, grouped_results
 
 
 def _execute_safely(

@@ -163,6 +163,43 @@ def test_scope_relationship_matrix(
     } == expected
 
 
+def test_regional_dependency_matching_does_not_scan_unrelated_targets() -> None:
+    planner, _error_type = _planner_api()
+
+    class CountingTargetId(str):
+        comparisons = 0
+        __hash__ = str.__hash__
+
+        def __eq__(self, other: object) -> bool:
+            type(self).comparisons += 1
+            return super().__eq__(other)
+
+        def __ne__(self, other: object) -> bool:
+            type(self).comparisons += 1
+            return super().__ne__(other)
+
+    targets = [
+        _target(
+            CountingTargetId(f"target-{target_index}"),
+            [f"region-{region_index}" for region_index in range(10)],
+        )
+        for target_index in range(100)
+    ]
+    CountingTargetId.comparisons = 0
+
+    plan = planner(
+        tasks=[
+            _task("producer", TaskScope.REGION),
+            _task("consumer", TaskScope.REGION, depends_on=["producer"]),
+        ],
+        execution_targets=targets,
+        configured_target=None,
+    )
+
+    assert len(plan.instances) == 2_000
+    assert CountingTargetId.comparisons < len(plan.instances)
+
+
 def test_planner_is_deterministic_and_never_executes_tasks() -> None:
     planner, _error_type = _planner_api()
     calls: list[str] = []

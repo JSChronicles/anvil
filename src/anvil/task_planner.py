@@ -42,6 +42,19 @@ class TaskInstancePlan:
     adjacency: dict[TaskInstanceKey, tuple[TaskInstanceKey, ...]]
 
 
+_TaskShell = tuple[TaskInstanceKey, ResolvedTask, ExecutionTarget, str]
+
+
+@dataclass(frozen=True, slots=True)
+class _TaskShellIndex:
+    """Dependency lookup indexes for every instance of one resolved task."""
+
+    scope: TaskScope
+    all_keys: tuple[TaskInstanceKey, ...]
+    keys_by_target: dict[str, tuple[TaskInstanceKey, ...]]
+    keys_by_coordinate: dict[tuple[str, str], tuple[TaskInstanceKey, ...]]
+
+
 def plan_task_instances(
     *,
     tasks: Sequence[ResolvedTask],
@@ -77,27 +90,26 @@ def plan_task_instances(
             "configured-target tasks require a concrete configured-target identity"
         )
 
-    shells_by_task_id: dict[
-        str, list[tuple[TaskInstanceKey, ResolvedTask, ExecutionTarget, str]]
-    ] = {}
+    shells_by_task_id: dict[str, list[_TaskShell]] = {}
     for task in ordered_tasks:
         shells_by_task_id[task.id] = _expand_task(
             task=task,
             execution_targets=ordered_targets,
             configured_target=configured_target,
         )
+    shell_indexes_by_task_id = {
+        task.id: _index_task_shells(task=task, shells=shells_by_task_id[task.id])
+        for task in ordered_tasks
+    }
 
     instances: list[TaskInstance] = []
     for task in ordered_tasks:
         for key, resolved_task, target, region in shells_by_task_id[task.id]:
             dependencies: list[TaskInstanceKey] = []
             for dependency_id in task.depends_on:
-                dependency_shells = shells_by_task_id[dependency_id]
-                matches = [
-                    dependency_key
-                    for dependency_key, _task, _target, _region in dependency_shells
-                    if _dependency_applies(producer=dependency_key, consumer=key)
-                ]
+                matches = _matching_dependency_keys(
+                    producer_index=shell_indexes_by_task_id[dependency_id], consumer=key
+                )
                 if not matches:
                     raise TaskPlanningError(
                         f"task '{task.id}' has no matching instance of dependency "
@@ -179,7 +191,7 @@ def _expand_task(
     task: ResolvedTask,
     execution_targets: Sequence[ExecutionTarget],
     configured_target: ExecutionTarget | None,
-) -> list[tuple[TaskInstanceKey, ResolvedTask, ExecutionTarget, str]]:
+) -> list[_TaskShell]:
     if task.scope is TaskScope.CONFIGURED_TARGET:
         if configured_target is None:
             raise TaskPlanningError(
@@ -202,9 +214,7 @@ def _expand_task(
     raise TaskPlanningError(f"task '{task.id}' has unsupported scope {task.scope!r}")
 
 
-def _task_shell(
-    task: ResolvedTask, target: ExecutionTarget, region: str
-) -> tuple[TaskInstanceKey, ResolvedTask, ExecutionTarget, str]:
+def _task_shell(task: ResolvedTask, target: ExecutionTarget, region: str) -> _TaskShell:
     return (
         TaskInstanceKey(
             task_id=task.id,
@@ -218,17 +228,44 @@ def _task_shell(
     )
 
 
-def _dependency_applies(
-    *, producer: TaskInstanceKey, consumer: TaskInstanceKey
-) -> bool:
-    if producer.scope is TaskScope.CONFIGURED_TARGET:
-        return True
-    if consumer.scope is TaskScope.CONFIGURED_TARGET:
-        return True
-    if producer.execution_target_id != consumer.execution_target_id:
-        return False
-    if producer.scope is TaskScope.TARGET:
-        return True
-    if consumer.scope is TaskScope.TARGET:
-        return True
-    return producer.region == consumer.region
+def _index_task_shells(
+    *, task: ResolvedTask, shells: Sequence[_TaskShell]
+) -> _TaskShellIndex:
+    """Index task instances without changing their deterministic plan order."""
+
+    all_keys: list[TaskInstanceKey] = []
+    keys_by_target: dict[str, list[TaskInstanceKey]] = {}
+    keys_by_coordinate: dict[tuple[str, str], list[TaskInstanceKey]] = {}
+    for key, _task, _target, _region in shells:
+        all_keys.append(key)
+        keys_by_target.setdefault(key.execution_target_id, []).append(key)
+        coordinate = (key.execution_target_id, key.region)
+        keys_by_coordinate.setdefault(coordinate, []).append(key)
+
+    return _TaskShellIndex(
+        scope=task.scope,
+        all_keys=tuple(all_keys),
+        keys_by_target={
+            target_id: tuple(keys) for target_id, keys in keys_by_target.items()
+        },
+        keys_by_coordinate={
+            coordinate: tuple(keys) for coordinate, keys in keys_by_coordinate.items()
+        },
+    )
+
+
+def _matching_dependency_keys(
+    *, producer_index: _TaskShellIndex, consumer: TaskInstanceKey
+) -> tuple[TaskInstanceKey, ...]:
+    """Return applicable producer keys through scope-specific indexed lookup."""
+
+    if (
+        producer_index.scope is TaskScope.CONFIGURED_TARGET
+        or consumer.scope is TaskScope.CONFIGURED_TARGET
+    ):
+        return producer_index.all_keys
+    if producer_index.scope is TaskScope.TARGET or consumer.scope is TaskScope.TARGET:
+        return producer_index.keys_by_target.get(consumer.execution_target_id, ())
+    return producer_index.keys_by_coordinate.get(
+        (consumer.execution_target_id, consumer.region), ()
+    )
