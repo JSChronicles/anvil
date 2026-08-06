@@ -131,10 +131,6 @@ def _validate_groups(
         except identitystore_client.exceptions.ResourceNotFoundException:
             group_existence[group_id] = False
 
-        except ClientError as error:
-            __LOGGER__.error(f"Error validating group '{group_id}': {error}")
-            group_existence[group_id] = False
-
     return group_existence
 
 
@@ -272,38 +268,36 @@ def run(
     for entry in missing_assignments:
         if dry_run:
             __LOGGER__.info(
-                f"(Dry run) Would remove GROUP '{entry['GroupId']}' "
+                f"(dry-run) Would remove GROUP '{entry['GroupId']}' "
                 f"from permission set '{entry['PermissionSetName']}' "
                 f"in account '{entry['AccountName']}'"
             )
             continue
 
-        try:
-            sso_admin_client.delete_account_assignment(
-                InstanceArn=instance_arn,
-                TargetId=entry["AccountId"],
-                TargetType="AWS_ACCOUNT",
-                PermissionSetArn=entry["PermissionSetArn"],
-                PrincipalType="GROUP",
-                PrincipalId=entry["GroupId"],
-            )
+        sso_admin_client.delete_account_assignment(
+            InstanceArn=instance_arn,
+            TargetId=entry["AccountId"],
+            TargetType="AWS_ACCOUNT",
+            PermissionSetArn=entry["PermissionSetArn"],
+            PrincipalType="GROUP",
+            PrincipalId=entry["GroupId"],
+        )
 
-            removed.append(entry)
+        removed.append(entry)
 
-            __LOGGER__.info(
-                f"Removed GROUP '{entry['GroupId']}' "
-                f"from permission set '{entry['PermissionSetName']}' "
-                f"in account '{entry['AccountName']}'"
-            )
+        __LOGGER__.info(
+            f"Removed GROUP '{entry['GroupId']}' "
+            f"from permission set '{entry['PermissionSetName']}' "
+            f"in account '{entry['AccountName']}'"
+        )
 
-        except ClientError as error:
-            __LOGGER__.error(
-                f"Failed to remove GROUP '{entry['GroupId']}' "
-                f"from permission set '{entry['PermissionSetName']}' "
-                f"in account '{entry['AccountName']}': {error}"
-            )
-
-    actions.record(f"Missing group assignments detected: {len(missing_assignments)}")
+    if dry_run:
+        actions.record(
+            f"(dry-run) Would remove {len(missing_assignments)} missing group "
+            "assignment(s)"
+        )
+    else:
+        actions.record(f"Removed {len(removed)} missing group assignment(s)")
 
     return {
         "identity_center_region": identity_center_region,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from botocore.exceptions import ClientError
 
@@ -9,19 +10,34 @@ from anvil.actions import ActionRecorder
 __LOGGER__ = logging.getLogger(__name__)
 
 
+def _list_paginated_user_resources(
+    iam_client, *, operation_name: str, result_key: str, user_name: str
+) -> list[Any]:
+    """Return every page of one IAM user resource collection."""
+
+    try:
+        paginator = iam_client.get_paginator(operation_name)
+        resources: list[Any] = []
+        for page in paginator.paginate(UserName=user_name):
+            resources.extend(page.get(result_key, []))
+        return resources
+    except ClientError as error:
+        if error.response["Error"]["Code"] == "NoSuchEntity":
+            return []
+        raise
+
+
 def cleanup_user_resources(
     iam_client, user_name: str, dry_run: bool, actions: ActionRecorder
 ) -> None:
     # Groups
-    try:
-        groups_response = iam_client.list_groups_for_user(UserName=user_name)
-    except ClientError as error:
-        if error.response["Error"]["Code"] == "NoSuchEntity":
-            groups_response = {"Groups": []}
-        else:
-            raise
-
-    for group in groups_response.get("Groups", []):
+    groups = _list_paginated_user_resources(
+        iam_client,
+        operation_name="list_groups_for_user",
+        result_key="Groups",
+        user_name=user_name,
+    )
+    for group in groups:
         name = group["GroupName"]
         if dry_run:
             __LOGGER__.debug(f"(dry-run) Would remove user from group: {name}")
@@ -30,15 +46,13 @@ def cleanup_user_resources(
             __LOGGER__.debug(f"Removed user from group: {name}")
 
     # Access Keys
-    try:
-        access_keys = iam_client.list_access_keys(UserName=user_name)
-    except ClientError as error:
-        if error.response["Error"]["Code"] == "NoSuchEntity":
-            access_keys = {"AccessKeyMetadata": []}
-        else:
-            raise
-
-    for key in access_keys.get("AccessKeyMetadata", []):
+    access_keys = _list_paginated_user_resources(
+        iam_client,
+        operation_name="list_access_keys",
+        result_key="AccessKeyMetadata",
+        user_name=user_name,
+    )
+    for key in access_keys:
         key_id = key["AccessKeyId"]
         if dry_run:
             __LOGGER__.debug(f"(dry-run) Would delete access key: {key_id}")
@@ -47,15 +61,13 @@ def cleanup_user_resources(
             __LOGGER__.debug(f"Deleted access key: {key_id}")
 
     # MFA Devices
-    try:
-        mfa_list = iam_client.list_mfa_devices(UserName=user_name)
-    except ClientError as error:
-        if error.response["Error"]["Code"] == "NoSuchEntity":
-            mfa_list = {"MFADevices": []}
-        else:
-            raise
-
-    for device in mfa_list.get("MFADevices", []):
+    mfa_devices = _list_paginated_user_resources(
+        iam_client,
+        operation_name="list_mfa_devices",
+        result_key="MFADevices",
+        user_name=user_name,
+    )
+    for device in mfa_devices:
         serial = device["SerialNumber"]
         if dry_run:
             __LOGGER__.debug(f"(dry-run) Would deactivate MFA device: {serial}")
@@ -66,15 +78,13 @@ def cleanup_user_resources(
             __LOGGER__.debug(f"Deleted MFA device: {serial}")
 
     # SSH Keys
-    try:
-        ssh_list = iam_client.list_ssh_public_keys(UserName=user_name)
-    except ClientError as error:
-        if error.response["Error"]["Code"] == "NoSuchEntity":
-            ssh_list = {"SSHPublicKeys": []}
-        else:
-            raise
-
-    for ssh in ssh_list.get("SSHPublicKeys", []):
+    ssh_keys = _list_paginated_user_resources(
+        iam_client,
+        operation_name="list_ssh_public_keys",
+        result_key="SSHPublicKeys",
+        user_name=user_name,
+    )
+    for ssh in ssh_keys:
         ssh_id = ssh["SSHPublicKeyId"]
         if dry_run:
             __LOGGER__.debug(f"(dry-run) Would delete SSH key: {ssh_id}")
@@ -102,15 +112,13 @@ def cleanup_user_resources(
             __LOGGER__.debug(f"Deleted service credential: {cred_id}")
 
     # Certificates
-    try:
-        certs = iam_client.list_signing_certificates(UserName=user_name)
-    except ClientError as error:
-        if error.response["Error"]["Code"] == "NoSuchEntity":
-            certs = {"Certificates": []}
-        else:
-            raise
-
-    for cert in certs.get("Certificates", []):
+    certificates = _list_paginated_user_resources(
+        iam_client,
+        operation_name="list_signing_certificates",
+        result_key="Certificates",
+        user_name=user_name,
+    )
+    for cert in certificates:
         cert_id = cert["CertificateId"]
         if dry_run:
             __LOGGER__.debug(f"(dry-run) Would delete certificate: {cert_id}")
@@ -121,15 +129,13 @@ def cleanup_user_resources(
             __LOGGER__.debug(f"Deleted certificate: {cert_id}")
 
     # Attached Policies
-    try:
-        attached = iam_client.list_attached_user_policies(UserName=user_name)
-    except ClientError as error:
-        if error.response["Error"]["Code"] == "NoSuchEntity":
-            attached = {"AttachedPolicies": []}
-        else:
-            raise
-
-    for policy in attached.get("AttachedPolicies", []):
+    attached_policies = _list_paginated_user_resources(
+        iam_client,
+        operation_name="list_attached_user_policies",
+        result_key="AttachedPolicies",
+        user_name=user_name,
+    )
+    for policy in attached_policies:
         arn = policy["PolicyArn"]
         if dry_run:
             __LOGGER__.debug(f"(dry-run) Would detach policy: {arn}")
@@ -138,15 +144,13 @@ def cleanup_user_resources(
             __LOGGER__.debug(f"Detached policy: {arn}")
 
     # Inline Policies
-    try:
-        inline = iam_client.list_user_policies(UserName=user_name)
-    except ClientError as error:
-        if error.response["Error"]["Code"] == "NoSuchEntity":
-            inline = {"PolicyNames": []}
-        else:
-            raise
-
-    for name in inline.get("PolicyNames", []):
+    inline_policy_names = _list_paginated_user_resources(
+        iam_client,
+        operation_name="list_user_policies",
+        result_key="PolicyNames",
+        user_name=user_name,
+    )
+    for name in inline_policy_names:
         if dry_run:
             __LOGGER__.debug(f"(dry-run) Would delete inline policy: {name}")
         else:
@@ -154,15 +158,13 @@ def cleanup_user_resources(
             __LOGGER__.debug(f"Deleted inline policy: {name}")
 
     # Tags
-    try:
-        tags = iam_client.list_user_tags(UserName=user_name)
-    except ClientError as error:
-        if error.response["Error"]["Code"] == "NoSuchEntity":
-            tags = {"Tags": []}
-        else:
-            raise
-
-    tag_keys = [t["Key"] for t in tags.get("Tags", [])]
+    tags = _list_paginated_user_resources(
+        iam_client,
+        operation_name="list_user_tags",
+        result_key="Tags",
+        user_name=user_name,
+    )
+    tag_keys = [tag["Key"] for tag in tags]
     if tag_keys:
         if dry_run:
             __LOGGER__.debug(f"(dry-run) Would remove tags: {tag_keys}")
@@ -242,4 +244,7 @@ def run(
         iam_client=iam_client, user_name=user_name, dry_run=dry_run, actions=actions
     )
 
-    actions.record("Removed IAM user resources")
+    if dry_run:
+        actions.record(f"(dry-run) Would remove IAM user resources for {user_name}")
+    else:
+        actions.record(f"Removed IAM user resources for {user_name}")
