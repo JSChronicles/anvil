@@ -179,7 +179,6 @@ from anvil.task_errors import TaskExecutionError
 
 
 raise TaskExecutionError(
-    "Mutation partially failed",
-    partial_result={"attachments": detached_attachments},
+    "Mutation partially failed", partial_result={"attachments": detached_attachments}
 )
 ```
