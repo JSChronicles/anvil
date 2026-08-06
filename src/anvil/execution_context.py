@@ -22,3 +22,4 @@ class ExecutionContext:
     benchmark_enabled: bool = False
     log_level: str | int | None = None
     cancel_event: threading.Event = field(default_factory=threading.Event)
+    fail_fast_event: threading.Event = field(default_factory=threading.Event)

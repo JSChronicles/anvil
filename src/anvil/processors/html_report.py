@@ -106,6 +106,20 @@ def _records_from_target_dict(
         return []
 
     records: list[dict[str, object]] = []
+    configured_entity_record = {
+        "target_type": "target",
+        "target": target_name,
+        "generated_at": target_result.get("generated_at"),
+        "dry_run": target_result.get("dry_run"),
+        "entity_id": None,
+        "entity_name": None,
+        "entity_type": "configured_target",
+    }
+    records.extend(
+        _task_records(
+            tasks=target_result.get("tasks", []), entity_record=configured_entity_record
+        )
+    )
     for entity_result in entities:
         if not isinstance(entity_result, dict):
             continue
@@ -129,26 +143,39 @@ def _records_from_target_dict(
             }
         )
 
-        tasks = entity_result.get("tasks", [])
-        if not isinstance(tasks, list):
-            continue
-
-        for task_result in tasks:
-            if not isinstance(task_result, dict):
-                continue
-            task_result = cast(dict[str, object], task_result)
-            records.append(
-                {
-                    **entity_record,
-                    "record_type": "task",
-                    "task": task_result.get("task"),
-                    "region": task_result.get("region"),
-                    **_timed_status_record(task_result),
-                    "result": task_result.get("result"),
-                    "error": task_result.get("error"),
-                }
+        records.extend(
+            _task_records(
+                tasks=entity_result.get("tasks", []), entity_record=entity_record
             )
+        )
 
+    return records
+
+
+def _task_records(
+    *, tasks: object, entity_record: dict[str, object]
+) -> list[dict[str, object]]:
+    if not isinstance(tasks, list):
+        return []
+
+    records: list[dict[str, object]] = []
+    for task_result in tasks:
+        if not isinstance(task_result, dict):
+            continue
+        task_result = cast(dict[str, object], task_result)
+        records.append(
+            {
+                **entity_record,
+                "record_type": "task",
+                "task_id": task_result.get("task_id"),
+                "task_name": task_result.get("task_name"),
+                "region": task_result.get("region"),
+                **_timed_status_record(task_result),
+                "result": task_result.get("result"),
+                "error": task_result.get("error"),
+                "skip_reason": task_result.get("skip_reason"),
+            }
+        )
     return records
 
 
@@ -403,7 +430,8 @@ def _build_html(
       <label>Target<select id="targetFilter"></select></label>
       <label>Entity<select id="entityFilter"></select></label>
       <label>Region<select id="regionFilter"></select></label>
-      <label>Task<select id="taskFilter"></select></label>
+      <label>Task ID<select id="taskIdFilter"></select></label>
+      <label>Task name<select id="taskNameFilter"></select></label>
       <label>Search<input id="searchFilter" type="search" placeholder="Filter visible fields"></label>
     </section>
     <section class="table-wrap">
@@ -436,10 +464,11 @@ def _build_html(
       target: document.getElementById("targetFilter"),
       entity: document.getElementById("entityFilter"),
       region: document.getElementById("regionFilter"),
-      task: document.getElementById("taskFilter"),
+      task_id: document.getElementById("taskIdFilter"),
+      task_name: document.getElementById("taskNameFilter"),
       search: document.getElementById("searchFilter")
     }};
-    const fields = ["status", "record_type", "target", "entity", "region", "task"];
+    const fields = ["status", "record_type", "target", "entity", "region", "task_id", "task_name"];
 
     function value(record, field) {{
       if (field === "entity") {{
@@ -500,7 +529,8 @@ def _build_html(
         record.entity_name,
         record.entity_type,
         record.region,
-        record.task,
+        record.task_id,
+        record.task_name,
         record.error
       ].some((item) => String(item || "").toLowerCase().includes(query));
     }}
@@ -553,7 +583,7 @@ def _build_html(
         cells[2].textContent = record.target || "";
         cells[3].textContent = [record.entity_name, record.entity_id].filter(Boolean).join(" ");
         cells[4].textContent = record.region || "";
-        cells[5].textContent = record.task || "";
+        cells[5].textContent = [record.task_id, record.task_name].filter(Boolean).join(" / ");
         cells[6].textContent = record.duration_seconds === undefined || record.duration_seconds === null
           ? ""
           : `${{record.duration_seconds}}s`;
@@ -570,7 +600,8 @@ def _build_html(
     populateSelect(controls.target, sortedValues("target"), "targets");
     populateSelect(controls.entity, sortedValues("entity"), "entities");
     populateSelect(controls.region, sortedValues("region"), "regions");
-    populateSelect(controls.task, sortedValues("task"), "tasks");
+    populateSelect(controls.task_id, sortedValues("task_id"), "task IDs");
+    populateSelect(controls.task_name, sortedValues("task_name"), "task names");
     renderCards(data.cards);
     Object.values(controls).forEach((control) => control.addEventListener("input", renderTable));
     renderTable();
@@ -585,6 +616,7 @@ def _summary_cards(records: list[dict[str, object]]) -> list[dict[str, object]]:
     error_count = _count_status(records=records, status="error")
     interrupted_count = _count_status(records=records, status="interrupted")
     unsuccessful_count = sum(1 for record in records if _is_unsuccessful(record))
+    skipped_count = _count_status(records=records, status="skipped")
     failed_entities = sum(
         1
         for record in records
@@ -612,6 +644,7 @@ def _summary_cards(records: list[dict[str, object]]) -> list[dict[str, object]]:
             "tone": "interrupted",
             "mark": "INT",
         },
+        {"label": "Skipped", "value": skipped_count, "mark": "SKIP"},
         {
             "label": "Failed entities",
             "value": failed_entities,
@@ -633,7 +666,7 @@ def _count_status(*, records: list[dict[str, object]], status: str) -> int:
 
 def _is_unsuccessful(record: dict[str, object]) -> bool:
     status = record.get("status")
-    return isinstance(status, str) and status.lower() != "success"
+    return isinstance(status, str) and status.lower() in {"error", "interrupted"}
 
 
 def _json_for_script(value: object) -> str:

@@ -14,7 +14,7 @@ from anvil.providers.aws.account import (
 )
 from anvil.providers.aws.account_resolver import AccountResolver
 from anvil.providers.aws.auth import auth_check, infer_auth_source
-from anvil.providers.aws.config import aws_option
+from anvil.providers.aws.config import DEFAULT_ORGANIZATION_ROLE_NAME, aws_option
 from anvil.providers.aws.organization import OrganizationResolver
 from anvil.providers.base import (
     ExecutionTarget,
@@ -152,7 +152,7 @@ class AwsProvider:
         display_name="AWS",
         description="Amazon Web Services provider",
         default_regions=DEFAULT_REGIONS,
-        supported_task_scopes=frozenset({"region"}),
+        supported_task_scopes=frozenset({"configured_target", "region"}),
     )
 
     def __init__(self, *, region_service: AwsRegionService | None = None) -> None:
@@ -211,6 +211,28 @@ class AwsProvider:
         effective_target = replace(target, include=include, exclude=exclude)
         self.validate_target(effective_target)
         return include, exclude
+
+    def validate_task_configuration(
+        self, *, target: TargetDescriptor, task_scopes: dict[str, str]
+    ) -> None:
+        """Validate AWS configured-target ownership before authentication."""
+
+        configured_task_ids = [
+            task_id
+            for task_id, scope in task_scopes.items()
+            if scope == "configured_target"
+        ]
+        if not configured_task_ids or target.mode == MODE_ORGANIZATION:
+            return
+
+        account_ids = target.include or []
+        if len(account_ids) != 1:
+            task_display = ", ".join(configured_task_ids)
+            raise ValueError(
+                f"AWS target '{target.name}' has ambiguous configured-target "
+                f"identity for task(s) {task_display}: accounts mode requires "
+                "exactly one explicit account"
+            )
 
     def bootstrap_region(self, *, configured_regions: list[str]) -> str:
         """Return the concrete AWS region used for discovery calls."""
@@ -341,7 +363,22 @@ class AwsProvider:
             for account in accounts
         ]
 
-        return ProviderExecutionPlan(execution_targets=execution_targets)
+        configured_target: ExecutionTarget | None = None
+        if effective_target.mode == MODE_ORGANIZATION and preflight_data is not None:
+            configured_target = self._organization_configured_target(
+                target=effective_target,
+                context=context,
+                preflight_data=preflight_data,
+                effective_regions=(
+                    list(execution_targets[0].regions) if execution_targets else None
+                ),
+            )
+        elif effective_target.mode == MODE_ACCOUNTS and len(execution_targets) == 1:
+            configured_target = replace(execution_targets[0], type="configured_target")
+
+        return ProviderExecutionPlan(
+            execution_targets=execution_targets, configured_target=configured_target
+        )
 
     def prepare_target(
         self,
@@ -437,6 +474,78 @@ class AwsProvider:
             execution_target=execution_target, context=context
         )
         return AwsExecutionRuntime(account=account)
+
+    def prepare_configured_target_runtime(
+        self,
+        *,
+        target: TargetDescriptor,
+        execution_target: ExecutionTarget,
+        context: ExecutionContext,
+    ) -> ProviderExecutionRuntime:
+        """Prepare an AWS runtime for the provider-owned configured identity."""
+
+        if execution_target.type != "configured_target":
+            raise ValueError(
+                "AWS configured-target runtime requires execution target type "
+                "'configured_target'"
+            )
+        return self.prepare_execution_runtime(
+            target=target, execution_target=execution_target, context=context
+        )
+
+    def _organization_configured_target(
+        self,
+        *,
+        target: TargetDescriptor,
+        context: ExecutionContext,
+        preflight_data: AwsPreflightData,
+        effective_regions: list[str] | None,
+    ) -> ExecutionTarget:
+        """Build the management-account identity independently of entity filters."""
+
+        management_info = preflight_data.discovered_accounts.get(
+            preflight_data.management_account_id
+        )
+        if management_info is None:
+            raise ValueError(
+                f"AWS organization target '{target.name}' management account "
+                f"'{preflight_data.management_account_id}' was not present in "
+                "discovered organization accounts"
+            )
+
+        resolved_regions = effective_regions or self.resolve_regions(
+            target_name=target.name,
+            configured_regions=context.regions,
+            region_statuses=preflight_data.region_statuses,
+        )
+        if not resolved_regions:
+            raise ValueError("No effective configured regions remain after validation.")
+
+        access_strategy = (
+            AccountAccessStrategy.BASE_SESSION
+            if preflight_data.base_session_account_id
+            == preflight_data.management_account_id
+            else AccountAccessStrategy.ASSUME_ROLE
+        )
+        management_account = Account(
+            account_id=preflight_data.management_account_id,
+            account_alias=management_info["account_alias"],
+            is_management=True,
+            access_strategy=access_strategy,
+            role_name=(
+                aws_option(target, "role_name") or DEFAULT_ORGANIZATION_ROLE_NAME
+            ),
+            base_session=preflight_data.base_session,
+            context=context,
+            regions=resolved_regions,
+            session_factory=preflight_data.session_factory,
+        )
+        return replace(
+            _execution_target_from_account(
+                account=management_account, provider_name=self.metadata.name
+            ),
+            type="configured_target",
+        )
 
     def _account_from_execution_target(
         self, *, execution_target: ExecutionTarget, context: ExecutionContext

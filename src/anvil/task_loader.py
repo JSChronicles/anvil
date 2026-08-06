@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+import json
+import re
 import sys
 from collections import defaultdict, deque
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from functools import lru_cache
 from importlib.metadata import entry_points
@@ -38,6 +40,7 @@ class TaskScope(StrEnum):
 
     REGION = "region"
     TARGET = "target"
+    CONFIGURED_TARGET = "configured_target"
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,21 +48,45 @@ class ResolvedTask:
     name: str
     run: Callable
     depends_on: list[str]
-    optional: bool
     scope: TaskScope = TaskScope.REGION
+    id: str = ""
+    always_run: bool = False
+    metadata: dict[str, object] = field(default_factory=dict)
+    dependency_data: dict[str, dict[str, str]] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """Default an omitted invocation ID to the component name."""
+
+        if not self.id:
+            object.__setattr__(self, "id", self.name)
 
 
 @dataclass(frozen=True, slots=True)
 class TaskSpec:
     """Immutable normalized task declaration."""
 
+    id: str
     name: str
     depends_on: tuple[str, ...]
-    optional: bool
+    always_run: bool
+    metadata_json: str
+    dependency_data: tuple[tuple[str, str, str | None], ...]
 
 
 TaskSpecKey = tuple[TaskSpec, ...]
-CachedOrderedTask = tuple[tuple[str, Callable, tuple[str, ...], bool, TaskScope], ...]
+CachedOrderedTask = tuple[
+    tuple[
+        str,
+        str,
+        Callable,
+        tuple[str, ...],
+        bool,
+        str,
+        tuple[tuple[str, str, str | None], ...],
+        TaskScope,
+    ],
+    ...,
+]
 CachedAdjacency = tuple[tuple[str, tuple[str, ...]], ...]
 
 
@@ -283,44 +310,150 @@ def _clear_task_caches() -> None:
 
 
 TaskSpecInput = Mapping[str, object]
+DEPENDENCY_PATH_PATTERN = re.compile(
+    r"^(?:result(?:\.[A-Za-z_][A-Za-z0-9_]*)*|status|error|actions)$"
+)
+
+
+def _metadata_json(*, task_id: str, value: object) -> str:
+    """Return a deterministic cache representation of task metadata."""
+
+    if not isinstance(value, dict):
+        raise TaskConfigError(f"Task '{task_id}' metadata must be a mapping")
+    try:
+        return json.dumps(value, sort_keys=True, separators=(",", ":"))
+    except (TypeError, ValueError) as error:
+        raise TaskConfigError(
+            f"Task '{task_id}' metadata must contain JSON-serializable values"
+        ) from error
+
+
+def _normalize_dependency_data(
+    *, task_id: str, value: object
+) -> tuple[tuple[str, str, str | None], ...]:
+    """Validate dependency-data references and return a stable cache value."""
+
+    if not isinstance(value, dict):
+        raise TaskConfigError(f"Task '{task_id}' dependency_data must be a mapping")
+
+    normalized: list[tuple[str, str, str | None]] = []
+    for local_name, raw_reference in value.items():
+        if not isinstance(local_name, str) or not local_name:
+            raise TaskConfigError(
+                f"Task '{task_id}' dependency_data names must be non-empty strings"
+            )
+        if not isinstance(raw_reference, dict):
+            raise TaskConfigError(
+                f"Task '{task_id}' dependency_data.{local_name} must be a mapping"
+            )
+        unknown_properties = set(raw_reference) - {"task_id", "path"}
+        if unknown_properties:
+            unknown_display = ", ".join(
+                sorted(str(name) for name in unknown_properties)
+            )
+            raise TaskConfigError(
+                f"Task '{task_id}' dependency_data.{local_name} has unknown "
+                f"properties: {unknown_display}"
+            )
+
+        producer_id = raw_reference.get("task_id")
+        if not isinstance(producer_id, str) or not producer_id:
+            raise TaskConfigError(
+                f"Task '{task_id}' dependency_data.{local_name}.task_id "
+                "must be a non-empty string"
+            )
+        path = raw_reference.get("path")
+        if path is not None and (
+            not isinstance(path, str) or DEPENDENCY_PATH_PATTERN.fullmatch(path) is None
+        ):
+            raise TaskConfigError(
+                f"Task '{task_id}' dependency_data.{local_name}.path must be "
+                "result, a dotted result field, status, error, or actions"
+            )
+        normalized.append((local_name, producer_id, path))
+
+    return tuple(sorted(normalized))
 
 
 def _normalize_task_specs(task_specs: Sequence[TaskSpecInput]) -> TaskSpecKey:
     """Validate task declarations once while preserving declaration order."""
 
     normalized_specs: list[TaskSpec] = []
-    seen_names: set[str] = set()
+    seen_ids: set[str] = set()
+    duplicate_ids: set[str] = set()
+    component_occurrences: dict[str, list[bool]] = defaultdict(list)
 
     for spec in task_specs:
         name = spec.get("name")
         if not isinstance(name, str) or not name:
             raise TaskConfigError("task name must be a non-empty string")
-        if name in seen_names:
-            raise TaskConfigError(f"Duplicate task name detected: '{name}'")
-        seen_names.add(name)
+
+        explicit_id = "id" in spec
+        raw_id = spec.get("id", name)
+        if not isinstance(raw_id, str) or not raw_id:
+            raise TaskConfigError("task id must be a non-empty string")
+        task_id = raw_id
+        if task_id in seen_ids:
+            duplicate_ids.add(task_id)
+        seen_ids.add(task_id)
+        component_occurrences[name].append(explicit_id)
 
         raw_depends_on = spec.get("depends_on", [])
         if not isinstance(raw_depends_on, list):
-            raise TaskConfigError(f"Task '{name}' depends_on must be a list of strings")
+            raise TaskConfigError(
+                f"Task '{task_id}' depends_on must be a list of strings"
+            )
         depends_on: list[str] = []
         for dependency in raw_depends_on:
-            if not isinstance(dependency, str):
+            if not isinstance(dependency, str) or not dependency:
                 raise TaskConfigError(
-                    f"Task '{name}' depends_on must be a list of strings"
+                    f"Task '{task_id}' depends_on must be a list of non-empty strings"
                 )
             depends_on.append(dependency)
         if len(set(depends_on)) != len(depends_on):
             raise TaskConfigError(
-                f"Task '{name}' depends_on must not contain duplicates"
+                f"Task '{task_id}' depends_on must not contain duplicates"
             )
 
-        optional = spec.get("optional", False)
-        if not isinstance(optional, bool):
-            raise TaskConfigError(f"Task '{name}' optional must be a boolean")
+        always_run = spec.get("always_run", False)
+        if not isinstance(always_run, bool):
+            raise TaskConfigError(f"Task '{task_id}' always_run must be a boolean")
+        if always_run and not depends_on:
+            raise TaskConfigError(
+                f"Task '{task_id}' sets always_run but has no dependencies"
+            )
+
+        metadata_json = _metadata_json(task_id=task_id, value=spec.get("metadata", {}))
+        dependency_data = _normalize_dependency_data(
+            task_id=task_id, value=spec.get("dependency_data", {})
+        )
 
         normalized_specs.append(
-            TaskSpec(name=name, depends_on=tuple(depends_on), optional=optional)
+            TaskSpec(
+                id=task_id,
+                name=name,
+                depends_on=tuple(depends_on),
+                always_run=always_run,
+                metadata_json=metadata_json,
+                dependency_data=dependency_data,
+            )
         )
+
+    repeated_without_explicit_ids = [
+        name
+        for name, explicit_ids in component_occurrences.items()
+        if len(explicit_ids) > 1 and not all(explicit_ids)
+    ]
+    if repeated_without_explicit_ids:
+        names = ", ".join(sorted(repeated_without_explicit_ids))
+        raise TaskConfigError(
+            f"Duplicate task name detected: '{names}'. When a component name is "
+            "configured more than once, every occurrence must have an explicit "
+            "unique ID"
+        )
+    if duplicate_ids:
+        duplicates = ", ".join(sorted(duplicate_ids))
+        raise TaskConfigError(f"Duplicate task ID detected: '{duplicates}'")
 
     return tuple(normalized_specs)
 
@@ -337,7 +470,7 @@ def _task_scope(*, task_name: str, run: Callable) -> TaskScope:
     except (TypeError, ValueError) as error:
         raise TaskConfigError(
             f"Task '{task_name}' has invalid TASK_SCOPE {raw_scope!r}; "
-            "expected 'region' or 'target'"
+            "expected 'configured_target', 'target', or 'region'"
         ) from error
 
 
@@ -355,7 +488,8 @@ def _normalize_supported_task_scopes(
         )
     except (TypeError, ValueError) as error:
         raise TaskConfigError(
-            "supported_task_scopes must contain only 'region' or 'target'"
+            "supported_task_scopes must contain only 'configured_target', "
+            "'target', or 'region'"
         ) from error
 
 
@@ -365,13 +499,31 @@ def _build_resolved_execution(
     return ResolvedExecution(
         ordered=[
             ResolvedTask(
+                id=task_id,
                 name=name,
                 run=run,
                 depends_on=list(depends_on),
-                optional=optional,
+                always_run=always_run,
+                metadata=json.loads(metadata_json),
+                dependency_data={
+                    local_name: {
+                        "task_id": producer_id,
+                        **({"path": path} if path is not None else {}),
+                    }
+                    for local_name, producer_id, path in dependency_data
+                },
                 scope=scope,
             )
-            for name, run, depends_on, optional, scope in ordered
+            for (
+                task_id,
+                name,
+                run,
+                depends_on,
+                always_run,
+                metadata_json,
+                dependency_data,
+                scope,
+            ) in ordered
         ],
         adjacency={name: list(children) for name, children in adjacency},
     )
@@ -383,48 +535,39 @@ def _resolve_tasks_cached(
     task_specs: TaskSpecKey,
     supported_task_scopes: tuple[TaskScope, ...],
 ) -> tuple[CachedOrderedTask, CachedAdjacency]:
-    spec_by_name = {spec.name: spec for spec in task_specs}
+    spec_by_id = {spec.id: spec for spec in task_specs}
 
-    _validate_dependencies(spec_by_name)
+    _validate_dependencies(spec_by_id)
 
-    ordered_names, adjacency = _topological_sort(spec_by_name)
+    ordered_ids, adjacency = _topological_sort(spec_by_id)
 
     loaded_tasks: dict[str, tuple[Callable, TaskScope]] = {}
     supported_scope_set = frozenset(supported_task_scopes)
-    for name in ordered_names:
-        run = _load_provider_task_callable(provider_name=provider_name, task_name=name)
-        scope = _task_scope(task_name=name, run=run)
+    for task_id in ordered_ids:
+        component_name = spec_by_id[task_id].name
+        run = _load_provider_task_callable(
+            provider_name=provider_name, task_name=component_name
+        )
+        scope = _task_scope(task_name=component_name, run=run)
         if scope not in supported_scope_set:
             raise TaskConfigError(
-                f"Task '{name}' declares scope '{scope.value}', which provider "
-                f"'{provider_name}' does not support"
+                f"Task '{task_id}' component '{component_name}' declares scope "
+                f"'{scope.value}', which provider '{provider_name}' does not support"
             )
-        loaded_tasks[name] = (run, scope)
-
-    for name, spec in spec_by_name.items():
-        if loaded_tasks[name][1] is not TaskScope.TARGET:
-            continue
-        regional_dependencies = [
-            dependency
-            for dependency in spec.depends_on
-            if loaded_tasks[dependency][1] is TaskScope.REGION
-        ]
-        if regional_dependencies:
-            dependencies = ", ".join(regional_dependencies)
-            raise TaskConfigError(
-                f"TARGET task '{name}' cannot depend on REGION task(s): "
-                f"{dependencies}. TARGET tasks execute before regional fan-out"
-            )
+        loaded_tasks[task_id] = (run, scope)
 
     ordered: CachedOrderedTask = tuple(
         (
-            name,
-            loaded_tasks[name][0],
-            tuple(spec_by_name[name].depends_on),
-            spec_by_name[name].optional,
-            loaded_tasks[name][1],
+            task_id,
+            spec_by_id[task_id].name,
+            loaded_tasks[task_id][0],
+            tuple(spec_by_id[task_id].depends_on),
+            spec_by_id[task_id].always_run,
+            spec_by_id[task_id].metadata_json,
+            spec_by_id[task_id].dependency_data,
+            loaded_tasks[task_id][1],
         )
-        for name in ordered_names
+        for task_id in ordered_ids
     )
     frozen_adjacency: CachedAdjacency = tuple(
         (name, tuple(children)) for name, children in adjacency.items()
@@ -433,34 +576,47 @@ def _resolve_tasks_cached(
     return ordered, frozen_adjacency
 
 
-def _validate_dependencies(spec_by_name: dict[str, TaskSpec]) -> None:
-    names = set(spec_by_name.keys())
+def _validate_dependencies(spec_by_id: dict[str, TaskSpec]) -> None:
+    task_ids = set(spec_by_id)
 
-    for task_name, spec in spec_by_name.items():
-        for dep in spec.depends_on:
-            if dep not in names:
+    for task_id, spec in spec_by_id.items():
+        for dependency in spec.depends_on:
+            if dependency not in task_ids:
                 raise TaskConfigError(
-                    f"Task '{task_name}' depends on unknown task '{dep}'"
+                    f"Task '{task_id}' depends on unknown task ID '{dependency}'"
                 )
 
-            if dep == task_name:
-                raise TaskConfigError(f"Task '{task_name}' cannot depend on itself")
+            if dependency == task_id:
+                raise TaskConfigError(f"Task '{task_id}' cannot depend on itself")
+
+        direct_dependencies = set(spec.depends_on)
+        for local_name, producer_id, _ in spec.dependency_data:
+            if producer_id not in task_ids:
+                raise TaskConfigError(
+                    f"Task '{task_id}' dependency_data.{local_name} references "
+                    f"unknown task ID '{producer_id}'"
+                )
+            if producer_id not in direct_dependencies:
+                raise TaskConfigError(
+                    f"Task '{task_id}' dependency_data.{local_name} references "
+                    f"'{producer_id}', which must appear directly in depends_on"
+                )
 
 
 def _topological_sort(
-    spec_by_name: dict[str, TaskSpec],
+    spec_by_id: dict[str, TaskSpec],
 ) -> tuple[list[str], dict[str, list[str]]]:
 
-    names = list(spec_by_name.keys())
+    task_ids = list(spec_by_id)
     graph: dict[str, list[str]] = defaultdict(list)
-    indegree: dict[str, int] = {name: 0 for name in names}
+    indegree: dict[str, int] = {task_id: 0 for task_id in task_ids}
 
-    for name, spec in spec_by_name.items():
-        for dep in spec.depends_on:
-            graph[dep].append(name)
-            indegree[name] += 1
+    for task_id, spec in spec_by_id.items():
+        for dependency in spec.depends_on:
+            graph[dependency].append(task_id)
+            indegree[task_id] += 1
 
-    queue = deque(name for name in names if indegree[name] == 0)
+    queue = deque(task_id for task_id in task_ids if indegree[task_id] == 0)
     ordered: list[str] = []
 
     while queue:
@@ -472,8 +628,11 @@ def _topological_sort(
             if indegree[child] == 0:
                 queue.append(child)
 
-    if len(ordered) != len(names):
-        raise TaskConfigError("Cycle detected in task dependencies")
+    if len(ordered) != len(task_ids):
+        cycle_ids = ", ".join(task_id for task_id in task_ids if indegree[task_id] > 0)
+        raise TaskConfigError(
+            f"Cycle detected in task dependencies involving: {cycle_ids}"
+        )
 
     return ordered, dict(graph)
 
