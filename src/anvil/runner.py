@@ -57,6 +57,7 @@ from anvil.task_loader import (
 from anvil.task_planner import TaskInstance, plan_task_instances
 from anvil.task_scheduler import (
     DependencyResults,
+    ScheduledTaskResult,
     TaskInstanceEligibility,
     execute_task_instance_plan,
     task_dependency_eligibility,
@@ -1463,14 +1464,21 @@ def _execute_provider_task_graph(
                     time.perf_counter() - runtime_started_perf[runtime_key]
                 )
 
+    task_results_by_execution_target: dict[str, list[ScheduledTaskResult]] = {}
+    configured_results: list[TaskResult] = []
+    for scheduled_result in schedule.results:
+        if scheduled_result.key.scope is TaskScope.CONFIGURED_TARGET:
+            configured_results.append(scheduled_result.result)
+            continue
+        task_results_by_execution_target.setdefault(
+            scheduled_result.key.execution_target_id, []
+        ).append(scheduled_result)
+
     entity_results: list[EntityResult] = []
     for execution_target in execution_targets:
-        target_task_results = [
-            item
-            for item in schedule.results
-            if item.key.scope is not TaskScope.CONFIGURED_TARGET
-            and item.key.execution_target_id == execution_target.id
-        ]
+        target_task_results = task_results_by_execution_target.get(
+            execution_target.id, []
+        )
         if not target_task_results:
             continue
 
@@ -1502,6 +1510,13 @@ def _execute_provider_task_graph(
             if target_scope_results
             else None
         )
+        region_results_by_region: dict[str, list[TaskResult]] = {}
+        for item in target_task_results:
+            if item.key.scope is TaskScope.REGION:
+                region_results_by_region.setdefault(item.key.region, []).append(
+                    item.result
+                )
+
         region_outcomes: list[_ProviderRegionOutcome] = []
         region_lifecycle_states: list[CoordinateLifecycleState] = []
         for region in execution_target.regions:
@@ -1512,11 +1527,7 @@ def _execute_provider_task_graph(
                 or lifecycle_state.region_ended_perf is None
             ):
                 continue
-            region_results = [
-                item.result
-                for item in target_task_results
-                if item.key.scope is TaskScope.REGION and item.key.region == region
-            ]
+            region_results = region_results_by_region.get(region, [])
             if not region_results:
                 continue
             region_outcomes.append(
@@ -1563,11 +1574,15 @@ def _execute_provider_task_graph(
         )
 
         runtime_key = (False, execution_target.id)
-        started_at = runtime_started_at.get(
-            runtime_key, min(result.started_at for result in results)
+        started_at = (
+            runtime_started_at[runtime_key]
+            if runtime_key in runtime_started_at
+            else min(result.started_at for result in results)
         )
-        ended_at = runtime_ended_at.get(
-            runtime_key, max(result.ended_at for result in results)
+        ended_at = (
+            runtime_ended_at[runtime_key]
+            if runtime_key in runtime_ended_at
+            else max(result.ended_at for result in results)
         )
         entity_results.append(
             EntityResult(
@@ -1579,12 +1594,13 @@ def _execute_provider_task_graph(
                 status=status,
                 started_at=started_at,
                 ended_at=ended_at,
-                duration_seconds=runtime_duration_seconds.get(
-                    runtime_key,
-                    (
+                duration_seconds=(
+                    runtime_duration_seconds[runtime_key]
+                    if runtime_key in runtime_duration_seconds
+                    else (
                         datetime.datetime.fromisoformat(ended_at)
                         - datetime.datetime.fromisoformat(started_at)
-                    ).total_seconds(),
+                    ).total_seconds()
                 ),
                 tasks=results,
                 benchmark=runtime_benchmark,
@@ -1605,11 +1621,6 @@ def _execute_provider_task_graph(
         target=target,
         context=context,
     )
-    configured_results = [
-        item.result
-        for item in schedule.results
-        if item.key.scope is TaskScope.CONFIGURED_TARGET
-    ]
     return TargetResult.create(
         target_name=target.name,
         provider=target.provider,
