@@ -98,6 +98,7 @@ def run(
     session: boto3.Session,
     dry_run: bool,
     metadata: dict[str, object],
+    dependency_data: dict[str, object],
     actions: ActionRecorder,
 ) -> dict[str, object]:
     """Gather AWS Organizations structure from the management account.
@@ -116,6 +117,7 @@ def run(
         session: Boto3 session scoped to the current region.
         dry_run: Whether execution is running in dry-run mode.
         metadata: Arbitrary config metadata for the task.
+        dependency_data: Runtime data selected from declared task dependencies.
         actions: Action recorder provided by the engine.
 
     Returns:

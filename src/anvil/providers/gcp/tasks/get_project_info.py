@@ -73,6 +73,7 @@ def run(
     session,
     dry_run: bool,
     metadata: dict[str, object],
+    dependency_data: dict[str, object],
     actions: ActionRecorder,
 ) -> dict[str, object]:
     """Return metadata for the current GCP project.
@@ -89,6 +90,7 @@ def run(
         session: GCP session scoped to the project and region.
         dry_run: Whether execution is running in dry-run mode.
         metadata: Arbitrary config metadata for the task.
+        dependency_data: Runtime data selected from declared task dependencies.
         actions: Action recorder provided by the engine.
 
     Returns:

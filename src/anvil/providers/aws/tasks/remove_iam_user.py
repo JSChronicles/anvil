@@ -194,6 +194,7 @@ def run(
     session,
     dry_run: bool,
     metadata: dict[str, object],
+    dependency_data: dict[str, object],
     actions: ActionRecorder,
 ) -> None:
     """Remove IAM resources attached to a configured IAM user.
@@ -217,6 +218,7 @@ def run(
         session: Boto3 session scoped to the current region.
         dry_run: Whether execution is running in dry-run mode.
         metadata: Task metadata containing the IAM user name.
+        dependency_data: Runtime data selected from declared task dependencies.
         actions: Action recorder provided by the engine.
 
     Raises:

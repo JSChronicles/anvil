@@ -208,6 +208,7 @@ def run(
     session,
     dry_run: bool,
     metadata: dict[str, object],
+    dependency_data: dict[str, object],
     actions: ActionRecorder,
 ) -> dict[str, object]:
     """Search code efficiently in the current GitHub organization or repository.
@@ -227,6 +228,7 @@ def run(
         metadata: Search options. ``query`` is required. ``language``, ``path``,
             ``extension``, ``filename``, ``max_results``, and ``highlight`` are
             optional.
+        dependency_data: Runtime data selected from declared task dependencies.
         actions: Action recorder provided by the Anvil engine.
 
     Returns:
