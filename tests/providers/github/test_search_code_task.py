@@ -92,6 +92,7 @@ def _run_task(
         session=FakeGitHubSession(client=client),
         dry_run=False,
         metadata={"query": "secret"} if metadata is None else metadata,
+        dependency_data={},
         actions=actions,
     )
     return result, actions.actions
@@ -269,6 +270,7 @@ def test_search_code_requires_task_facing_search_session() -> None:
             session=object(),
             dry_run=False,
             metadata={"query": "secret"},
+            dependency_data={},
             actions=actions,
         )
 

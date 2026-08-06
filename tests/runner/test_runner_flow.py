@@ -179,6 +179,71 @@ def test_provider_session_failure_becomes_entity_error(monkeypatch):
     assert entity.error == "session failed"
 
 
+def test_fail_fast_task_error_remains_engine_failure(monkeypatch):
+    provider = _Provider()
+    _patch_provider(monkeypatch, provider)
+
+    def fail(**kwargs):
+        raise RuntimeError("task failed")
+
+    monkeypatch.setattr(
+        "anvil.runner.resolve_tasks",
+        lambda **kwargs: ResolvedExecution(
+            ordered=[ResolvedTask("failing", fail, depends_on=[])], adjacency={}
+        ),
+    )
+
+    result = run_multiple_targets(
+        targets=[_target(tasks=[{"name": "failing"}], fail_fast=True)],
+        max_parallel_targets=1,
+        cli_dry_run=None,
+        cli_include=None,
+        cli_exclude=None,
+    )
+
+    assert result.state is EngineState.COMPLETED_WITH_FAILURES
+    assert result.target_results[0].entities[0].status is ExecutionStatus.ERROR
+
+
+def test_task_error_outweighs_concurrent_external_cancellation(monkeypatch):
+    provider = _Provider()
+    _patch_provider(monkeypatch, provider)
+    context_holder: dict[str, ExecutionContext] = {}
+
+    def fail_during_cancellation(**kwargs):
+        context_holder["context"].cancel_event.set()
+        raise RuntimeError("task failed during cancellation")
+
+    monkeypatch.setattr(
+        "anvil.runner.resolve_tasks",
+        lambda **kwargs: ResolvedExecution(
+            ordered=[ResolvedTask("failing", fail_during_cancellation, depends_on=[])],
+            adjacency={},
+        ),
+    )
+    from anvil import runner as runner_module
+
+    original_build_context = runner_module._build_execution_context
+
+    def capture_context(**kwargs):
+        context = original_build_context(**kwargs)
+        context_holder["context"] = context
+        return context
+
+    monkeypatch.setattr("anvil.runner._build_execution_context", capture_context)
+
+    result = run_multiple_targets(
+        targets=[_target(tasks=[{"name": "failing"}])],
+        max_parallel_targets=1,
+        cli_dry_run=None,
+        cli_include=None,
+        cli_exclude=None,
+    )
+
+    assert result.state is EngineState.COMPLETED_WITH_FAILURES
+    assert result.target_results[0].entities[0].status is ExecutionStatus.ERROR
+
+
 def test_universal_task_receives_provider_neutral_kwargs_and_records_actions(
     monkeypatch,
 ):
@@ -196,6 +261,7 @@ def test_universal_task_receives_provider_neutral_kwargs_and_records_actions(
         session,
         dry_run,
         metadata,
+        dependency_data,
         actions,
     ):
         seen.update(locals())
@@ -205,8 +271,7 @@ def test_universal_task_receives_provider_neutral_kwargs_and_records_actions(
     monkeypatch.setattr(
         "anvil.runner.resolve_tasks",
         lambda **kwargs: ResolvedExecution(
-            ordered=[ResolvedTask("neutral", task, depends_on=[], optional=False)],
-            adjacency={},
+            ordered=[ResolvedTask("neutral", task, depends_on=[])], adjacency={}
         ),
     )
 
@@ -229,6 +294,7 @@ def test_universal_task_receives_provider_neutral_kwargs_and_records_actions(
     assert seen["session"].region_name == "global"
     assert seen["dry_run"] is False
     assert seen["metadata"] == {"team": "security"}
+    assert seen["dependency_data"] == {}
 
 
 def test_prepare_target_carries_provider_preflight_and_execution_controls(monkeypatch):

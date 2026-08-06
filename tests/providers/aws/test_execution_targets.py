@@ -8,6 +8,7 @@ from anvil.providers.aws.provider import (
     AwsPreflightData,
     AwsProvider,
 )
+from anvil.providers.aws.account import AccountAccessStrategy
 
 
 @dataclass
@@ -28,14 +29,16 @@ def _preflight_data(
     *,
     session_factory: FakeSessionFactory,
     base_session: BaseSession | None = None,
+    base_session_account_id: str = "111111111111",
     discovered_accounts: dict[str, dict[str, str]] | None = None,
+    region_statuses: dict[str, str] | None = None,
 ) -> AwsPreflightData:
     return AwsPreflightData(
         session_factory=session_factory,
         base_session=base_session or BaseSession(),
         organization_id="o-shared",
         management_account_id="111111111111",
-        base_session_account_id="111111111111",
+        base_session_account_id=base_session_account_id,
         discovered_accounts=discovered_accounts
         or {
             "111111111111": {
@@ -47,7 +50,7 @@ def _preflight_data(
                 "account_alias": "member",
             },
         },
-        region_statuses={"us-east-1": "ENABLED_BY_DEFAULT"},
+        region_statuses=region_statuses or {"us-east-1": "ENABLED_BY_DEFAULT"},
     )
 
 
@@ -177,6 +180,176 @@ def test_resolve_execution_targets_maps_organization_accounts_and_execution_key(
         "access_strategy": "assume_role",
     }
     assert session_factory.base_session_calls == []
+
+
+def test_organization_configured_target_uses_management_base_session_identity():
+    session_factory = FakeSessionFactory()
+    base_session = BaseSession(profile_name="management")
+    target = TargetDescriptor(
+        name="org-a",
+        provider="aws",
+        mode="organization",
+        provider_options={"profile": "management"},
+        exclude=["111111111111"],
+    )
+
+    plan = AwsProvider().resolve_execution_targets(
+        target=target,
+        regions=["us-east-1"],
+        include=target.include,
+        exclude=target.exclude,
+        preparation=_preflight_data(
+            session_factory=session_factory,
+            base_session=base_session,
+            base_session_account_id="111111111111",
+        ),
+    )
+
+    assert [execution_target.id for execution_target in plan.execution_targets] == [
+        "222222222222"
+    ]
+    assert plan.configured_target is not None
+    assert (
+        plan.configured_target.id,
+        plan.configured_target.name,
+        plan.configured_target.type,
+        plan.configured_target.regions,
+    ) == ("111111111111", "management", "configured_target", ["us-east-1"])
+    assert isinstance(plan.configured_target.provider_data, AwsExecutionTargetData)
+    assert (
+        plan.configured_target.provider_data.access_strategy
+        is AccountAccessStrategy.BASE_SESSION
+    )
+    assert plan.configured_target.provider_data.base_session is base_session
+
+
+def test_organization_configured_target_assumes_management_role_when_needed():
+    target = TargetDescriptor(
+        name="org-a",
+        provider="aws",
+        mode="organization",
+        provider_options={"role_name": "ManagementAccessRole"},
+        include=["222222222222"],
+    )
+
+    plan = AwsProvider().resolve_execution_targets(
+        target=target,
+        regions=["us-east-1"],
+        include=target.include,
+        exclude=target.exclude,
+        preparation=_preflight_data(
+            session_factory=FakeSessionFactory(), base_session_account_id="333333333333"
+        ),
+    )
+
+    assert plan.configured_target is not None
+    assert isinstance(plan.configured_target.provider_data, AwsExecutionTargetData)
+    assert (
+        plan.configured_target.provider_data.access_strategy
+        is AccountAccessStrategy.ASSUME_ROLE
+    )
+    assert plan.configured_target.provider_data.role_name == "ManagementAccessRole"
+    assert plan.configured_target.provider_data.account_id == "111111111111"
+
+
+def test_organization_configured_target_is_stable_when_management_is_selected():
+    target = TargetDescriptor(
+        name="org-a",
+        provider="aws",
+        mode="organization",
+        include=["111111111111", "222222222222"],
+    )
+
+    plan = AwsProvider().resolve_execution_targets(
+        target=target,
+        regions=["us-east-1"],
+        include=target.include,
+        exclude=target.exclude,
+        preparation=_preflight_data(session_factory=FakeSessionFactory()),
+    )
+
+    assert [execution_target.id for execution_target in plan.execution_targets] == [
+        "111111111111",
+        "222222222222",
+    ]
+    assert plan.configured_target is not None
+    assert plan.configured_target.id == "111111111111"
+    assert plan.configured_target.name == "management"
+
+
+def test_organization_configured_target_uses_concrete_resolved_regions():
+    target = TargetDescriptor(
+        name="org-a", provider="aws", mode="organization", regions=["us-*"]
+    )
+
+    plan = AwsProvider().resolve_execution_targets(
+        target=target,
+        regions=["us-*"],
+        include=target.include,
+        exclude=target.exclude,
+        preparation=_preflight_data(
+            session_factory=FakeSessionFactory(),
+            region_statuses={"us-east-1": "ENABLED_BY_DEFAULT", "us-west-2": "ENABLED"},
+        ),
+    )
+
+    assert plan.configured_target is not None
+    assert plan.configured_target.regions == ["us-east-1", "us-west-2"]
+
+
+def test_single_explicit_account_is_configured_target_identity(monkeypatch):
+    session_factory = FakeSessionFactory()
+    monkeypatch.setattr(
+        "anvil.providers.aws.provider.SessionFactory", lambda: session_factory
+    )
+    target = TargetDescriptor(
+        name="one-account",
+        provider="aws",
+        mode="accounts",
+        provider_options={"profile": "tooling", "role_name": "SecurityAccessRole"},
+        include=["222222222222"],
+    )
+
+    plan = AwsProvider().resolve_execution_targets(
+        target=target,
+        regions=["us-east-1"],
+        include=target.include,
+        exclude=target.exclude,
+    )
+
+    assert plan.configured_target is not None
+    assert (
+        plan.configured_target.id,
+        plan.configured_target.name,
+        plan.configured_target.type,
+        plan.configured_target.regions,
+    ) == ("222222222222", "222222222222", "configured_target", ["us-east-1"])
+    assert (
+        plan.configured_target.provider_data is plan.execution_targets[0].provider_data
+    )
+
+
+def test_multiple_explicit_accounts_do_not_select_configured_target(monkeypatch):
+    session_factory = FakeSessionFactory()
+    monkeypatch.setattr(
+        "anvil.providers.aws.provider.SessionFactory", lambda: session_factory
+    )
+    target = TargetDescriptor(
+        name="many-accounts",
+        provider="aws",
+        mode="accounts",
+        provider_options={"role_name": "SecurityAccessRole"},
+        include=["111111111111", "222222222222"],
+    )
+
+    plan = AwsProvider().resolve_execution_targets(
+        target=target,
+        regions=["us-east-1"],
+        include=target.include,
+        exclude=target.exclude,
+    )
+
+    assert plan.configured_target is None
 
 
 def test_resolve_execution_targets_maps_organization_accounts_with_provider_options():

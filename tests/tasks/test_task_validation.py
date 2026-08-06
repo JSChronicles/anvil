@@ -45,6 +45,7 @@ def test_validate_tasks_accepts_provider_neutral_task():
         session,
         dry_run,
         metadata,
+        dependency_data,
         actions,
     ):
         """Run a valid provider-neutral task."""
@@ -65,6 +66,27 @@ def test_validate_tasks_accepts_real_provider_tasks(name, run):
     validate_tasks([_task(name, run)])
 
 
+def test_validate_tasks_rejects_legacy_signature_without_dependency_data():
+    def run(
+        *,
+        provider,
+        execution_target_id,
+        execution_target_name,
+        execution_target_type,
+        region,
+        session,
+        dry_run,
+        metadata,
+        actions,
+    ):
+        """Run a task using the removed pre-Phase-2 signature."""
+
+        pass
+
+    with pytest.raises(TaskValidationError, match="dependency_data"):
+        validate_tasks([_task("legacy-signature", run)])
+
+
 def test_validate_tasks_rejects_task_missing_actions():
     def run(
         *,
@@ -76,6 +98,7 @@ def test_validate_tasks_rejects_task_missing_actions():
         session,
         dry_run,
         metadata,
+        dependency_data,
     ):
         """Run an invalid task."""
 
@@ -106,6 +129,7 @@ def test_validate_tasks_rejects_additional_required_parameter():
         session,
         dry_run,
         metadata,
+        dependency_data,
         actions,
         extra,
     ):
@@ -128,6 +152,7 @@ def test_validate_tasks_requires_keyword_only_contract_parameters():
         session,
         dry_run,
         metadata,
+        dependency_data,
         actions,
     ):
         """Run an invalid task with a positional-or-keyword parameter."""
@@ -149,6 +174,7 @@ def test_task_catalog_ambiguity_is_provider_scoped():
         session,
         dry_run,
         metadata,
+        dependency_data,
         actions,
     ):
         """Run a duplicate test task."""
@@ -184,6 +210,7 @@ def test_same_task_name_in_disjoint_provider_catalogs_is_valid():
         session,
         dry_run,
         metadata,
+        dependency_data,
         actions,
     ):
         """Run a provider-specific task."""
@@ -212,6 +239,7 @@ def test_validate_tasks_rejects_missing_detail_docstring():
         session,
         dry_run,
         metadata,
+        dependency_data,
         actions,
     ):
         pass

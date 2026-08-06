@@ -14,6 +14,7 @@ from anvil.processor_loader import (
 )
 from anvil.processor_validation import ProcessorValidationError, validate_processors
 from anvil.processors import html_report
+from anvil.processors import sarif_report
 
 
 def _context(tmp_path: Path) -> ProcessorRunContext:
@@ -382,3 +383,82 @@ def test_html_report_load_records_keeps_whole_run_context(tmp_path):
         "111111111111",
         "222222222222",
     ]
+
+
+def test_html_report_includes_configured_tasks_and_counts_skips(tmp_path):
+    context = ProcessorRunContext(
+        run_dir=tmp_path,
+        summary_path=tmp_path / "summary.json",
+        summary={"state": "completed_success"},
+        target_result_paths={},
+        target_results=[
+            {
+                "target": "production",
+                "tasks": [
+                    {
+                        "task_id": "inventory_before",
+                        "task_name": "inventory",
+                        "region": "us-east-1",
+                        "status": "skipped",
+                    }
+                ],
+                "entities": [],
+            }
+        ],
+    )
+
+    records = html_report._load_records(context=context)
+    cards = html_report._summary_cards(records)
+
+    assert records[0]["entity_type"] == "configured_target"
+    assert records[0]["task_id"] == "inventory_before"
+    assert records[0]["task_name"] == "inventory"
+    assert next(card for card in cards if card["label"] == "Skipped")["value"] == 1
+    assert next(card for card in cards if card["label"] == "Failed tasks")["value"] == 0
+
+
+def test_sarif_report_includes_configured_task_identity(tmp_path):
+    context = ProcessorRunContext(
+        run_dir=tmp_path,
+        summary_path=tmp_path / "summary.json",
+        summary={"state": "completed_success"},
+        target_result_paths={},
+        target_results=[
+            {
+                "target": "production",
+                "tasks": [
+                    {
+                        "task_id": "detect_public",
+                        "task_name": "detect_resources",
+                        "region": "us-east-1",
+                        "result": {
+                            "sarif_findings": [
+                                {
+                                    "rule": {"id": "ANVIL001"},
+                                    "message": "Public resource",
+                                    "locations": [{"uri": "aws://resource"}],
+                                    "properties": {
+                                        "target": "spoofed-target",
+                                        "entity_type": "spoofed-type",
+                                        "task_id": "spoofed-id",
+                                        "task_name": "spoofed-name",
+                                        "resource_name": "public-resource",
+                                    },
+                                }
+                            ]
+                        },
+                    }
+                ],
+                "entities": [],
+            }
+        ],
+    )
+
+    results, _ = sarif_report._collect_sarif_results(context=context)
+
+    properties = results[0]["properties"]
+    assert properties["entity_type"] == "configured_target"
+    assert properties["task_id"] == "detect_public"
+    assert properties["task_name"] == "detect_resources"
+    assert properties["target"] == "production"
+    assert properties["resource_name"] == "public-resource"
