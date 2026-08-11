@@ -277,6 +277,43 @@ def test_organization_configured_target_is_stable_when_management_is_selected():
     assert plan.configured_target.name == "management"
 
 
+def test_organization_management_keyword_selects_management_account():
+    target = TargetDescriptor(
+        name="org-a", provider="aws", mode="organization", include=["management"]
+    )
+
+    plan = AwsProvider().resolve_execution_targets(
+        target=target,
+        regions=["us-east-1"],
+        include=target.include,
+        exclude=target.exclude,
+        preparation=_preflight_data(session_factory=FakeSessionFactory()),
+    )
+
+    assert [execution_target.id for execution_target in plan.execution_targets] == [
+        "111111111111"
+    ]
+    assert plan.execution_targets[0].metadata["is_management"] is True
+
+
+def test_organization_payer_keyword_excludes_management_account():
+    target = TargetDescriptor(
+        name="org-a", provider="aws", mode="organization", exclude=["payer"]
+    )
+
+    plan = AwsProvider().resolve_execution_targets(
+        target=target,
+        regions=["us-east-1"],
+        include=target.include,
+        exclude=target.exclude,
+        preparation=_preflight_data(session_factory=FakeSessionFactory()),
+    )
+
+    assert [execution_target.id for execution_target in plan.execution_targets] == [
+        "222222222222"
+    ]
+
+
 def test_organization_configured_target_uses_concrete_resolved_regions():
     target = TargetDescriptor(
         name="org-a", provider="aws", mode="organization", regions=["us-*"]

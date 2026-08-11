@@ -15,7 +15,10 @@ from anvil.providers.aws.account import (
 from anvil.providers.aws.account_resolver import AccountResolver
 from anvil.providers.aws.auth import auth_check, infer_auth_source
 from anvil.providers.aws.config import DEFAULT_ORGANIZATION_ROLE_NAME, aws_option
-from anvil.providers.aws.organization import OrganizationResolver
+from anvil.providers.aws.organization import (
+    OrganizationResolver,
+    is_management_account_keyword,
+)
 from anvil.providers.base import (
     ExecutionTarget,
     ProviderAuthResult,
@@ -171,6 +174,13 @@ class AwsProvider:
         if target.include is not None and target.exclude is not None:
             raise ValueError("AWS include and exclude filters are mutually exclusive")
         for account_id in [*(target.include or []), *(target.exclude or [])]:
+            if is_management_account_keyword(account_id):
+                if target.mode != MODE_ORGANIZATION:
+                    raise ValueError(
+                        f"AWS account filter keyword '{account_id}' requires "
+                        "organization mode"
+                    )
+                continue
             if len(account_id) != 12 or not account_id.isdigit():
                 raise ValueError(f"Invalid AWS account ID: {account_id}")
         if target.mode == MODE_ACCOUNTS:

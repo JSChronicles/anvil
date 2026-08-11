@@ -211,7 +211,8 @@ For delegated-administrator patterns, keep the base session on the
 delegated-admin profile. Anvil uses that base session directly for the
 delegated-admin account if it appears in Organizations discovery, and assumes
 `role_name` in every other selected account, including the management/payer
-account.
+account. AWS organization targets accept `management` and `payer` as
+case-insensitive aliases for that account in `include` and `exclude` filters.
 
 ```yaml
 schema_version: 2
@@ -226,6 +227,8 @@ targets:
         role_name: SecurityAuditRole
     regions:
       - us-east-1
+    include:
+      - management
     tasks:
       - name: noop
 ```

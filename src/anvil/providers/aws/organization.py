@@ -14,6 +14,14 @@ from anvil.providers.aws.session import BOTO_CONFIG, SessionFactory
 
 __LOGGER__ = logging.getLogger(__name__)
 
+MANAGEMENT_ACCOUNT_KEYWORDS = frozenset({"management", "payer"})
+
+
+def is_management_account_keyword(value: str) -> bool:
+    """Return whether an AWS account filter names the management account."""
+
+    return value.casefold() in MANAGEMENT_ACCOUNT_KEYWORDS
+
 
 class OrganizationResolver:
     """
@@ -112,7 +120,9 @@ class OrganizationResolver:
         Build executable account objects for all selected target accounts.
         """
         all_accounts = discovered_accounts or self.discover_accounts(base_session)
-        target_accounts = self._filter_accounts(all_accounts)
+        target_accounts = self._filter_accounts(
+            all_accounts, management_account_id=management_account_id
+        )
 
         accounts: list[Account] = []
 
@@ -167,7 +177,7 @@ class OrganizationResolver:
         return accounts
 
     def _filter_accounts(
-        self, all_accounts: dict[str, dict[str, str]]
+        self, all_accounts: dict[str, dict[str, str]], *, management_account_id: str
     ) -> dict[str, dict[str, str]]:
         """
         Apply include/exclude account filters to discovered organization accounts.
@@ -175,7 +185,10 @@ class OrganizationResolver:
         discovered_ids = set(all_accounts.keys())
 
         if self.descriptor.include:
-            include_set = set(self.descriptor.include)
+            include_set = self._resolve_account_filter_keywords(
+                values=self.descriptor.include,
+                management_account_id=management_account_id,
+            )
             unknown_include_ids = sorted(include_set - discovered_ids)
             if unknown_include_ids:
                 __LOGGER__.warning(
@@ -186,7 +199,10 @@ class OrganizationResolver:
             selected_ids = sorted(include_set & discovered_ids)
             return {account_id: all_accounts[account_id] for account_id in selected_ids}
 
-        exclude_set = set(self.descriptor.exclude or [])
+        exclude_set = self._resolve_account_filter_keywords(
+            values=self.descriptor.exclude or [],
+            management_account_id=management_account_id,
+        )
         unknown_exclude_ids = sorted(exclude_set - discovered_ids)
         if unknown_exclude_ids:
             __LOGGER__.warning(
@@ -196,6 +212,17 @@ class OrganizationResolver:
 
         remaining_ids = sorted(discovered_ids - exclude_set)
         return {account_id: all_accounts[account_id] for account_id in remaining_ids}
+
+    @staticmethod
+    def _resolve_account_filter_keywords(
+        *, values: list[str], management_account_id: str
+    ) -> set[str]:
+        """Expand AWS-owned account filter keywords to concrete account IDs."""
+
+        return {
+            management_account_id if is_management_account_keyword(value) else value
+            for value in values
+        }
 
     def _get_effective_regions(
         self, session: boto3.Session, *, region_statuses: dict[str, str] | None = None

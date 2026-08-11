@@ -240,7 +240,7 @@
         "minLength": 1
       },
       "uniqueItems": true,
-      "description": "Provider-owned execution target ID list."
+      "description": "Provider-owned execution target IDs or filter keywords."
     },
     "baseTargetProperties": {
       "name": {

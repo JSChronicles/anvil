@@ -9,7 +9,7 @@ targets:
   regions:
   - us-east-1
   include:
-  - '111111111111'
+  - management
   - '222222222222'
   dry_run: true
   tasks:
@@ -24,7 +24,7 @@ targets:
   regions:
   - us-east-1
   exclude:
-  - '999999999999'
+  - payer
   dry_run: true
   tasks:
   - name: count_vpc

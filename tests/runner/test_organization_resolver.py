@@ -145,12 +145,32 @@ def test_filter_accounts_intersects_include_and_exclude_filters():
 
     included = OrganizationResolver(
         descriptor=_target(include=["222222222222", "999999999999"]), context=_context()
-    )._filter_accounts(all_accounts)
+    )._filter_accounts(all_accounts, management_account_id="111111111111")
     excluded = OrganizationResolver(
         descriptor=_target(exclude=["111111111111", "999999999999"]), context=_context()
-    )._filter_accounts(all_accounts)
+    )._filter_accounts(all_accounts, management_account_id="111111111111")
 
     assert list(included) == ["222222222222"]
+    assert list(excluded) == ["222222222222"]
+
+
+def test_filter_accounts_expands_management_account_keywords():
+    all_accounts = {
+        "111111111111": {
+            "account_number": "111111111111",
+            "account_alias": "management",
+        },
+        "222222222222": {"account_number": "222222222222", "account_alias": "member"},
+    }
+
+    included = OrganizationResolver(
+        descriptor=_target(include=["payer", "MANAGEMENT"]), context=_context()
+    )._filter_accounts(all_accounts, management_account_id="111111111111")
+    excluded = OrganizationResolver(
+        descriptor=_target(exclude=["management"]), context=_context()
+    )._filter_accounts(all_accounts, management_account_id="111111111111")
+
+    assert list(included) == ["111111111111"]
     assert list(excluded) == ["222222222222"]
 
 
