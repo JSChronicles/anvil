@@ -4,6 +4,78 @@ All notable changes to this project will be documented in this file.
 
 <!-- version list -->
 
+## v0.31.0 (2026-08-12)
+
+### Bug Fixes
+
+- **runner**: Optimize graph result assembly ([#68](https://github.com/JSChronicles/anvil/pull/68),
+  [`50b471f`](https://github.com/JSChronicles/anvil/commit/50b471ff4f6a561a8c1c6b4f92a3dea36c8714a9))
+
+- **runner**: Preserve dependency order in mixed-scope results
+  ([#68](https://github.com/JSChronicles/anvil/pull/68),
+  [`50b471f`](https://github.com/JSChronicles/anvil/commit/50b471ff4f6a561a8c1c6b4f92a3dea36c8714a9))
+
+### Chores
+
+- **deps**: Update development tooling ([#68](https://github.com/JSChronicles/anvil/pull/68),
+  [`50b471f`](https://github.com/JSChronicles/anvil/commit/50b471ff4f6a561a8c1c6b4f92a3dea36c8714a9))
+
+- **github-actions**: Bump actions/stale in the github-actions group
+  ([#66](https://github.com/JSChronicles/anvil/pull/66),
+  [`c78e7c9`](https://github.com/JSChronicles/anvil/commit/c78e7c95a7edbebdee212c276aaf66061c436d1a))
+
+- **github-actions**: Bump the github-actions group across 1 directory with 5 updates
+  ([#62](https://github.com/JSChronicles/anvil/pull/62),
+  [`503d786`](https://github.com/JSChronicles/anvil/commit/503d786c612ceec4ebed0b99c6f26047ea030fab))
+
+- **pre-commit**: Bump https://github.com/astral-sh/uv-pre-commit
+  ([#67](https://github.com/JSChronicles/anvil/pull/67),
+  [`d58a3ed`](https://github.com/JSChronicles/anvil/commit/d58a3edc27608b4f93b4af13978f972f62c39ad9))
+
+- **uv**: Bump pyasn1 from 0.6.3 to 0.6.4 ([#64](https://github.com/JSChronicles/anvil/pull/64),
+  [`9e0718b`](https://github.com/JSChronicles/anvil/commit/9e0718b3d22363c2f66813fe0435f88cc83fc208))
+
+- **uv**: Bump the uv-dependencies group with 14 updates
+  ([#65](https://github.com/JSChronicles/anvil/pull/65),
+  [`586fcf8`](https://github.com/JSChronicles/anvil/commit/586fcf8033743e450954e13c749354b1f9fef044))
+
+### Documentation
+
+- **anvil-task-builder**: Add payer/management-account-only concurrency reference
+  ([#68](https://github.com/JSChronicles/anvil/pull/68),
+  [`50b471f`](https://github.com/JSChronicles/anvil/commit/50b471ff4f6a561a8c1c6b4f92a3dea36c8714a9))
+
+- **skills**: Align task-builder guidance with the new task model
+  ([#68](https://github.com/JSChronicles/anvil/pull/68),
+  [`50b471f`](https://github.com/JSChronicles/anvil/commit/50b471ff4f6a561a8c1c6b4f92a3dea36c8714a9))
+
+- **tasks**: Demonstrate task IDs and result-driven workflows
+  ([#68](https://github.com/JSChronicles/anvil/pull/68),
+  [`50b471f`](https://github.com/JSChronicles/anvil/commit/50b471ff4f6a561a8c1c6b4f92a3dea36c8714a9))
+
+### Features
+
+- **aws**: Support management account filter keywords
+  ([#68](https://github.com/JSChronicles/anvil/pull/68),
+  [`50b471f`](https://github.com/JSChronicles/anvil/commit/50b471ff4f6a561a8c1c6b4f92a3dea36c8714a9))
+
+- **tasks**: Add dependency-aware scoped task execution
+  ([#68](https://github.com/JSChronicles/anvil/pull/68),
+  [`50b471f`](https://github.com/JSChronicles/anvil/commit/50b471ff4f6a561a8c1c6b4f92a3dea36c8714a9))
+
+### Refactoring
+
+- **tasks**: Adopt the provider-neutral task runtime contract
+  ([#68](https://github.com/JSChronicles/anvil/pull/68),
+  [`50b471f`](https://github.com/JSChronicles/anvil/commit/50b471ff4f6a561a8c1c6b4f92a3dea36c8714a9))
+
+### Testing
+
+- **tasks**: Cover redesigned task execution contracts
+  ([#68](https://github.com/JSChronicles/anvil/pull/68),
+  [`50b471f`](https://github.com/JSChronicles/anvil/commit/50b471ff4f6a561a8c1c6b4f92a3dea36c8714a9))
+
+
 ## v0.30.1 (2026-07-27)
 
 ### Bug Fixes

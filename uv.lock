@@ -8,7 +8,7 @@ exclude-newer-span = "P1W"
 
 [[package]]
 name = "anvil"
-version = "0.30.1"
+version = "0.31.0"
 source = { editable = "." }
 dependencies = [
     { name = "boto3" },
