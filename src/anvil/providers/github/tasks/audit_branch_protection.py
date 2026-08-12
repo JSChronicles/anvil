@@ -30,6 +30,7 @@ def run(
     session,
     dry_run: bool,
     metadata: dict[str, object],
+    dependency_data: dict[str, object],
     actions: ActionRecorder,
 ) -> dict[str, object]:
     """Read branch protection settings for a GitHub repository branch."""

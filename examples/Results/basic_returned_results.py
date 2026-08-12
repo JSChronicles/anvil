@@ -6,20 +6,43 @@ from __future__ import annotations
 
 import logging
 
+from anvil.actions import ActionRecorder
+
 __LOGGER__ = logging.getLogger(__name__)
 
 
 def run(
     *,
-    account_id: str,
-    account_alias: str,
+    provider: str,
+    execution_target_id: str,
+    execution_target_name: str,
+    execution_target_type: str,
+    region: str,
     session,
     dry_run: bool,
     metadata: dict[str, object],
-    actions=None,
+    dependency_data: dict[str, object],
+    actions: ActionRecorder,
 ) -> dict[str, object]:
-    """
-    Return JSON-serializable task data for normal Anvil result output.
+    """Return JSON-serializable task data for normal Anvil result output.
+
+    Args:
+        provider: Provider name for the execution target.
+        execution_target_id: Provider-owned target identifier.
+        execution_target_name: Target display name.
+        execution_target_type: Provider-owned target type.
+        region: Concrete execution region.
+        session: AWS session scoped to the target and region.
+        dry_run: Whether mutations must be simulated.
+        metadata: Static task configuration requiring `user_name`.
+        dependency_data: Runtime dependency inputs; unused by this task.
+        actions: Engine-provided action recorder.
+
+    Returns:
+        IAM group and access-key inventory for the configured user.
+
+    Raises:
+        RuntimeError: If `metadata.user_name` is not a string.
     """
     user_name = metadata.get("user_name")
     if not isinstance(user_name, str):
@@ -37,7 +60,7 @@ def run(
 
     __LOGGER__.info(
         f"Inspected IAM resources for user {user_name} in account "
-        f"{account_alias} ({account_id}), dry_run={dry_run}"
+        f"{execution_target_name} ({execution_target_id}), dry_run={dry_run}"
     )
 
     return {

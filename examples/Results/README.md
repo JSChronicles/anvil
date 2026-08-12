@@ -34,8 +34,9 @@ Returned data is the native baseline. It is stored under each task result's
 `result` field and is useful for inventory, measurements, findings, IDs,
 counts, timing, and other structured task-specific data.
 
-`ActionRecorder` is optional. It is useful when a task should record what it did,
-or what it would do during dry-run mode, in a concise audit-friendly form.
+The `actions` parameter is required by the runtime contract. Recording actions
+is optional behavior: use it when a task should record what it did, or what it
+would do during dry-run mode, in a concise audit-friendly form.
 
 ## Returned Results
 
@@ -46,17 +47,23 @@ Return data directly from `run()` for small tasks:
 ```python
 import logging
 
+from anvil.actions import ActionRecorder
+
 __LOGGER__ = logging.getLogger(__name__)
 
 
 def run(
     *,
-    account_id: str,
-    account_alias: str,
+    provider: str,
+    execution_target_id: str,
+    execution_target_name: str,
+    execution_target_type: str,
+    region: str,
     session,
     dry_run: bool,
     metadata: dict[str, object],
-    actions=None,
+    dependency_data: dict[str, object],
+    actions: ActionRecorder,
 ) -> dict[str, object]:
     user_name = str(metadata["user_name"])
     iam = session.client("iam")
@@ -67,7 +74,7 @@ def run(
 
     __LOGGER__.info(
         f"Inspected IAM groups for user {user_name} in account "
-        f"{account_alias} ({account_id}), dry_run={dry_run}"
+        f"{execution_target_name} ({execution_target_id}), dry_run={dry_run}"
     )
 
     return {
@@ -83,6 +90,8 @@ For larger tasks, helper functions can build result data and return it to
 
 ```python
 import logging
+
+from anvil.actions import ActionRecorder
 
 __LOGGER__ = logging.getLogger(__name__)
 
@@ -137,12 +146,16 @@ def cleanup_user_resources(
 
 def run(
     *,
-    account_id: str,
-    account_alias: str,
+    provider: str,
+    execution_target_id: str,
+    execution_target_name: str,
+    execution_target_type: str,
+    region: str,
     session,
     dry_run: bool,
     metadata: dict[str, object],
-    actions=None,
+    dependency_data: dict[str, object],
+    actions: ActionRecorder,
 ) -> dict[str, object]:
     user_name = metadata.get("user_name")
     if not isinstance(user_name, str):
@@ -156,7 +169,8 @@ The returned value appears in the task result:
 
 ```json
 {
-  "task": "function_returned_results",
+  "task_id": "function_returned_results",
+  "task_name": "function_returned_results",
   "region": "us-east-1",
   "status": "success",
   "started_at": "2026-05-01T18:30:12+00:00",
@@ -191,7 +205,7 @@ The returned value appears in the task result:
 Returned data is also available in the flattened JSONL query artifact:
 
 ```console
-anvil results --type task --task function_returned_results --fields target,entity_id,region,status,result --json
+anvil results --type task --task function_returned_results --fields target,entity_id,region,task_id,task_name,status,result --json
 ```
 
 ## Recorded Actions
@@ -208,11 +222,15 @@ from anvil.actions import ActionRecorder
 
 def run(
     *,
-    account_id: str,
-    account_alias: str,
+    provider: str,
+    execution_target_id: str,
+    execution_target_name: str,
+    execution_target_type: str,
+    region: str,
     session,
     dry_run: bool,
     metadata: dict[str, object],
+    dependency_data: dict[str, object],
     actions: ActionRecorder,
 ) -> None:
     if dry_run:
@@ -247,11 +265,15 @@ def cleanup_user(iam, user_name: str, dry_run: bool, actions: ActionRecorder) ->
 
 def run(
     *,
-    account_id: str,
-    account_alias: str,
+    provider: str,
+    execution_target_id: str,
+    execution_target_name: str,
+    execution_target_type: str,
+    region: str,
     session,
     dry_run: bool,
     metadata: dict[str, object],
+    dependency_data: dict[str, object],
     actions: ActionRecorder,
 ) -> None:
     iam = session.client("iam")

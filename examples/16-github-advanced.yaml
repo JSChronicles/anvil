@@ -21,12 +21,18 @@ targets:
     max_results: 100
     includes_parents: true
   tasks:
-  - name: list_code_scanning_alerts
-  - name: list_secret_scanning_alerts
-  - name: list_dependabot_alerts
-  - name: audit_branch_protection
-  - name: audit_rulesets
-  - name: audit_repo_security_settings
+  - id: code_scanning_alerts
+    name: list_code_scanning_alerts
+  - id: secret_scanning_alerts
+    name: list_secret_scanning_alerts
+  - id: dependabot_alerts
+    name: list_dependabot_alerts
+  - id: branch_protection_audit
+    name: audit_branch_protection
+  - id: ruleset_audit
+    name: audit_rulesets
+  - id: repository_security_audit
+    name: audit_repo_security_settings
   post_run:
   - processor: html_report
     output: github-security-audit.html

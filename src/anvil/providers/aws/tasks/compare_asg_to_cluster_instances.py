@@ -37,6 +37,7 @@ def run(
     session: boto3.Session,
     dry_run: bool,
     metadata: dict[str, object],
+    dependency_data: dict[str, object],
     actions: ActionRecorder,
 ) -> None:
     """Compare ECS container instances to corresponding Auto Scaling Groups.
@@ -60,6 +61,7 @@ def run(
         session: Boto3 session scoped to the current region.
         dry_run: Whether execution is running in dry-run mode.
         metadata: Task metadata containing cluster configuration.
+        dependency_data: Runtime data selected from declared task dependencies.
         actions: Action recorder provided by the engine.
 
     Raises:
@@ -106,25 +108,27 @@ def run(
             for instance in auto_scaling_group["Instances"]
         }
 
-        list_container_instances = ecs_client.list_container_instances(cluster=cluster)
+        container_instances: list[dict[str, object]] = []
+        paginator = ecs_client.get_paginator("list_container_instances")
+        for page in paginator.paginate(cluster=cluster):
+            container_instance_arns = page.get("containerInstanceArns", [])
+            if not container_instance_arns:
+                continue
 
-        if list_container_instances["containerInstanceArns"]:
             __LOGGER__.debug(
                 f"Gathering container instance information for cluster '{cluster}'"
             )
-
-            describe_container_instances = ecs_client.describe_container_instances(
-                cluster=cluster,
-                containerInstances=list_container_instances["containerInstanceArns"],
+            response = ecs_client.describe_container_instances(
+                cluster=cluster, containerInstances=container_instance_arns
             )
+            container_instances.extend(response.get("containerInstances", []))
 
+        if container_instances:
             __LOGGER__.debug(f"Gathering ec2InstanceIds for cluster '{cluster}'")
 
             ecs_instance_ids = {
                 container_instance["ec2InstanceId"]
-                for container_instance in describe_container_instances[
-                    "containerInstances"
-                ]
+                for container_instance in container_instances
             }
 
             __LOGGER__.debug(
@@ -134,9 +138,7 @@ def run(
 
             instances_with_zero_tasks: list[str] = []
 
-            for container_instance in describe_container_instances[
-                "containerInstances"
-            ]:
+            for container_instance in container_instances:
                 if container_instance["runningTasksCount"] == 0:
                     instances_with_zero_tasks.append(
                         container_instance["ec2InstanceId"]

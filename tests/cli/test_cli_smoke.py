@@ -87,9 +87,11 @@ def test_write_run_results_uses_config_stem_and_run_id_directories(monkeypatch):
         target_results=[
             SimpleNamespace(
                 target_name="org2",
+                provider="aws",
                 generated_at="2026-04-30T00:00:00+00:00",
                 dry_run=True,
                 entities=[],
+                tasks=[],
                 to_dict=lambda: {"target": "org2"},
             )
         ],
@@ -275,7 +277,8 @@ def test_build_rerun_targets_narrows_entities_regions_and_task_dependencies():
                 "target": "org-a",
                 "entity_id": "111111111111",
                 "region": "us-west-2",
-                "task": "cleanup",
+                "task_id": "cleanup",
+                "task_name": "cleanup",
                 "status": "error",
             },
             {
@@ -383,12 +386,14 @@ def test_cmd_results_outputs_jsonl_with_fields_and_limit(capsys):
                     (
                         '{"record_type":"task","target":"org-a","entity_id":'
                         '"111111111111","entity_name":"dev","region":"us-east-1",'
-                        '"task":"count_vpcs","status":"error","error":"boom"}'
+                        '"task_id":"count_vpcs","task_name":"count_vpcs",'
+                        '"status":"error","error":"boom"}'
                     ),
                     (
                         '{"record_type":"task","target":"org-a","entity_id":'
                         '"222222222222","entity_name":"prod","region":"us-west-2",'
-                        '"task":"count_vpcs","status":"error","error":"nope"}'
+                        '"task_id":"count_vpcs","task_name":"count_vpcs",'
+                        '"status":"error","error":"nope"}'
                     ),
                 ]
             ),
@@ -435,17 +440,20 @@ def test_cmd_results_limit_stops_after_enough_filtered_records(capsys, tmp_path)
                 (
                     '{"record_type":"task","target":"org-a","entity_id":'
                     '"000000000000","entity_name":"skip","region":"us-east-1",'
-                    '"task":"count_vpcs","status":"success"}'
+                    '"task_id":"count_vpcs","task_name":"count_vpcs",'
+                    '"status":"success"}'
                 ),
                 (
                     '{"record_type":"task","target":"org-a","entity_id":'
                     '"111111111111","entity_name":"dev","region":"us-east-1",'
-                    '"task":"count_vpcs","status":"error","error":"boom"}'
+                    '"task_id":"count_vpcs","task_name":"count_vpcs",'
+                    '"status":"error","error":"boom"}'
                 ),
                 (
                     '{"record_type":"task","target":"org-a","entity_id":'
                     '"222222222222","entity_name":"prod","region":"us-west-2",'
-                    '"task":"count_vpcs","status":"error","error":"nope"}'
+                    '"task_id":"count_vpcs","task_name":"count_vpcs",'
+                    '"status":"error","error":"nope"}'
                 ),
                 "not-json",
             ]

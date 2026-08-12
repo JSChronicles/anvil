@@ -85,6 +85,7 @@ def _run_task(
         session=session,
         dry_run=dry_run,
         metadata={},
+        dependency_data={},
         actions=actions,
     )
     return result, actions.actions
@@ -185,6 +186,7 @@ def test_get_project_info_requires_gcp_project_target(fake_gcp_resource_manager_
             session=FakeGcpSession(),
             dry_run=False,
             metadata={},
+            dependency_data={},
             actions=ActionRecorder(actions=[]),
         )
 

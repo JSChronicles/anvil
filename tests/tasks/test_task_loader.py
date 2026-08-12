@@ -144,18 +144,19 @@ def test_region_task_may_depend_on_target_task(monkeypatch):
     assert [task.name for task in execution.ordered] == ["target_wide", "regional"]
 
 
-def test_target_task_cannot_depend_on_region_task(monkeypatch):
+def test_target_task_may_depend_on_region_task(monkeypatch):
     _mock_scoped_tasks(monkeypatch, {"target_wide": "target", "regional": "region"})
 
-    with pytest.raises(TaskConfigError, match="execute before regional fan-out"):
-        resolve_tasks(
-            task_specs=[
-                {"name": "target_wide", "depends_on": ["regional"]},
-                {"name": "regional"},
-            ],
-            provider_name="azure",
-            supported_task_scopes=frozenset({"region", "target"}),
-        )
+    execution = resolve_tasks(
+        task_specs=[
+            {"name": "target_wide", "depends_on": ["regional"]},
+            {"name": "regional"},
+        ],
+        provider_name="azure",
+        supported_task_scopes=frozenset({"region", "target"}),
+    )
+
+    assert [task.name for task in execution.ordered] == ["regional", "target_wide"]
 
 
 def test_resolve_tasks_dependency_order(monkeypatch):

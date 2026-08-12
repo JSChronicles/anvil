@@ -23,11 +23,12 @@ targets:
     - python3.8
     - nodejs16.x
   tasks:
-  - name: count_vpc
-  - name: list_lambdas_by_runtime
-  - name: detect_deprecated_lambda_runtimes
-    depends_on:
-    - list_lambdas_by_runtime
+  # Advanced examples use descriptive invocation IDs so result records remain
+  # clear even when a component is configured more than once elsewhere.
+  - id: vpc_count
+    name: count_vpc
+  - id: deprecated_runtime_findings
+    name: detect_deprecated_lambda_runtimes
   post_run:
   - processor: sarif_report
     output: aws-lambda-runtime-audit.sarif

@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import logging
 
+from anvil.actions import ActionRecorder
+
 __LOGGER__ = logging.getLogger(__name__)
 
 
@@ -64,15 +66,36 @@ def cleanup_user_resources(
 
 def run(
     *,
-    account_id: str,
-    account_alias: str,
+    provider: str,
+    execution_target_id: str,
+    execution_target_name: str,
+    execution_target_type: str,
+    region: str,
     session,
     dry_run: bool,
     metadata: dict[str, object],
-    actions=None,
+    dependency_data: dict[str, object],
+    actions: ActionRecorder,
 ) -> dict[str, object]:
-    """
-    Return JSON-serializable task data for normal Anvil result output.
+    """Return JSON-serializable task data for normal Anvil result output.
+
+    Args:
+        provider: Provider name for the execution target.
+        execution_target_id: Provider-owned target identifier.
+        execution_target_name: Target display name.
+        execution_target_type: Provider-owned target type.
+        region: Concrete execution region.
+        session: AWS session scoped to the target and region.
+        dry_run: Whether mutations must be simulated.
+        metadata: Static task configuration requiring `user_name`.
+        dependency_data: Runtime dependency inputs; unused by this task.
+        actions: Engine-provided action recorder.
+
+    Returns:
+        Planned or completed IAM cleanup details.
+
+    Raises:
+        RuntimeError: If `metadata.user_name` is not a string.
     """
     user_name = metadata.get("user_name")
     if not isinstance(user_name, str):

@@ -9,6 +9,7 @@ class ExecutionStatus(str, Enum):
     SUCCESS = "success"
     ERROR = "error"
     INTERRUPTED = "interrupted"
+    SKIPPED = "skipped"
 
     @property
     def is_success(self) -> bool:
@@ -23,8 +24,30 @@ class ExecutionStatus(str, Enum):
         return self is ExecutionStatus.INTERRUPTED
 
     @property
+    def is_skipped(self) -> bool:
+        return self is ExecutionStatus.SKIPPED
+
+    @property
     def is_unsuccessful(self) -> bool:
-        return self is not ExecutionStatus.SUCCESS
+        return self in {ExecutionStatus.ERROR, ExecutionStatus.INTERRUPTED}
+
+
+def aggregate_execution_statuses(statuses: list[ExecutionStatus]) -> ExecutionStatus:
+    """Aggregate execution statuses without treating skipped work as failure.
+
+    Args:
+        statuses: Task or child-entity statuses to aggregate.
+
+    Returns:
+        Error when any child errored, interrupted when none errored and at least
+        one was interrupted, otherwise success.
+    """
+
+    if any(status.is_error for status in statuses):
+        return ExecutionStatus.ERROR
+    if any(status.is_interrupted for status in statuses):
+        return ExecutionStatus.INTERRUPTED
+    return ExecutionStatus.SUCCESS
 
 
 class EngineState(str, Enum):
@@ -43,16 +66,19 @@ class TimedResult:
 
 @dataclass(frozen=True, slots=True)
 class TaskResult(TimedResult):
+    task_id: str
     task_name: str
     region: str
     status: ExecutionStatus
     result: object | None = None
     error: str | None = None
+    skip_reason: str | None = None
     actions: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, object]:
         return {
-            "task": self.task_name,
+            "task_id": self.task_id,
+            "task_name": self.task_name,
             "region": self.region,
             "status": self.status.value,
             "started_at": self.started_at,
@@ -60,6 +86,7 @@ class TaskResult(TimedResult):
             "duration_seconds": self.duration_seconds,
             "result": self.result,
             "error": self.error,
+            "skip_reason": self.skip_reason,
             "actions": list(self.actions),
         }
 
@@ -132,6 +159,7 @@ class TargetResult:
     generated_at: str
     dry_run: bool
     entities: list[EntityResult]
+    tasks: list[TaskResult] = field(default_factory=list)
     error: str | None = None
     benchmark: dict[str, object] | None = None
 
@@ -153,8 +181,10 @@ class TargetResult:
 
     @property
     def has_failures(self) -> bool:
-        return self.error is not None or any(
-            result.status.is_unsuccessful for result in self.entities
+        return (
+            self.error is not None
+            or any(result.status.is_unsuccessful for result in self.entities)
+            or any(result.status.is_unsuccessful for result in self.tasks)
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -164,6 +194,7 @@ class TargetResult:
             "generated_at": self.generated_at,
             "dry_run": self.dry_run,
             "total_entities": self.total_entities,
+            "tasks": [task.to_dict() for task in self.tasks],
             "entities": [result.to_dict() for result in self.entities],
             "error": self.error,
         }
@@ -180,6 +211,7 @@ class TargetResult:
         provider: str,
         dry_run: bool,
         entities: list[EntityResult],
+        tasks: list[TaskResult] | None = None,
         error: str | None = None,
         benchmark: dict[str, object] | None = None,
     ) -> TargetResult:
@@ -189,6 +221,7 @@ class TargetResult:
             generated_at=datetime.datetime.now(datetime.UTC).isoformat(),
             dry_run=dry_run,
             entities=entities,
+            tasks=list(tasks or []),
             error=error,
             benchmark=benchmark,
         )
@@ -267,6 +300,8 @@ class EngineResult:
         total_failed_entities = 0
         total_interrupted_entities = 0
         total_failed_tasks = 0
+        total_interrupted_tasks = 0
+        total_skipped_tasks = 0
 
         for target_result in self.target_results:
             entities = target_result.entities
@@ -282,16 +317,19 @@ class EngineResult:
                 if entity_result.status.is_interrupted
             ]
 
-            failed_tasks = sum(
-                1
-                for entity_result in entities
-                for task in entity_result.tasks
-                if task.status.is_error
-            )
+            tasks = [
+                *target_result.tasks,
+                *(task for entity_result in entities for task in entity_result.tasks),
+            ]
+            failed_tasks = sum(1 for task in tasks if task.status.is_error)
+            interrupted_tasks = sum(1 for task in tasks if task.status.is_interrupted)
+            skipped_tasks = sum(1 for task in tasks if task.status.is_skipped)
 
             total_failed_entities += len(failed_entities)
             total_interrupted_entities += len(interrupted_entities)
             total_failed_tasks += failed_tasks
+            total_interrupted_tasks += interrupted_tasks
+            total_skipped_tasks += skipped_tasks
 
             target_summaries.append(
                 {
@@ -299,7 +337,10 @@ class EngineResult:
                     "total_entities": target_result.total_entities,
                     "failed_entities": len(failed_entities),
                     "interrupted_entities": len(interrupted_entities),
+                    "total_tasks": len(tasks),
                     "failed_tasks": failed_tasks,
+                    "interrupted_tasks": interrupted_tasks,
+                    "skipped_tasks": skipped_tasks,
                     "has_failures": target_result.has_failures,
                     "error": target_result.error,
                     **(
@@ -318,6 +359,8 @@ class EngineResult:
             "total_failed_entities": total_failed_entities,
             "total_interrupted_entities": total_interrupted_entities,
             "total_failed_tasks": total_failed_tasks,
+            "total_interrupted_tasks": total_interrupted_tasks,
+            "total_skipped_tasks": total_skipped_tasks,
         }
         if self.benchmark is not None:
             payload["benchmark"] = self.benchmark

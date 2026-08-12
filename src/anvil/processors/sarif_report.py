@@ -67,40 +67,24 @@ def _collect_sarif_results(
     rules: dict[str, dict[str, object]] = {}
 
     for target_result in _target_result_dicts(context=context):
+        configured_entity: dict[str, object] = {"type": "configured_target"}
+        for task_result in _target_task_results(target_result=target_result):
+            _collect_task_findings(
+                sarif_results=sarif_results,
+                rules=rules,
+                target_result=target_result,
+                entity_result=configured_entity,
+                task_result=task_result,
+            )
         for entity_result in _entity_results(target_result=target_result):
             for task_result in _task_results(entity_result=entity_result):
-                result = task_result.get("result")
-                if not isinstance(result, dict) or "sarif_findings" not in result:
-                    continue
-
-                raw_findings = result.get("sarif_findings")
-                if not isinstance(raw_findings, list):
-                    raise RuntimeError(
-                        "sarif_report requires result.sarif_findings to be a list"
-                    )
-
-                for raw_finding in raw_findings:
-                    if not isinstance(raw_finding, dict):
-                        raise RuntimeError(
-                            "sarif_report requires every sarif_findings entry "
-                            "to be a mapping"
-                        )
-                    raw_finding = cast(dict[str, object], raw_finding)
-                    sarif_result, rule = _convert_finding(
-                        finding=raw_finding,
-                        target_result=target_result,
-                        entity_result=entity_result,
-                        task_result=task_result,
-                    )
-                    rule_id = _required_string(rule, "id", "finding.rule")
-                    existing_rule = rules.get(rule_id)
-                    if existing_rule is not None and existing_rule != rule:
-                        raise RuntimeError(
-                            f"sarif_report found conflicting metadata for rule "
-                            f"{rule_id!r}"
-                        )
-                    rules[rule_id] = rule
-                    sarif_results.append(sarif_result)
+                _collect_task_findings(
+                    sarif_results=sarif_results,
+                    rules=rules,
+                    target_result=target_result,
+                    entity_result=entity_result,
+                    task_result=task_result,
+                )
 
     return sarif_results, rules
 
@@ -141,6 +125,50 @@ def _task_results(*, entity_result: dict[str, object]) -> list[dict[str, object]
     return [
         cast(dict[str, object], item) for item in task_results if isinstance(item, dict)
     ]
+
+
+def _target_task_results(
+    *, target_result: dict[str, object]
+) -> list[dict[str, object]]:
+    return _task_results(entity_result=target_result)
+
+
+def _collect_task_findings(
+    *,
+    sarif_results: list[dict[str, object]],
+    rules: dict[str, dict[str, object]],
+    target_result: dict[str, object],
+    entity_result: dict[str, object],
+    task_result: dict[str, object],
+) -> None:
+    result = task_result.get("result")
+    if not isinstance(result, dict) or "sarif_findings" not in result:
+        return
+
+    raw_findings = result.get("sarif_findings")
+    if not isinstance(raw_findings, list):
+        raise RuntimeError("sarif_report requires result.sarif_findings to be a list")
+
+    for raw_finding in raw_findings:
+        if not isinstance(raw_finding, dict):
+            raise RuntimeError(
+                "sarif_report requires every sarif_findings entry to be a mapping"
+            )
+        raw_finding = cast(dict[str, object], raw_finding)
+        sarif_result, rule = _convert_finding(
+            finding=raw_finding,
+            target_result=target_result,
+            entity_result=entity_result,
+            task_result=task_result,
+        )
+        rule_id = _required_string(rule, "id", "finding.rule")
+        existing_rule = rules.get(rule_id)
+        if existing_rule is not None and existing_rule != rule:
+            raise RuntimeError(
+                f"sarif_report found conflicting metadata for rule {rule_id!r}"
+            )
+        rules[rule_id] = rule
+        sarif_results.append(sarif_result)
 
 
 def _convert_finding(
@@ -278,18 +306,24 @@ def _result_properties(
 ) -> dict[str, object]:
     target_key = "target"
 
-    properties: dict[str, object] = {
-        "target_type": target_key,
-        "target": target_result.get(target_key) or target_result.get("target"),
-        "entity_id": entity_result.get("id"),
-        "entity_name": entity_result.get("name"),
-        "entity_type": entity_result.get("type"),
-        "region": task_result.get("region"),
-        "task": task_result.get("task"),
-    }
     raw_properties = finding.get("properties")
-    if isinstance(raw_properties, dict):
-        properties.update(cast(dict[str, object], raw_properties))
+    properties: dict[str, object] = (
+        dict(cast(dict[str, object], raw_properties))
+        if isinstance(raw_properties, dict)
+        else {}
+    )
+    properties.update(
+        {
+            "target_type": target_key,
+            "target": target_result.get(target_key) or target_result.get("target"),
+            "entity_id": entity_result.get("id"),
+            "entity_name": entity_result.get("name"),
+            "entity_type": entity_result.get("type"),
+            "region": task_result.get("region"),
+            "task_id": task_result.get("task_id"),
+            "task_name": task_result.get("task_name"),
+        }
+    )
 
     return {key: value for key, value in properties.items() if value is not None}
 

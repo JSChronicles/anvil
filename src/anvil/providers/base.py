@@ -135,6 +135,7 @@ class ProviderExecutionPlan:
     """Resolved provider execution targets."""
 
     execution_targets: list[ExecutionTarget]
+    configured_target: ExecutionTarget | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,7 +164,13 @@ class ProviderExecutionRuntime(Protocol):
     def record_region_outcome(
         self, *, region: str, duration_seconds: float, failed: bool, interrupted: bool
     ) -> None:
-        """Record one region outcome for provider lifecycle decisions."""
+        """Record one region outcome for provider lifecycle decisions.
+
+        Implementations must complete promptly because graph settlement records
+        the outcome synchronously before admitting dependent work. Ordinary
+        parallel-region execution may call different region outcomes
+        concurrently.
+        """
 
     def close(self) -> None:
         """Release any provider-owned runtime resources."""
@@ -228,6 +235,24 @@ class Provider(Protocol):
         """Prepare lifecycle state for one execution target."""
 
 
+class ConfiguredTargetProvider(Protocol):
+    """Additional contract for providers declaring configured-target support."""
+
+    def validate_task_configuration(
+        self, *, target: TargetDescriptor, task_scopes: dict[str, str]
+    ) -> None:
+        """Validate configured-target task compatibility before authentication."""
+
+    def prepare_configured_target_runtime(
+        self,
+        *,
+        target: TargetDescriptor,
+        execution_target: ExecutionTarget,
+        context: ExecutionContext,
+    ) -> ProviderExecutionRuntime:
+        """Prepare lifecycle state for the provider-owned configured target."""
+
+
 def validate_provider_contract(provider: Provider) -> None:
     """Validate that a provider exposes the public provider contract."""
 
@@ -263,9 +288,27 @@ def validate_provider_contract(provider: Provider) -> None:
         },
         "prepare_execution_runtime": {"target", "execution_target", "context"},
     }
+    if "configured_target" in metadata.supported_task_scopes:
+        required_methods.update(
+            {
+                "validate_task_configuration": {"target", "task_scopes"},
+                "prepare_configured_target_runtime": {
+                    "target",
+                    "execution_target",
+                    "context",
+                },
+            }
+        )
     for method_name, required_parameters in required_methods.items():
         if not callable(getattr(provider, method_name, None)):
-            raise TypeError(f"provider missing callable {method_name}()")
+            capability = (
+                " configured_target capability"
+                if "configured_target" in metadata.supported_task_scopes
+                and method_name
+                in {"validate_task_configuration", "prepare_configured_target_runtime"}
+                else ""
+            )
+            raise TypeError(f"provider{capability} missing callable {method_name}()")
 
         signature = inspect.signature(getattr(provider, method_name))
         parameter_names = set(signature.parameters)

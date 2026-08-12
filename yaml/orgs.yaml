@@ -12,7 +12,6 @@ targets:
       - name: discover
       - name: remove_iam_user
         depends_on: ["discover"]
-        optional: true
     dry_run: true
     max_workers: 5
     metadata:

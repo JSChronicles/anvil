@@ -7,6 +7,8 @@ from anvil.providers.azure import (
     create_provider_instance as create_azure_provider_instance,
 )
 from anvil.providers.base import (
+    ExecutionTarget,
+    ProviderExecutionPlan,
     ProviderMetadata,
     configured_or_default_regions,
     validate_provider_contract,
@@ -144,3 +146,52 @@ def test_provider_contract_rejects_missing_preparation_parameter():
 
     with pytest.raises(TypeError, match="resolve_execution_targets.*preparation"):
         validate_provider_contract(BrokenProvider())
+
+
+def test_configured_target_capability_requires_explicit_provider_hooks():
+    class BrokenProvider(_CompleteProvider):
+        metadata = ProviderMetadata(
+            name="broken",
+            display_name="Broken",
+            supported_task_scopes=frozenset({"configured_target", "region"}),
+        )
+
+    with pytest.raises(
+        TypeError, match="configured_target.*validate_task_configuration"
+    ):
+        validate_provider_contract(BrokenProvider())
+
+
+def test_configured_target_capability_accepts_complete_provider_hooks():
+    class ConfiguredProvider(_CompleteProvider):
+        metadata = ProviderMetadata(
+            name="configured",
+            display_name="Configured",
+            supported_task_scopes=frozenset({"configured_target", "region"}),
+        )
+
+        def validate_task_configuration(self, *, target, task_scopes):
+            return None
+
+        def prepare_configured_target_runtime(
+            self, *, target, execution_target, context
+        ):
+            return None
+
+    validate_provider_contract(ConfiguredProvider())
+
+
+def test_provider_execution_plan_carries_provider_owned_configured_identity():
+    configured_target = ExecutionTarget(
+        id="provider-owner",
+        name="Provider Owner",
+        type="configured_target",
+        provider="complete",
+        regions=["home-region"],
+    )
+
+    plan = ProviderExecutionPlan(
+        execution_targets=[], configured_target=configured_target
+    )
+
+    assert plan.configured_target is configured_target

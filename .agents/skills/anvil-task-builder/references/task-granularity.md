@@ -6,7 +6,7 @@ Prefer separate tasks when:
 
 - The tasks have different safety profiles, especially read-only vs mutating.
 - They are commonly run independently.
-- They need different optional or fail-fast behavior.
+- They need different failure, cleanup, or dependency behavior.
 - A dependency relationship is meaningful to the workflow.
 - Combining them would make the result shape confusing or too broad.
 
@@ -37,3 +37,9 @@ max_parallel_targets * max_workers * max_parallel_regions
 ```
 
 Recommend benchmarking the actual task mix before raising region concurrency.
+
+This caution assumes multiple accounts are in scope for the run. If the
+workflow's target set is only the payer/management account,
+`max_parallel_targets` is fixed at 1 and there is no cross-account
+contention to protect against, so there is more headroom for concurrency.
+See `references/payer-management-account-tasks.md`.

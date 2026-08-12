@@ -25,6 +25,7 @@ def _task_result(
     *, task_name: str, region: str, status: ExecutionStatus, error: str | None = None
 ) -> TaskResult:
     return TaskResult(
+        task_id=task_name,
         task_name=task_name,
         region=region,
         status=status,
@@ -79,7 +80,8 @@ def test_build_jsonl_records_flattens_entities_and_tasks():
     assert records[1]["entity_id"] == "111111111111"
     assert records[1]["entity_name"] == "dev"
     assert records[1]["entity_type"] == "account"
-    assert records[1]["task"] == "count_vpcs"
+    assert records[1]["task_id"] == "count_vpcs"
+    assert records[1]["task_name"] == "count_vpcs"
     assert records[1]["region"] == "us-east-1"
     assert records[1]["status"] == "error"
     json.dumps(records)
@@ -116,11 +118,12 @@ def test_filter_records_supports_failed_status_alias_and_common_fields():
     assert matches[0]["record_type"] == "task"
 
 
-def test_filter_records_failed_status_matches_any_non_success_status():
+def test_filter_records_failed_status_matches_unsuccessful_statuses():
     records = [
         {"record_type": "entity", "status": "success", "entity_id": "111"},
         {"record_type": "entity", "status": "error", "entity_id": "222"},
         {"record_type": "entity", "status": "interrupted", "entity_id": "333"},
+        {"record_type": "entity", "status": "skipped", "entity_id": "444"},
     ]
 
     matches = filter_records(records, filters=ResultFilters(status="failed"))
@@ -144,16 +147,17 @@ def test_failure_records_include_entity_and_task_failures():
     assert [record["record_type"] for record in failures] == ["entity", "task"]
 
 
-def test_failure_records_include_any_non_success_status():
+def test_failure_records_include_unsuccessful_statuses_only():
     records = [
         {"record_type": "entity", "status": "success"},
         {"record_type": "entity", "status": "interrupted"},
         {"record_type": "task", "status": "cancelled"},
+        {"record_type": "task", "status": "skipped"},
     ]
 
     failures = failure_records(records)
 
-    assert [record["status"] for record in failures] == ["interrupted", "cancelled"]
+    assert [record["status"] for record in failures] == ["interrupted"]
 
 
 def test_config_file_for_failure_records_groups_by_config_path():
@@ -209,7 +213,8 @@ def test_build_rerun_targets_includes_interrupted_task_dependencies():
                 "target": "org-a",
                 "entity_id": "111111111111",
                 "region": "us-west-2",
-                "task": "cleanup",
+                "task_id": "cleanup",
+                "task_name": "cleanup",
                 "status": "interrupted",
             }
         ],
@@ -221,6 +226,130 @@ def test_build_rerun_targets_includes_interrupted_task_dependencies():
     assert targets[0].tasks == [
         {"name": "inventory"},
         {"name": "cleanup", "depends_on": ["inventory"]},
+    ]
+
+
+def test_build_rerun_targets_uses_invocation_ids_for_repeated_components():
+    from anvil.descriptors import LoadedConfig, TargetDescriptor
+
+    loaded_config = LoadedConfig(
+        targets=[
+            TargetDescriptor(
+                name="org-a",
+                provider="aws",
+                mode="organization",
+                tasks=[
+                    {"id": "inventory_before", "name": "inventory"},
+                    {
+                        "id": "inventory_after",
+                        "name": "inventory",
+                        "depends_on": ["inventory_before"],
+                    },
+                    {"name": "notify"},
+                ],
+            )
+        ]
+    )
+
+    targets = build_rerun_targets(
+        loaded_config=loaded_config,
+        failures=[
+            {
+                "record_type": "task",
+                "target": "org-a",
+                "entity_id": "111111111111",
+                "region": "us-east-1",
+                "task_id": "inventory_after",
+                "task_name": "inventory",
+                "status": "error",
+            }
+        ],
+    )
+
+    assert targets[0].tasks == [
+        {"id": "inventory_before", "name": "inventory"},
+        {
+            "id": "inventory_after",
+            "name": "inventory",
+            "depends_on": ["inventory_before"],
+        },
+    ]
+
+
+def test_build_rerun_targets_keeps_configured_target_identity():
+    from anvil.descriptors import LoadedConfig, TargetDescriptor
+
+    target = TargetDescriptor(
+        name="org-a",
+        provider="aws",
+        mode="organization",
+        include=["111111111111"],
+        tasks=[
+            {"id": "prepare", "name": "inventory"},
+            {"id": "finalize", "name": "cleanup", "depends_on": ["prepare"]},
+        ],
+    )
+    loaded_config = LoadedConfig(targets=[target])
+
+    targets = build_rerun_targets(
+        loaded_config=loaded_config,
+        failures=[
+            {
+                "record_type": "task",
+                "target": "org-a",
+                "entity_id": "org-a",
+                "entity_type": "configured_target",
+                "task_id": "finalize",
+                "task_name": "cleanup",
+                "status": "error",
+            }
+        ],
+    )
+
+    assert targets[0].include == ["111111111111"]
+    assert targets[0].tasks == target.tasks
+
+
+def test_build_rerun_targets_keeps_mixed_configured_and_entity_failures():
+    from anvil.descriptors import LoadedConfig, TargetDescriptor
+
+    target = TargetDescriptor(
+        name="org-a",
+        provider="aws",
+        mode="organization",
+        tasks=[
+            {"id": "configured_prepare", "name": "prepare"},
+            {"id": "account_mutate", "name": "mutate"},
+            {"name": "notify"},
+        ],
+    )
+
+    targets = build_rerun_targets(
+        loaded_config=LoadedConfig(targets=[target]),
+        failures=[
+            {
+                "record_type": "task",
+                "target": "org-a",
+                "entity_type": "configured_target",
+                "task_id": "configured_prepare",
+                "status": "error",
+            },
+            {
+                "record_type": "task",
+                "target": "org-a",
+                "entity_type": "account",
+                "entity_id": "111111111111",
+                "task_id": "account_mutate",
+                "status": "interrupted",
+            },
+        ],
+    )
+
+    assert len(targets) == 1
+    assert targets[0].include is None
+    assert targets[0].tasks == [
+        {"id": "configured_prepare", "name": "prepare"},
+        {"id": "account_mutate", "name": "mutate"},
     ]
 
 
@@ -252,14 +381,18 @@ def test_limit_records_applies_after_filtering():
 def test_project_records_keeps_requested_fields_in_order():
     records = build_jsonl_records_for_target(_target_result())
 
-    projected = project_records(records, fields=["entity_id", "region", "task"])
+    projected = project_records(records, fields=["entity_id", "region", "task_id"])
 
-    assert list(projected[0]) == ["entity_id", "region", "task"]
-    assert projected[0] == {"entity_id": "111111111111", "region": None, "task": None}
+    assert list(projected[0]) == ["entity_id", "region", "task_id"]
+    assert projected[0] == {
+        "entity_id": "111111111111",
+        "region": None,
+        "task_id": None,
+    }
     assert projected[1] == {
         "entity_id": "111111111111",
         "region": "us-east-1",
-        "task": "count_vpcs",
+        "task_id": "count_vpcs",
     }
 
 
@@ -267,7 +400,7 @@ def test_format_records_table_uses_default_and_selected_fields():
     records = build_jsonl_records_for_target(_target_result())
 
     default_table = format_records_table(records)
-    selected_table = format_records_table(records, fields=["entity_id", "task"])
+    selected_table = format_records_table(records, fields=["entity_id", "task_id"])
 
     assert "type" in default_table
     assert "entity_name" in default_table
@@ -279,15 +412,18 @@ def test_format_records_table_uses_default_and_selected_fields():
 def test_format_records_jsonl_outputs_one_json_object_per_line():
     records = project_records(
         build_jsonl_records_for_target(_target_result())[:2],
-        fields=["entity_id", "task"],
+        fields=["entity_id", "task_id"],
     )
 
     output = format_records_jsonl(records)
     lines = output.splitlines()
 
     assert len(lines) == 2
-    assert json.loads(lines[0]) == {"entity_id": "111111111111", "task": None}
-    assert json.loads(lines[1]) == {"entity_id": "111111111111", "task": "count_vpcs"}
+    assert json.loads(lines[0]) == {"entity_id": "111111111111", "task_id": None}
+    assert json.loads(lines[1]) == {
+        "entity_id": "111111111111",
+        "task_id": "count_vpcs",
+    }
 
 
 def test_load_result_records_discovers_nested_results_jsonl():

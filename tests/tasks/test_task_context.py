@@ -14,6 +14,7 @@ def _context(metadata: dict[str, object]) -> TaskCallContext:
         session=object(),
         dry_run=False,
         metadata=metadata,
+        dependency_data={},
         actions=ActionRecorder(actions=[]),
     )
 

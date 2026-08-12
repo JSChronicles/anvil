@@ -60,6 +60,21 @@ def test_aws_explicit_accounts_do_not_receive_the_organization_default_role() ->
     assert target.provider_options.get("role_name") is None
 
 
+@pytest.mark.parametrize("keyword", ["management", "payer", "MANAGEMENT", "PAYER"])
+def test_aws_organization_accepts_management_account_keywords(keyword: str) -> None:
+    target = _target(provider="aws", mode="organization", include=[keyword])
+
+    AwsProvider().validate_target(target)
+
+
+@pytest.mark.parametrize("keyword", ["management", "payer"])
+def test_aws_accounts_mode_rejects_management_account_keywords(keyword: str) -> None:
+    target = _target(provider="aws", mode="accounts", include=[keyword])
+
+    with pytest.raises(ValueError, match=f"keyword '{keyword}'.*organization mode"):
+        AwsProvider().validate_target(target)
+
+
 def test_provider_owns_cli_filter_semantics() -> None:
     target = _target(
         provider="azure",

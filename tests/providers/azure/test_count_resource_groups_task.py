@@ -77,6 +77,7 @@ def _run_task(
         session=session,
         dry_run=dry_run,
         metadata={},
+        dependency_data={},
         actions=actions,
     )
     return result, actions.actions
@@ -166,5 +167,6 @@ def test_count_resource_groups_requires_azure_subscription_target(
             session=FakeAzureSession(),
             dry_run=False,
             metadata={},
+            dependency_data={},
             actions=ActionRecorder(actions=[]),
         )

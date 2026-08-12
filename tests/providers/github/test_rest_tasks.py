@@ -73,6 +73,7 @@ def _run_task(
         session=FakeSession(client=client),
         dry_run=False,
         metadata={} if metadata is None else metadata,
+        dependency_data={},
         actions=actions,
     )
     return result, actions.actions

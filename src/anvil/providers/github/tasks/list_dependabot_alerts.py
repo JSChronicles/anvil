@@ -43,6 +43,7 @@ def run(
     session,
     dry_run: bool,
     metadata: dict[str, object],
+    dependency_data: dict[str, object],
     actions: ActionRecorder,
 ) -> dict[str, object]:
     """List Dependabot alerts for a GitHub target."""

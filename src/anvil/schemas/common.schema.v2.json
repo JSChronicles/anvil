@@ -6,29 +6,132 @@
   "$defs": {
     "taskEntry": {
       "type": "object",
+      "description": "One configured invocation of a discovered Python task component.",
+      "examples": [
+        {
+          "id": "detach_guardrails",
+          "name": "reconcile_config_guardrails",
+          "metadata": {
+            "attachment_state": "absent"
+          }
+        }
+      ],
       "required": [
         "name"
       ],
       "additionalProperties": false,
       "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Unique invocation ID for this configured task. When omitted, the discovered component name is used.",
+          "examples": [
+            "detach_guardrails"
+          ]
+        },
         "name": {
           "type": "string",
           "minLength": 1,
-          "description": "Task name (must match the discovered task component name)."
+          "description": "Discovered Python task component name.",
+          "examples": [
+            "reconcile_config_guardrails"
+          ]
+        },
+        "metadata": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": true,
+          "description": "Static operator-configured context merged over target metadata for this invocation.",
+          "examples": [
+            {
+              "attachment_state": "absent"
+            }
+          ]
         },
         "depends_on": {
           "type": "array",
+          "default": [],
           "items": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "description": "Effective task invocation ID that must reach a terminal state first.",
+            "examples": [
+              "detach_guardrails"
+            ]
           },
           "uniqueItems": true,
-          "description": "List of task names that must complete before this task runs."
+          "description": "Effective task invocation IDs that control ordering, eligibility, and dependency-data availability.",
+          "examples": [
+            [
+              "detach_guardrails",
+              "cleanup_config"
+            ]
+          ]
         },
-        "optional": {
+        "always_run": {
           "type": "boolean",
           "default": false,
-          "description": "If true, task failure does not fail the account or block dependent tasks."
+          "description": "If true, run after every dependency reaches a terminal state even when a dependency was unsuccessful.",
+          "examples": [
+            true
+          ]
+        },
+        "dependency_data": {
+          "type": "object",
+          "default": {},
+          "propertyNames": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Non-empty local input name chosen by the consuming task.",
+            "examples": [
+              "attachments"
+            ]
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/dependencyDataReference"
+          },
+          "description": "Runtime inputs selected from directly declared dependency TaskResults.",
+          "examples": [
+            {
+              "attachments": {
+                "task_id": "detach_guardrails",
+                "path": "result.attachments"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "dependencyDataReference": {
+      "type": "object",
+      "required": [
+        "task_id"
+      ],
+      "additionalProperties": false,
+      "description": "Selection of a complete dependency TaskResult or one readable dotted path within it.",
+      "examples": [
+        {
+          "task_id": "detach_guardrails",
+          "path": "result.attachments"
+        }
+      ],
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Effective ID of a task also listed directly in the consumer's depends_on.",
+          "examples": [
+            "detach_guardrails"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^(?:result(?:\\.[A-Za-z_][A-Za-z0-9_]*)*|status|error|actions)$",
+          "description": "Optional dotted selection: result, nested result fields, status, error, or actions. List indexing is not supported.",
+          "examples": [
+            "result.attachments",
+            "status"
+          ]
         }
       }
     },
@@ -137,7 +240,7 @@
         "minLength": 1
       },
       "uniqueItems": true,
-      "description": "Provider-owned execution target ID list."
+      "description": "Provider-owned execution target IDs or filter keywords."
     },
     "baseTargetProperties": {
       "name": {

@@ -21,7 +21,8 @@ DEFAULT_TABLE_FIELDS = [
     "entity_metadata",
     "entity_type",
     "region",
-    "task",
+    "task_id",
+    "task_name",
     "error",
 ]
 FIELD_HEADERS = {"record_type": "type"}
@@ -42,11 +43,13 @@ AVAILABLE_FIELDS = [
     "provider",
     "region",
     "result",
+    "skip_reason",
     "started_at",
     "status",
     "target",
     "target_type",
-    "task",
+    "task_id",
+    "task_name",
 ]
 
 
@@ -91,14 +94,35 @@ def build_jsonl_records_for_target(
                 {
                     **entity_record,
                     "record_type": "task",
-                    "task": task_result.task_name,
+                    "task_id": task_result.task_id,
+                    "task_name": task_result.task_name,
                     "region": task_result.region,
                     **_timed_status_record(task_result),
                     "result": task_result.result,
                     "error": task_result.error,
+                    "skip_reason": task_result.skip_reason,
                     "actions": list(task_result.actions),
                 }
             )
+
+    configured_record = _base_configured_target_record(
+        target_result=target_result, config_file=config_file
+    )
+    for task_result in target_result.tasks:
+        records.append(
+            {
+                **configured_record,
+                "record_type": "task",
+                "task_id": task_result.task_id,
+                "task_name": task_result.task_name,
+                "region": task_result.region,
+                **_timed_status_record(task_result),
+                "result": task_result.result,
+                "error": task_result.error,
+                "skip_reason": task_result.skip_reason,
+                "actions": list(task_result.actions),
+            }
+        )
 
     return records
 
@@ -176,7 +200,7 @@ def iter_filtered_records(
             and _matches(record, "target", filters.target)
             and _matches_entity(record, filters.entity)
             and _matches(record, "region", filters.region)
-            and _matches(record, "task", filters.task)
+            and _matches_task(record, filters.task)
         ):
             yield record
 
@@ -360,7 +384,7 @@ def _normalize_status_filter(status: str | None) -> str | set[str] | None:
 
 def _record_is_unsuccessful(record: dict[str, object]) -> bool:
     status = record.get("status")
-    return isinstance(status, str) and status.lower() != "success"
+    return isinstance(status, str) and status.lower() in {"error", "interrupted"}
 
 
 def _matches_status(record: dict[str, object], expected: str | set[str] | None) -> bool:
@@ -378,18 +402,18 @@ def _matches_status(record: dict[str, object], expected: str | set[str] | None) 
     return normalized_actual in expected
 
 
-def _task_specs_by_name(tasks: list[dict[str, object]]) -> dict[str, dict[str, object]]:
+def _task_specs_by_id(tasks: list[dict[str, object]]) -> dict[str, dict[str, object]]:
     return {
-        str(task["name"]): task
+        str(task.get("id", task["name"])): task
         for task in tasks
         if isinstance(task.get("name"), str) and task.get("name")
     }
 
 
-def _expand_task_names_with_dependencies(
-    *, selected_names: set[str], tasks: list[dict[str, object]]
+def _expand_task_ids_with_dependencies(
+    *, selected_ids: set[str], tasks: list[dict[str, object]]
 ) -> list[dict[str, object]]:
-    task_specs = _task_specs_by_name(tasks)
+    task_specs = _task_specs_by_id(tasks)
     expanded_names: set[str] = set()
 
     def add_with_dependencies(task_name: str) -> None:
@@ -406,13 +430,13 @@ def _expand_task_names_with_dependencies(
                 add_with_dependencies(dependency)
         expanded_names.add(task_name)
 
-    for selected_name in selected_names:
-        add_with_dependencies(selected_name)
+    for selected_id in selected_ids:
+        add_with_dependencies(selected_id)
 
     return [
         task
         for task in tasks
-        if isinstance(task.get("name"), str) and task["name"] in expanded_names
+        if str(task.get("id", task.get("name", ""))) in expanded_names
     ]
 
 
@@ -441,9 +465,9 @@ def _narrow_target_for_failed_entity(
         for region in (record.get("region") for record in task_records)
         if isinstance(region, str) and region
     }
-    failed_task_names = {
+    failed_task_ids = {
         task
-        for task in (record.get("task") for record in task_records)
+        for task in (record.get("task_id") for record in task_records)
         if isinstance(task, str) and task
     }
 
@@ -456,9 +480,9 @@ def _narrow_target_for_failed_entity(
             regions = sorted(failed_regions)
 
     tasks = target.tasks
-    if failed_task_names and not entity_level_failure_exists:
-        tasks = _expand_task_names_with_dependencies(
-            selected_names=failed_task_names, tasks=target.tasks
+    if failed_task_ids and not entity_level_failure_exists:
+        tasks = _expand_task_ids_with_dependencies(
+            selected_ids=failed_task_ids, tasks=target.tasks
         )
         if not tasks:
             tasks = target.tasks
@@ -472,6 +496,25 @@ def _narrow_target_for_failed_entity(
 def _narrow_target_for_failure_records(
     *, target: TargetDescriptor, records: list[dict[str, object]]
 ) -> list[TargetDescriptor]:
+    configured_records = [
+        record for record in records if record.get("entity_type") == "configured_target"
+    ]
+    if configured_records:
+        failed_task_ids = {
+            task_id
+            for task_id in (
+                record.get("task_id")
+                for record in records
+                if record.get("record_type") == "task"
+                and _record_is_unsuccessful(record)
+            )
+            if isinstance(task_id, str) and task_id
+        }
+        tasks = _expand_task_ids_with_dependencies(
+            selected_ids=failed_task_ids, tasks=target.tasks
+        )
+        return [replace(target, tasks=tasks or target.tasks)]
+
     records_by_entity: dict[str, list[dict[str, object]]] = defaultdict(list)
     for record in records:
         entity_id = record.get("entity_id")
@@ -490,6 +533,38 @@ def _matches(record: dict[str, object], key: str, expected: str | None) -> bool:
 
     actual = record.get(key)
     return isinstance(actual, str) and actual.lower() == expected.lower()
+
+
+def _matches_task(record: dict[str, object], expected: str | None) -> bool:
+    if expected is None:
+        return True
+
+    expected_lower = expected.lower()
+    return any(
+        isinstance(actual, str) and actual.lower() == expected_lower
+        for actual in (record.get("task_id"), record.get("task_name"))
+    )
+
+
+def _base_configured_target_record(
+    *, target_result: TargetResult, config_file: Path | None
+) -> dict[str, object]:
+    record: dict[str, object] = {
+        "target_type": "target",
+        "target": target_result.target_name,
+        "generated_at": target_result.generated_at,
+        "dry_run": target_result.dry_run,
+        "entity_id": None,
+        "entity_name": None,
+        "entity_type": "configured_target",
+        "provider": target_result.provider,
+        "entity_metadata": {},
+    }
+    if config_file is not None:
+        record["config_file"] = config_file.as_posix()
+        record["config_file_resolved"] = config_file.resolve().as_posix()
+
+    return record
 
 
 def _matches_entity(record: dict[str, object], expected: str | None) -> bool:
