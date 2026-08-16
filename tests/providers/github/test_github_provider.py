@@ -3,6 +3,7 @@ from __future__ import annotations
 import builtins
 import sys
 import threading
+from collections.abc import Collection
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
@@ -11,14 +12,14 @@ import pytest
 
 from anvil.descriptors import TargetDescriptor
 from anvil.execution_context import ExecutionContext
+from anvil.provider_profiles import ANVIL_CONFIG_ENV, ProviderProfileConfig
 from anvil.providers.base import ExecutionTarget
 from anvil.providers.github import create_provider_instance
 from anvil.providers.github.provider import (
     CachedGitHubClient,
     DEFAULT_GITHUB_API_VERSION,
-    GITHUB_CONFIG_ENV,
+    GitHubAuthSettings,
     GitHubRateGate,
-    GitHubProfileConfig,
     GitHubSessionFactory,
     GithubRepository,
     GithubExecutionTargetData,
@@ -28,8 +29,8 @@ from anvil.results import ExecutionStatus
 
 
 @pytest.fixture(autouse=True)
-def _isolated_github_config(monkeypatch):
-    monkeypatch.setenv(GITHUB_CONFIG_ENV, str(Path.cwd() / ".missing-github-config"))
+def _isolated_anvil_config(monkeypatch):
+    monkeypatch.setenv(ANVIL_CONFIG_ENV, str(Path.cwd() / ".missing-anvil-config"))
 
 
 @dataclass(frozen=True)
@@ -211,14 +212,18 @@ class FakeOrganizationClient:
         return {"organization": login}
 
 
-class CountingProfileConfig(GitHubProfileConfig):
+class CountingProfileConfig(ProviderProfileConfig):
     def __init__(self, *, path: Path) -> None:
         super().__init__(path=path)
         self.load_calls = 0
 
-    def load(self) -> dict[str, dict[str, str]]:
+    def load(
+        self, *, provider_name: str, supported_options: Collection[str] | None = None
+    ) -> dict[str, dict[str, str]]:
         self.load_calls += 1
-        return super().load()
+        return super().load(
+            provider_name=provider_name, supported_options=supported_options
+        )
 
 
 def _target(**overrides) -> TargetDescriptor:
@@ -386,6 +391,50 @@ def test_github_auth_check_resolves_inline_token_env(monkeypatch):
     assert result.source == "inline"
 
 
+def test_github_auth_settings_repr_and_cache_identity_hide_secrets(monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKEN", "environment-secret")
+    settings = GitHubAuthSettings(
+        source="inline",
+        api_url=None,
+        api_version=DEFAULT_GITHUB_API_VERSION,
+        token_env="GITHUB_TOKEN",
+        app_id=12345,
+        private_key="private-key-secret",
+        gh_token="fallback-secret",
+    )
+
+    settings_repr = repr(settings)
+    cache_identity_repr = repr(settings.cache_identity())
+
+    for secret in ("environment-secret", "private-key-secret", "fallback-secret"):
+        assert secret not in settings_repr
+        assert secret not in cache_identity_repr
+
+
+def test_github_sdk_constructor_error_translation_hides_raw_error() -> None:
+    class FailingGithub:
+        def __init__(self, **kwargs: object) -> None:
+            raise ValueError("translated-sdk-secret")
+
+    class Retry:
+        def __init__(self, *, total: int) -> None:
+            self.status_forcelist = {403, 500}
+
+    github_module = ModuleType("github")
+    github_module.Github = FailingGithub
+    github_module.GithubRetry = Retry
+
+    with pytest.raises(RuntimeError, match="SDK error type: ValueError") as exc_info:
+        GitHubSessionFactory()._build_client(
+            github_module=github_module,
+            auth=object(),
+            api_url=None,
+            api_version=DEFAULT_GITHUB_API_VERSION,
+        )
+
+    assert "translated-sdk-secret" not in str(exc_info.value)
+
+
 def test_github_auth_check_reports_missing_token_env(monkeypatch):
     provider = create_provider_instance()
     monkeypatch.delenv("MISSING_GITHUB_TOKEN", raising=False)
@@ -401,9 +450,11 @@ def test_github_auth_check_reports_missing_token_env(monkeypatch):
 
 def test_github_auth_check_reports_missing_profile(tmp_path, monkeypatch):
     provider = create_provider_instance()
-    config_path = tmp_path / "github-config.toml"
-    config_path.write_text('[default]\ntoken_env = "GITHUB_TOKEN"\n', encoding="utf-8")
-    monkeypatch.setenv(GITHUB_CONFIG_ENV, str(config_path))
+    config_path = tmp_path / "anvil-config.toml"
+    config_path.write_text(
+        '[providers.github.default]\ntoken_env = "GITHUB_TOKEN"\n', encoding="utf-8"
+    )
+    monkeypatch.setenv(ANVIL_CONFIG_ENV, str(config_path))
 
     result = provider.auth_check(_target(provider_options={"profile": "work"}))
 
@@ -593,11 +644,11 @@ def test_github_session_factory_uses_named_profile(monkeypatch, tmp_path):
     monkeypatch.setenv("WORK_GITHUB_TOKEN", "profile-token")
     config_path = tmp_path / "github-config.toml"
     config_path.write_text(
-        '[work]\ntoken_env = "WORK_GITHUB_TOKEN"\n'
+        '[providers.github.work]\ntoken_env = "WORK_GITHUB_TOKEN"\n'
         'api_url = "https://github.example/api/v3"\n',
         encoding="utf-8",
     )
-    monkeypatch.setenv(GITHUB_CONFIG_ENV, str(config_path))
+    monkeypatch.setenv(ANVIL_CONFIG_ENV, str(config_path))
 
     session = GitHubSessionFactory().create_session(
         target_id="octo-org/example",
@@ -619,9 +670,10 @@ def test_github_session_factory_inline_auth_beats_default_profile(
     monkeypatch.setenv("DEFAULT_GITHUB_TOKEN", "default-token")
     config_path = tmp_path / "github-config.toml"
     config_path.write_text(
-        '[default]\ntoken_env = "DEFAULT_GITHUB_TOKEN"\n', encoding="utf-8"
+        '[providers.github.default]\ntoken_env = "DEFAULT_GITHUB_TOKEN"\n',
+        encoding="utf-8",
     )
-    monkeypatch.setenv(GITHUB_CONFIG_ENV, str(config_path))
+    monkeypatch.setenv(ANVIL_CONFIG_ENV, str(config_path))
 
     GitHubSessionFactory().create_session(
         target_id="octo-org/example",
@@ -641,9 +693,10 @@ def test_github_session_factory_default_profile_beats_github_token(
     monkeypatch.setenv("DEFAULT_GITHUB_TOKEN", "default-token")
     config_path = tmp_path / "github-config.toml"
     config_path.write_text(
-        '[default]\ntoken_env = "DEFAULT_GITHUB_TOKEN"\n', encoding="utf-8"
+        '[providers.github.default]\ntoken_env = "DEFAULT_GITHUB_TOKEN"\n',
+        encoding="utf-8",
     )
-    monkeypatch.setenv(GITHUB_CONFIG_ENV, str(config_path))
+    monkeypatch.setenv(ANVIL_CONFIG_ENV, str(config_path))
 
     session = GitHubSessionFactory().create_session(
         target_id="octo-org/example",
@@ -715,8 +768,10 @@ def test_github_session_factory_uses_netrc_before_gh(monkeypatch):
 def test_github_session_factory_rejects_missing_profile(monkeypatch, tmp_path):
     _install_fake_pygithub(monkeypatch)
     config_path = tmp_path / "github-config.toml"
-    config_path.write_text('[default]\ntoken_env = "GITHUB_TOKEN"\n', encoding="utf-8")
-    monkeypatch.setenv(GITHUB_CONFIG_ENV, str(config_path))
+    config_path.write_text(
+        '[providers.github.default]\ntoken_env = "GITHUB_TOKEN"\n', encoding="utf-8"
+    )
+    monkeypatch.setenv(ANVIL_CONFIG_ENV, str(config_path))
 
     with pytest.raises(RuntimeError, match="profile 'work'.*not found"):
         GitHubSessionFactory().create_session(
@@ -732,11 +787,11 @@ def test_github_session_factory_rejects_ambiguous_profile(monkeypatch, tmp_path)
     monkeypatch.setenv("GITHUB_PRIVATE_KEY", "private-key")
     config_path = tmp_path / "github-config.toml"
     config_path.write_text(
-        '[bad]\ntoken_env = "GITHUB_TOKEN"\napp_id = "12345"\n'
+        '[providers.github.bad]\ntoken_env = "GITHUB_TOKEN"\napp_id = "12345"\n'
         'private_key_env = "GITHUB_PRIVATE_KEY"\n',
         encoding="utf-8",
     )
-    monkeypatch.setenv(GITHUB_CONFIG_ENV, str(config_path))
+    monkeypatch.setenv(ANVIL_CONFIG_ENV, str(config_path))
 
     with pytest.raises(RuntimeError, match="mix token and app"):
         GitHubSessionFactory().create_session(
@@ -748,15 +803,17 @@ def test_github_session_factory_rejects_ambiguous_profile(monkeypatch, tmp_path)
 
 
 def test_github_profile_config_loads_injected_path(monkeypatch, tmp_path):
-    monkeypatch.delenv(GITHUB_CONFIG_ENV, raising=False)
+    monkeypatch.delenv(ANVIL_CONFIG_ENV, raising=False)
     config_path = tmp_path / "config"
     config_path.write_text(
-        '[enterprise]\napi_url = "https://github.example/api/v3"\n'
+        '[providers.github.enterprise]\napi_url = "https://github.example/api/v3"\n'
         'token_env = "GHE_TOKEN"\n',
         encoding="utf-8",
     )
 
-    profiles = GitHubProfileConfig(path=Path(config_path)).load()
+    profiles = ProviderProfileConfig(path=Path(config_path)).load(
+        provider_name="github", supported_options=frozenset({"api_url", "token_env"})
+    )
 
     assert profiles == {
         "enterprise": {
@@ -767,20 +824,20 @@ def test_github_profile_config_loads_injected_path(monkeypatch, tmp_path):
 
 
 def test_github_profile_config_rejects_invalid_toml(monkeypatch, tmp_path):
-    monkeypatch.delenv(GITHUB_CONFIG_ENV, raising=False)
+    monkeypatch.delenv(ANVIL_CONFIG_ENV, raising=False)
     config_path = tmp_path / "config"
     config_path.write_text("[default\n", encoding="utf-8")
 
     with pytest.raises(RuntimeError, match="invalid"):
-        GitHubProfileConfig(path=config_path).load()
+        ProviderProfileConfig(path=config_path).load(provider_name="github")
 
 
 def test_github_session_factory_caches_profile_config_resolution(monkeypatch, tmp_path):
-    monkeypatch.delenv(GITHUB_CONFIG_ENV, raising=False)
+    monkeypatch.delenv(ANVIL_CONFIG_ENV, raising=False)
     monkeypatch.setenv("WORK_GITHUB_TOKEN", "profile-token")
     config_path = tmp_path / "config"
     config_path.write_text(
-        '[work]\ntoken_env = "WORK_GITHUB_TOKEN"\n', encoding="utf-8"
+        '[providers.github.work]\ntoken_env = "WORK_GITHUB_TOKEN"\n', encoding="utf-8"
     )
     profile_config = CountingProfileConfig(path=config_path)
     session_factory = GitHubSessionFactory(profile_config=profile_config)

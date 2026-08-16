@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import inspect
 import logging
 import netrc
@@ -9,9 +8,8 @@ import re
 import subprocess
 import threading
 import time
-import tomllib
 from collections.abc import Callable, Iterable, Iterator, Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Protocol, cast
@@ -30,9 +28,11 @@ from anvil.providers.base import (
     ProviderRegion,
     configured_or_default_regions,
     narrow_include,
+    secret_fingerprint,
     validate_region_selectors,
     validate_string_options,
 )
+from anvil.provider_profiles import ProviderProfileConfig
 from anvil.results import ExecutionStatus
 
 __LOGGER__ = logging.getLogger(__name__)
@@ -57,8 +57,6 @@ DEFAULT_GITHUB_PER_PAGE = 100
 DEFAULT_GITHUB_SEARCH_MIN_INTERVAL_SECONDS = 6.5
 DEFAULT_GITHUB_SEARCH_SECONDARY_RATE_COOLDOWN_SECONDS = 60.0
 DEFAULT_GITHUB_RETRY_TOTAL = 1
-GITHUB_CONFIG_ENV = "ANVIL_GITHUB_CONFIG"
-GITHUB_CONFIG_PATH = Path(".github") / "config"
 GITHUB_FALLBACK_TOKEN_ENVS = ("GITHUB_TOKEN", "GH_TOKEN")
 GITHUB_PROFILE_OPTIONS = {
     "api_url",
@@ -377,16 +375,16 @@ class GitHubAuthSettings:
     api_version: str
     token_env: str | None = None
     app_id: int | None = None
-    private_key: str | None = None
+    private_key: str | None = field(default=None, repr=False)
     use_netrc: bool = False
-    gh_token: str | None = None
+    gh_token: str | None = field(default=None, repr=False)
 
     def cache_identity(self) -> tuple[object, ...]:
         """Return a stable, non-secret identity for credential-sensitive caches."""
 
         token_fingerprint = None
         if self.token_env is not None:
-            token_fingerprint = _secret_fingerprint(os.environ.get(self.token_env))
+            token_fingerprint = secret_fingerprint(os.environ.get(self.token_env))
 
         return (
             self.source,
@@ -395,67 +393,10 @@ class GitHubAuthSettings:
             self.token_env,
             token_fingerprint,
             self.app_id,
-            _secret_fingerprint(self.private_key),
+            secret_fingerprint(self.private_key),
             self.use_netrc,
-            _secret_fingerprint(self.gh_token),
+            secret_fingerprint(self.gh_token),
         )
-
-
-class GitHubProfileConfig:
-    """Load Anvil GitHub profiles from the user profile config file."""
-
-    def __init__(self, *, path: Path | None = None) -> None:
-        self._path = path
-
-    @property
-    def path(self) -> Path:
-        configured_path = os.environ.get(GITHUB_CONFIG_ENV)
-        if configured_path:
-            return Path(configured_path).expanduser()
-        if self._path is not None:
-            return self._path.expanduser()
-        return Path.home() / GITHUB_CONFIG_PATH
-
-    def load(self) -> dict[str, dict[str, str]]:
-        """Return configured GitHub profiles keyed by profile name."""
-
-        path = self.path
-        if not path.exists():
-            return {}
-
-        try:
-            raw_profiles = tomllib.loads(path.read_text(encoding="utf-8"))
-        except tomllib.TOMLDecodeError as error:
-            raise RuntimeError(
-                f"GitHub profile config '{path}' is invalid: {error}"
-            ) from error
-        except OSError as error:
-            raise RuntimeError(
-                f"GitHub profile config '{path}' could not be read: {error}"
-            ) from error
-
-        profiles: dict[str, dict[str, str]] = {}
-        for profile_name, raw_profile in raw_profiles.items():
-            if not isinstance(raw_profile, dict):
-                raise RuntimeError(
-                    f"GitHub profile '{profile_name}' in '{path}' must be a table"
-                )
-            profile: dict[str, str] = {}
-            for option_name, option_value in raw_profile.items():
-                if option_name not in GITHUB_PROFILE_OPTIONS:
-                    raise RuntimeError(
-                        f"GitHub profile '{profile_name}' in '{path}' has unsupported "
-                        f"option '{option_name}'"
-                    )
-                if not isinstance(option_value, str) or not option_value.strip():
-                    raise RuntimeError(
-                        f"GitHub profile '{profile_name}' option '{option_name}' "
-                        "must be a non-empty string"
-                    )
-                profile[option_name] = option_value.strip()
-            profiles[profile_name] = profile
-
-        return profiles
 
 
 @dataclass(frozen=True, slots=True)
@@ -488,8 +429,8 @@ class _GitHubInstallationClientFlight:
 class GitHubSessionFactory:
     """Create PyGithub clients lazily from runtime GitHub provider options."""
 
-    def __init__(self, *, profile_config: GitHubProfileConfig | None = None) -> None:
-        self._profile_config = profile_config or GitHubProfileConfig()
+    def __init__(self, *, profile_config: ProviderProfileConfig | None = None) -> None:
+        self._profile_config = profile_config or ProviderProfileConfig()
         self._profile_cache: tuple[Path, dict[str, dict[str, str]]] | None = None
         self._profile_lock = threading.Lock()
         self._installation_ids: dict[object, int] = {}
@@ -698,7 +639,7 @@ class GitHubSessionFactory:
             settings.api_url,
             settings.api_version,
             settings.app_id,
-            _secret_fingerprint(settings.private_key),
+            secret_fingerprint(settings.private_key),
             installation_id,
         )
         with self._installation_lock:
@@ -781,8 +722,9 @@ class GitHubSessionFactory:
             return github_client(**kwargs)
         except Exception as error:
             raise RuntimeError(
-                f"GitHub provider could not build a runtime session: {error}"
-            ) from error
+                "GitHub provider could not build a runtime session. "
+                f"SDK error type: {type(error).__name__}."
+            ) from None
 
     @staticmethod
     def _build_retry(*, github_module: ModuleType) -> object:
@@ -900,7 +842,9 @@ class GitHubSessionFactory:
                     for profile_name, profile in self._profile_cache[1].items()
                 }
 
-            profiles = self._profile_config.load()
+            profiles = self._profile_config.load(
+                provider_name="github", supported_options=GITHUB_PROFILE_OPTIONS
+            )
             cached_profiles = {
                 profile_name: dict(profile)
                 for profile_name, profile in profiles.items()
@@ -1104,14 +1048,15 @@ class GitHubSessionFactory:
                     last_not_found = error
                     continue
                 raise RuntimeError(
-                    f"GitHub app installation lookup failed for '{target_id}': {error}"
-                ) from error
+                    f"GitHub app installation lookup failed for '{target_id}'. "
+                    f"SDK error type: {type(error).__name__}."
+                ) from None
             return _installation_id_from_response(data=data, target_id=target_id)
 
         if last_not_found is not None:
             raise RuntimeError(
                 f"GitHub app is not installed for target '{target_id}'"
-            ) from last_not_found
+            ) from None
         raise RuntimeError(f"GitHub app installation lookup failed for '{target_id}'")
 
     @staticmethod
@@ -1553,15 +1498,6 @@ def _github_netrc_host(api_url: str | None) -> str:
         return "github.com"
     parsed = urlparse(api_url)
     return parsed.hostname or api_url
-
-
-def _secret_fingerprint(secret: str | None) -> str | None:
-    if secret is None:
-        return None
-    stripped = secret.strip()
-    if not stripped:
-        return None
-    return hashlib.sha256(stripped.encode("utf-8")).hexdigest()
 
 
 def _installation_lookup_paths(*, target_id: str, target_type: str) -> list[str]:

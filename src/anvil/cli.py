@@ -36,6 +36,7 @@ from anvil.processor_loader import (
     run_processors,
 )
 from anvil.processor_validation import processor_validation_errors
+from anvil.provider_profiles import ProviderProfileConfig
 from anvil.provider_loader import (
     ProviderDescriptor,
     discover_providers,
@@ -834,6 +835,8 @@ def _env_present(name: str) -> bool:
 def _diagnostic_auth_source_checks() -> list[DiagnosticCheck]:
     home = Path.home()
     aws_config_path = home / ".aws" / "config"
+    anvil_config_path = ProviderProfileConfig().path
+    anvil_config_exists = anvil_config_path.exists()
     checks = [
         DiagnosticCheck(
             section="Auth Sources",
@@ -863,9 +866,9 @@ def _diagnostic_auth_source_checks() -> list[DiagnosticCheck]:
         ),
         DiagnosticCheck(
             section="Auth Sources",
-            status="OK" if _env_present("ANVIL_GITHUB_CONFIG") else "WARN",
-            label="ANVIL_GITHUB_CONFIG",
-            detail="set" if _env_present("ANVIL_GITHUB_CONFIG") else "not set",
+            status="OK" if anvil_config_exists else "WARN",
+            label="Anvil config",
+            detail=str(anvil_config_path) if anvil_config_exists else "not found",
         ),
     ]
 
