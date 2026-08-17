@@ -31,7 +31,7 @@
 
 ## Introduction
 
-Anvil is a declarative provider-aware execution engine for running Python tasks across cloud target and region fleets. Describe the work in YAML, keep task logic in plain Python modules, and let the engine handle authentication, target resolution, dependency ordering, bounded concurrency, and structured results. The current runtime preserves the AWS organization/account behavior and optimizations from earlier releases while adding explicit Azure subscription and GCP project target support.
+Anvil is a declarative provider-aware execution engine for running Python tasks across cloud and service target fleets. Describe the work in YAML, keep task logic in plain Python modules, and let the engine handle authentication, target resolution, dependency ordering, bounded concurrency, and structured results. The current runtime preserves the AWS organization/account behavior and optimizations from earlier releases while supporting Azure, Cloudflare, Datadog, GCP, GitHub, GitLab, and PagerDuty through the same provider-neutral contracts.
 
 For more, see the [documentation](https://opsfoundry.dev/).
 
@@ -46,6 +46,9 @@ Anvil is built for teams that need repeatable cloud workflows, such as inventory
   - AWS can discover active organization accounts and enabled regions, with include/exclude filtering.
   - Azure subscriptions and GCP projects can run from explicit IDs or provider
     discovery.
+  - Cloudflare preserves account and zone boundaries, GitLab preserves group and
+    project boundaries, and Datadog and PagerDuty execute at organization or
+    account scope without forcing cloud-specific hierarchy concepts.
 - Parallel execution and caching
   - Control concurrency at the target, account, and region levels. See [Caching and reuse](https://opsfoundry.dev/anvil/execution-model/#cache-and-reuse-boundaries).
 - Shared discovery and session reuse
@@ -75,10 +78,20 @@ Anvil is built for teams that need repeatable cloud workflows, such as inventory
       `pip install anvil`
    1. Azure users should install the Azure extra:
       `pip install "anvil[azure]"`
+   1. Cloudflare users should install the Cloudflare extra:
+      `pip install "anvil[cloudflare]"`
+   1. Datadog users should install the Datadog extra:
+      `pip install "anvil[datadog]"`
    1. GCP users should install the GCP extra:
       `pip install "anvil[gcp]"`
+   1. GitHub users should install the GitHub extra:
+      `pip install "anvil[github]"`
+   1. GitLab users should install the GitLab extra:
+      `pip install "anvil[gitlab]"`
+   1. PagerDuty users should install the PagerDuty extra:
+      `pip install "anvil[pagerduty]"`
    1. Source checkout users should sync the matching uv extra instead:
-      `uv sync --extra azure` or `uv sync --extra gcp`
+      `uv sync --extra <provider>`
 1. When using the uv tool, there are several ways to run and install dependencies. Here are only a couple examples:
 1. uv sync:
    1. Sync the project's dependencies with the environment: uv sync
@@ -121,6 +134,35 @@ targets:
       - name: noop
     dry_run: true
 ```
+
+### Provider profiles
+
+Anvil provider profiles live in `~/.anvil/config.toml`. Set `ANVIL_CONFIG` to
+use a different file. Profiles are namespaced by provider so providers can keep
+their own authentication and connection options without exposing them to Anvil
+core:
+
+```toml
+[providers.github.work]
+token_env = "GITHUB_WORK_TOKEN"
+api_url = "https://api.github.com"
+```
+
+Select a profile in the target's provider options:
+
+```yaml
+provider:
+  name: github
+  mode: repositories
+  options:
+    profile: work
+```
+
+Profile fields should reference credentials through environment-variable names
+or provider-native credential locations. Anvil does not treat this file as a
+plaintext secret vault. GitHub currently consumes these shared profiles; other
+providers can adopt the same profile contract while retaining their own option
+validation.
 
 ### Provider task packages
 > [!NOTE]
@@ -206,6 +248,103 @@ targets:
     tasks:
       - name: get_project_info
 ```
+
+Example Cloudflare zone configuration:
+
+```yaml
+schema_version: 2
+
+targets:
+  - name: cloudflare-zones
+    provider:
+      name: cloudflare
+      mode: zones
+      options:
+        api_token_env: CLOUDFLARE_API_TOKEN
+        account_id: 023e105f4ecef8ad9ca31a8372d0c353
+    include:
+      - 9a7806061c88ada191ed06f989cc3dac
+    regions:
+      - global
+    tasks:
+      - name: noop
+```
+
+Cloudflare supports `accounts` and `zones` modes with one `global` execution
+coordinate. Explicit IDs avoid discovery; omit `include` to discover visible
+resources. API tokens use `CLOUDFLARE_API_TOKEN`; legacy authentication requires
+both `CLOUDFLARE_API_KEY` and `CLOUDFLARE_EMAIL`.
+
+Example Datadog organization configuration:
+
+```yaml
+schema_version: 2
+
+targets:
+  - name: production-observability
+    provider:
+      name: datadog
+      mode: organization
+      options:
+        site: datadoghq.com
+        api_key_env: PROD_DD_API_KEY
+        app_key_env: PROD_DD_APP_KEY
+    regions:
+      - global
+    tasks:
+      - name: noop
+```
+
+Use one top-level target per Datadog organization. The `site` option selects the
+API endpoint and remains separate from Anvil's `global` execution coordinate.
+
+Example GitLab project configuration:
+
+```yaml
+schema_version: 2
+
+targets:
+  - name: gitlab-projects
+    provider:
+      name: gitlab
+      mode: projects
+      options:
+        url: https://gitlab.example.com
+        auth_type: private
+        token_env: ANVIL_GITLAB_TOKEN
+    include:
+      - platform/security/api
+    regions:
+      - global
+    tasks:
+      - name: noop
+```
+
+GitLab supports `groups` and `projects` modes on GitLab.com or self-managed
+instances. Selectors accept numeric IDs or full paths, including nested groups.
+Tokens used for discovery and read-only tasks should include `read_api` or `api`.
+
+Example PagerDuty account configuration:
+
+```yaml
+schema_version: 2
+
+targets:
+  - name: pagerduty-production
+    provider:
+      name: pagerduty
+      mode: account
+      options:
+        token_env: PAGERDUTY_API_TOKEN
+        subdomain: example
+    tasks:
+      - name: noop
+```
+
+PagerDuty executes at account scope while leaving teams, services, and SDK
+pagination available to task code through the runtime session. Set
+`auth_type: bearer` for OAuth access tokens or configure `api_url` for another
+PagerDuty service region.
 
 For delegated-administrator patterns, keep the base session on the
 delegated-admin profile. Anvil uses that base session directly for the
