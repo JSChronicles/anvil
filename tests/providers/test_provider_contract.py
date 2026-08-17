@@ -14,9 +14,21 @@ from anvil.providers.base import (
     validate_provider_contract,
     validate_resolved_regions,
 )
+from anvil.providers.cloudflare import (
+    create_provider_instance as create_cloudflare_provider_instance,
+)
+from anvil.providers.datadog import (
+    create_provider_instance as create_datadog_provider_instance,
+)
 from anvil.providers.gcp import create_provider_instance as create_gcp_provider_instance
 from anvil.providers.github import (
     create_provider_instance as create_github_provider_instance,
+)
+from anvil.providers.gitlab import (
+    create_provider_instance as create_gitlab_provider_instance,
+)
+from anvil.providers.pagerduty import (
+    create_provider_instance as create_pagerduty_provider_instance,
 )
 
 
@@ -56,8 +68,12 @@ def test_first_party_providers_satisfy_provider_contract():
     providers = [
         create_aws_provider_instance(),
         create_azure_provider_instance(),
+        create_cloudflare_provider_instance(),
+        create_datadog_provider_instance(),
         create_gcp_provider_instance(),
         create_github_provider_instance(),
+        create_gitlab_provider_instance(),
+        create_pagerduty_provider_instance(),
     ]
 
     for provider in providers:
@@ -79,8 +95,12 @@ def test_configured_or_default_regions_preserves_explicit_values():
     [
         (create_aws_provider_instance(), ["us-east-1"]),
         (create_azure_provider_instance(), ["eastus"]),
+        (create_cloudflare_provider_instance(), ["global"]),
+        (create_datadog_provider_instance(), ["global"]),
         (create_gcp_provider_instance(), ["us-central1"]),
         (create_github_provider_instance(), ["global"]),
+        (create_gitlab_provider_instance(), ["global"]),
+        (create_pagerduty_provider_instance(), ["global"]),
     ],
 )
 def test_omitted_regions_resolve_from_provider_metadata(provider, expected):

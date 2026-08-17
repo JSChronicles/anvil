@@ -245,7 +245,7 @@ def test_provider_descriptor_index_builds_once_for_multiple_configured_tasks(
     assert calls == {"packages": 2}
 
 
-def test_discover_tasks_includes_github_provider_list(monkeypatch):
+def test_discover_tasks_includes_first_party_provider_list(monkeypatch):
     task_loader = importlib.import_module("anvil.task_loader")
     seen: list[str] = []
 
@@ -257,7 +257,16 @@ def test_discover_tasks_includes_github_provider_list(monkeypatch):
 
     task_loader.discover_tasks()
 
-    assert seen == ["aws", "azure", "gcp", "github"]
+    assert seen == [
+        "aws",
+        "azure",
+        "cloudflare",
+        "datadog",
+        "gcp",
+        "github",
+        "gitlab",
+        "pagerduty",
+    ]
 
 
 def test_discover_tasks_scans_universal_sources_once(monkeypatch):
@@ -282,8 +291,12 @@ def test_discover_tasks_scans_universal_sources_once(monkeypatch):
     assert sorted(source for source in package_sources if source != "universal") == [
         "aws",
         "azure",
+        "cloudflare",
+        "datadog",
         "gcp",
         "github",
+        "gitlab",
+        "pagerduty",
     ]
 
 

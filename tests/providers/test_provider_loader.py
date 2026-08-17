@@ -26,8 +26,12 @@ def test_list_providers_returns_aws_without_loading_provider(monkeypatch):
     assert [(provider.name, str(provider.source)) for provider in providers] == [
         ("aws", "stock"),
         ("azure", "stock"),
+        ("cloudflare", "stock"),
+        ("datadog", "stock"),
         ("gcp", "stock"),
         ("github", "stock"),
+        ("gitlab", "stock"),
+        ("pagerduty", "stock"),
     ]
 
 
