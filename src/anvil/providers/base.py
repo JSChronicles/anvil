@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import inspect
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -9,6 +10,17 @@ from anvil.descriptors import TargetDescriptor
 from anvil.execution_context import ExecutionContext
 from anvil.regions import ALL_REGION_SELECTOR, is_region_selector
 from anvil.results import ExecutionStatus
+
+
+def secret_fingerprint(secret: str | None) -> str | None:
+    """Return a stable digest for a secret without exposing the secret."""
+
+    if secret is None:
+        return None
+    stripped = secret.strip()
+    if not stripped:
+        return None
+    return hashlib.sha256(stripped.encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True, slots=True)
