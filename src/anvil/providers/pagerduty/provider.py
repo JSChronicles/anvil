@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 
 from anvil.descriptors import TargetDescriptor
 from anvil.execution_context import ExecutionContext
+from anvil.provider_profiles import ProviderProfileConfig, ProviderProfileResolver
 from anvil.providers.base import (
     ExecutionTarget,
     ProviderAuthResult,
@@ -40,6 +41,9 @@ DEFAULT_REGIONS = ("global",)
 MODE_ACCOUNT = "account"
 SUPPORTED_MODES = frozenset({MODE_ACCOUNT})
 SUPPORTED_OPTIONS = frozenset(
+    {"api_url", "auth_type", "from_email", "subdomain", "token_env", "profile"}
+)
+PAGERDUTY_PROFILE_OPTIONS = frozenset(
     {"api_url", "auth_type", "from_email", "subdomain", "token_env"}
 )
 SUPPORTED_AUTH_TYPES = frozenset({"bearer", "token"})
@@ -114,9 +118,17 @@ class PagerDutyProvider:
     )
 
     def __init__(
-        self, *, session_factory: PagerDutySessionFactory | None = None
+        self,
+        *,
+        session_factory: PagerDutySessionFactory | None = None,
+        profile_config: ProviderProfileConfig | None = None,
     ) -> None:
         self._session_factory = session_factory or PagerDutySessionFactory()
+        self._profile_resolver = ProviderProfileResolver(
+            provider_name=self.metadata.name,
+            profile_options=PAGERDUTY_PROFILE_OPTIONS,
+            config=profile_config,
+        )
 
     def validate_target(self, target: TargetDescriptor) -> None:
         """Validate PagerDuty account target configuration."""
@@ -134,7 +146,8 @@ class PagerDutyProvider:
         if target.include is not None or target.exclude is not None:
             raise ValueError("PagerDuty account mode does not allow include or exclude")
 
-        auth_type_value = target.provider_options.get("auth_type", "token")
+        provider_options = self._provider_options(target)
+        auth_type_value = provider_options.get("auth_type", "token")
         auth_type = (
             auth_type_value.strip()
             if isinstance(auth_type_value, str)
@@ -145,8 +158,8 @@ class PagerDutyProvider:
             raise ValueError(
                 f"PagerDuty provider.options.auth_type must be one of: {allowed}"
             )
-        self._validate_api_url(target.provider_options.get("api_url"))
-        self._validate_subdomain(target.provider_options.get("subdomain"))
+        self._validate_api_url(provider_options.get("api_url"))
+        self._validate_subdomain(provider_options.get("subdomain"))
 
     def resolve_target_filters(
         self,
@@ -166,7 +179,7 @@ class PagerDutyProvider:
         """Return a credential-sensitive identity without exposing the token."""
 
         settings = resolve_auth_settings(
-            provider_options=target.provider_options, require_token=False
+            provider_options=self._provider_options(target), require_token=False
         )
         return (self.metadata.name, settings.cache_identity())
 
@@ -175,7 +188,7 @@ class PagerDutyProvider:
 
         self.validate_target(target)
         settings = resolve_auth_settings(
-            provider_options=target.provider_options, require_token=False
+            provider_options=self._provider_options(target), require_token=False
         )
         try:
             settings.require_token()
@@ -233,7 +246,9 @@ class PagerDutyProvider:
         self.validate_target(target)
         if include is not None or exclude is not None:
             raise ValueError("PagerDuty account mode does not allow target filters")
-        settings = resolve_auth_settings(provider_options=target.provider_options)
+        settings = resolve_auth_settings(
+            provider_options=self._provider_options(target)
+        )
         account_identity: object = settings.subdomain or (
             "credential",
             settings.token_fingerprint,
@@ -269,7 +284,7 @@ class PagerDutyProvider:
         settings = (
             preparation.settings
             if isinstance(preparation, PagerDutyPreflightData)
-            else resolve_auth_settings(provider_options=target.provider_options)
+            else resolve_auth_settings(provider_options=self._provider_options(target))
         )
         account_id = settings.subdomain or target.name
         data = PagerDutyExecutionTargetData(
@@ -312,6 +327,11 @@ class PagerDutyProvider:
                 "PagerDuty execution target is missing PagerDutyExecutionTargetData"
             )
         return PagerDutyExecutionRuntime(data=execution_target.provider_data)
+
+    def _provider_options(self, target: TargetDescriptor) -> dict[str, object]:
+        """Return PagerDuty options with any Anvil profile expanded."""
+
+        return self._profile_resolver.resolve(target.provider_options)
 
     @staticmethod
     def _validate_api_url(value: object) -> None:

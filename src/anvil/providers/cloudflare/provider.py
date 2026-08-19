@@ -10,6 +10,7 @@ from typing import cast
 from anvil.benchmark import BenchmarkRecorder
 from anvil.descriptors import TargetDescriptor
 from anvil.execution_context import ExecutionContext
+from anvil.provider_profiles import ProviderProfileConfig, ProviderProfileResolver
 from anvil.providers.base import (
     ExecutionTarget,
     ProviderAuthResult,
@@ -46,7 +47,17 @@ MODE_ACCOUNTS = "accounts"
 MODE_ZONES = "zones"
 SUPPORTED_MODES = frozenset({MODE_ACCOUNTS, MODE_ZONES})
 SUPPORTED_OPTIONS = frozenset(
-    {"account_id", "api_token_env", "api_key_env", "api_email_env", "base_url"}
+    {
+        "account_id",
+        "api_token_env",
+        "api_key_env",
+        "api_email_env",
+        "base_url",
+        "profile",
+    }
+)
+CLOUDFLARE_PROFILE_OPTIONS = frozenset(
+    {"api_token_env", "api_key_env", "api_email_env", "base_url"}
 )
 CLOUDFLARE_IDENTIFIER_LENGTH = 32
 
@@ -142,9 +153,17 @@ class CloudflareProvider:
     )
 
     def __init__(
-        self, *, session_factory: CloudflareSessionFactory | None = None
+        self,
+        *,
+        session_factory: CloudflareSessionFactory | None = None,
+        profile_config: ProviderProfileConfig | None = None,
     ) -> None:
         self._session_factory = session_factory or CloudflareSessionFactory()
+        self._profile_resolver = ProviderProfileResolver(
+            provider_name=self.metadata.name,
+            profile_options=CLOUDFLARE_PROFILE_OPTIONS,
+            config=profile_config,
+        )
 
     def validate_target(self, target: TargetDescriptor) -> None:
         """Validate Cloudflare modes, credentials, identifiers, and coordinates."""
@@ -156,7 +175,7 @@ class CloudflareProvider:
         if target.mode not in SUPPORTED_MODES:
             raise ValueError(f"Unsupported Cloudflare target mode: {target.mode}")
         validate_string_options(target=target, allowed_options=SUPPORTED_OPTIONS)
-        validate_auth_options(provider_options=target.provider_options)
+        validate_auth_options(provider_options=self._provider_options(target))
         validate_region_selectors(target=target, selectors_allowed=False)
         if target.regions is not None and target.regions != ["global"]:
             raise ValueError("Cloudflare targets support only regions: [global]")
@@ -210,7 +229,9 @@ class CloudflareProvider:
         """Return a secret-safe authentication cache key when credentials resolve."""
 
         try:
-            settings = resolve_auth_settings(provider_options=target.provider_options)
+            settings = resolve_auth_settings(
+                provider_options=self._provider_options(target)
+            )
         except RuntimeError, ValueError:
             return None
         return (self.metadata.name, settings.cache_identity())
@@ -220,7 +241,9 @@ class CloudflareProvider:
 
         self.validate_target(target)
         try:
-            settings = resolve_auth_settings(provider_options=target.provider_options)
+            settings = resolve_auth_settings(
+                provider_options=self._provider_options(target)
+            )
             self._session_factory.validate_client(settings=settings)
         except CloudflareDependencyError as error:
             return ProviderAuthResult(
@@ -273,7 +296,9 @@ class CloudflareProvider:
         """Resolve and cache Cloudflare account or zone discovery before execution."""
 
         self.validate_target(target)
-        settings = resolve_auth_settings(provider_options=target.provider_options)
+        settings = resolve_auth_settings(
+            provider_options=self._provider_options(target)
+        )
         recorder = BenchmarkRecorder(data=benchmark)
         cache_hit = False
         cache_waited = False
@@ -361,7 +386,9 @@ class CloudflareProvider:
             raise TypeError("Cloudflare preparation must be CloudflarePreflightData")
 
         if preparation is None:
-            settings = resolve_auth_settings(provider_options=target.provider_options)
+            settings = resolve_auth_settings(
+                provider_options=self._provider_options(target)
+            )
             if target.mode == MODE_ACCOUNTS:
                 accounts = (
                     self._explicit_accounts(include)
@@ -600,6 +627,11 @@ class CloudflareProvider:
                 f"Invalid Cloudflare {label} ID '{identifier}': expected a "
                 f"{CLOUDFLARE_IDENTIFIER_LENGTH}-character hexadecimal ID"
             )
+
+    def _provider_options(self, target: TargetDescriptor) -> dict[str, object]:
+        """Return Cloudflare options with any Anvil profile expanded."""
+
+        return self._profile_resolver.resolve(target.provider_options)
 
     @staticmethod
     def _string_option(*, target: TargetDescriptor, option_name: str) -> str | None:

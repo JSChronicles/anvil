@@ -5,7 +5,9 @@ from dataclasses import dataclass
 
 from anvil.descriptors import TargetDescriptor
 from anvil.execution_context import ExecutionContext
+from anvil.provider_profiles import ProviderProfileConfig, ProviderProfileResolver
 from anvil.providers.datadog.config import (
+    DATADOG_PROFILE_OPTIONS,
     SUPPORTED_OPTIONS,
     DatadogTargetSettings,
     target_settings,
@@ -109,8 +111,18 @@ class DatadogProvider:
         supported_task_scopes=frozenset({"region", "target"}),
     )
 
-    def __init__(self, *, session_factory: DatadogSessionFactory | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        session_factory: DatadogSessionFactory | None = None,
+        profile_config: ProviderProfileConfig | None = None,
+    ) -> None:
         self._session_factory = session_factory or DatadogSessionFactory()
+        self._profile_resolver = ProviderProfileResolver(
+            provider_name=self.metadata.name,
+            profile_options=DATADOG_PROFILE_OPTIONS,
+            config=profile_config,
+        )
 
     def validate_target(self, target: TargetDescriptor) -> None:
         """Validate a single-organization Datadog target descriptor."""
@@ -133,7 +145,7 @@ class DatadogProvider:
                 "Datadog organization mode does not allow include or exclude; "
                 "configure one top-level target per organization"
             )
-        target_settings(target.provider_options)
+        target_settings(self._provider_options(target))
 
     def resolve_target_filters(
         self,
@@ -154,14 +166,14 @@ class DatadogProvider:
     def auth_cache_key(self, target: TargetDescriptor) -> object | None:
         """Return a stable, secret-safe Datadog authentication identity."""
 
-        settings = target_settings(target.provider_options)
+        settings = target_settings(self._provider_options(target))
         return (self.metadata.name, *settings.cache_identity())
 
     def auth_check(self, target: TargetDescriptor) -> ProviderAuthResult:
         """Validate Datadog dependencies, credentials, and key-pair authentication."""
 
         self.validate_target(target)
-        settings = target_settings(target.provider_options)
+        settings = target_settings(self._provider_options(target))
         try:
             source = self._session_factory.validate_auth(settings=settings)
         except DatadogDependencyError as error:
@@ -243,7 +255,7 @@ class DatadogProvider:
         if regions != ["global"]:
             raise ValueError("Datadog execution regions must resolve to ['global']")
 
-        settings = target_settings(target.provider_options)
+        settings = target_settings(self._provider_options(target))
         data = DatadogExecutionTargetData(
             target_id=target.name,
             regions=list(regions),
@@ -284,6 +296,11 @@ class DatadogProvider:
                 "Datadog execution target is missing DatadogExecutionTargetData"
             )
         return DatadogExecutionRuntime(data=execution_target.provider_data)
+
+    def _provider_options(self, target: TargetDescriptor) -> dict[str, object]:
+        """Return Datadog options with any Anvil profile expanded."""
+
+        return self._profile_resolver.resolve(target.provider_options)
 
 
 def create_provider_instance() -> DatadogProvider:

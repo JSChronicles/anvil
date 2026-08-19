@@ -7,6 +7,7 @@ from dataclasses import dataclass, replace
 from anvil.benchmark import BenchmarkRecorder
 from anvil.descriptors import TargetDescriptor
 from anvil.execution_context import ExecutionContext
+from anvil.provider_profiles import ProviderProfileConfig, ProviderProfileResolver
 from anvil.providers.base import (
     ExecutionTarget,
     ProviderAuthResult,
@@ -25,6 +26,7 @@ from anvil.providers.gitlab.auth import GitLabAuthSettings, resolve_auth_setting
 from anvil.providers.gitlab.config import (
     DEFAULT_REGIONS,
     GITLAB_AUTH_REMEDIATION,
+    GITLAB_PROFILE_OPTIONS,
     GITLAB_EXTRA_REMEDIATION,
     SUPPORTED_MODES,
     SUPPORTED_OPTIONS,
@@ -106,12 +108,18 @@ class GitLabProvider:
         *,
         session_factory: GitLabSessionFactory | None = None,
         target_resolver: GitLabTargetResolver | None = None,
+        profile_config: ProviderProfileConfig | None = None,
     ) -> None:
         """Initialize provider collaborators with injectable test seams."""
 
         self._session_factory = session_factory or GitLabSessionFactory()
         self._target_resolver = target_resolver or GitLabTargetResolver(
             session_factory=self._session_factory
+        )
+        self._profile_resolver = ProviderProfileResolver(
+            provider_name=self.metadata.name,
+            profile_options=GITLAB_PROFILE_OPTIONS,
+            config=profile_config,
         )
 
     def validate_target(self, target: TargetDescriptor) -> None:
@@ -129,16 +137,17 @@ class GitLabProvider:
             raise ValueError(
                 "GitLab include and exclude filters are mutually exclusive"
             )
-        if gitlab_option(target, "token_env") is None:
+        resolved_target = self._resolved_target(target)
+        if gitlab_option(resolved_target, "token_env") is None:
             raise ValueError("GitLab provider.options.token_env is required")
 
-        auth_type = gitlab_option(target, "auth_type") or "private"
+        auth_type = gitlab_option(resolved_target, "auth_type") or "private"
         if auth_type not in {"private", "oauth"}:
             raise ValueError(
                 f"Unsupported GitLab auth_type '{auth_type}'. Supported values: "
                 "oauth, private"
             )
-        normalize_gitlab_url(gitlab_option(target, "url"))
+        normalize_gitlab_url(gitlab_option(resolved_target, "url"))
 
         for selector in [*(target.include or []), *(target.exclude or [])]:
             if selector.isdigit() and int(selector) <= 0:
@@ -175,7 +184,9 @@ class GitLabProvider:
     def auth_cache_key(self, target: TargetDescriptor) -> object | None:
         """Return an instance and credential-sensitive authentication cache key."""
 
-        settings = resolve_auth_settings(target=target, require_token=False)
+        settings = resolve_auth_settings(
+            target=self._resolved_target(target), require_token=False
+        )
         return (self.metadata.name, settings.cache_identity())
 
     def auth_check(self, target: TargetDescriptor) -> ProviderAuthResult:
@@ -184,7 +195,9 @@ class GitLabProvider:
         self.validate_target(target)
         settings: GitLabAuthSettings | None = None
         try:
-            settings = resolve_auth_settings(target=target, require_token=True)
+            settings = resolve_auth_settings(
+                target=self._resolved_target(target), require_token=True
+            )
             self._session_factory.validate_auth(settings=settings)
         except RuntimeError as error:
             message = (
@@ -230,7 +243,9 @@ class GitLabProvider:
         """Resolve GitLab resources before scheduler admission."""
 
         self.validate_target(target)
-        settings = resolve_auth_settings(target=target, require_token=True)
+        settings = resolve_auth_settings(
+            target=self._resolved_target(target), require_token=True
+        )
         recorder = BenchmarkRecorder(data=benchmark)
         with recorder.phase(f"gitlab_resolve_{target.mode}_seconds"):
             resources = self._target_resolver.resolve(
@@ -295,6 +310,14 @@ class GitLabProvider:
                 "GitLab execution target is missing GitLabExecutionTargetData"
             )
         return GitLabExecutionRuntime(data=execution_target.provider_data)
+
+    def _resolved_target(self, target: TargetDescriptor) -> TargetDescriptor:
+        """Return a GitLab target with any Anvil profile expanded."""
+
+        return replace(
+            target,
+            provider_options=self._profile_resolver.resolve(target.provider_options),
+        )
 
     def _execution_target(
         self,

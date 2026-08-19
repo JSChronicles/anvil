@@ -10,7 +10,8 @@ from anvil.providers.base import secret_fingerprint
 DEFAULT_SITE = "datadoghq.com"
 DEFAULT_API_KEY_ENV = "DD_API_KEY"
 DEFAULT_APP_KEY_ENV = "DD_APP_KEY"
-SUPPORTED_OPTIONS = frozenset({"site", "api_key_env", "app_key_env"})
+SUPPORTED_OPTIONS = frozenset({"site", "api_key_env", "app_key_env", "profile"})
+DATADOG_PROFILE_OPTIONS = frozenset({"site", "api_key_env", "app_key_env"})
 SUPPORTED_SITES = frozenset(
     {
         "ap1.datadoghq.com",

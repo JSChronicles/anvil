@@ -18,7 +18,8 @@ AUTH_TYPE_PRIVATE = "private"
 AUTH_TYPE_OAUTH = "oauth"
 SUPPORTED_AUTH_TYPES = frozenset({AUTH_TYPE_PRIVATE, AUTH_TYPE_OAUTH})
 
-SUPPORTED_OPTIONS = frozenset({"url", "auth_type", "token_env", "ca_cert_path"})
+GITLAB_PROFILE_OPTIONS = frozenset({"url", "auth_type", "token_env", "ca_cert_path"})
+SUPPORTED_OPTIONS = GITLAB_PROFILE_OPTIONS | {"profile"}
 
 GITLAB_EXTRA_REMEDIATION = (
     "Install GitLab dependencies with 'uv sync --extra gitlab' for a source "
