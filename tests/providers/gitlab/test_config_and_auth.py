@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from anvil.descriptors import TargetDescriptor
+from anvil.provider_profiles import ProviderProfileConfig
 from anvil.providers.gitlab.auth import resolve_auth_settings
 from anvil.providers.gitlab.config import normalize_gitlab_url
 from anvil.providers.gitlab.provider import GitLabProvider
@@ -117,6 +119,29 @@ def test_gitlab_auth_cache_identity_is_secret_safe_and_credential_sensitive(
     assert first_key != second_key
     assert "first-secret-token" not in repr(first_key)
     assert "second-secret-token" not in repr(second_key)
+
+
+def test_gitlab_named_profile_resolves_authentication_settings(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        "[providers.gitlab.work]\n"
+        'url = "https://gitlab.example.com"\n'
+        'auth_type = "oauth"\n'
+        'token_env = "WORK_GITLAB_TOKEN"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("WORK_GITLAB_TOKEN", "profile-secret")
+    provider = GitLabProvider(profile_config=ProviderProfileConfig(path=config_path))
+    target = _target(options={"profile": "work"})
+
+    provider.validate_target(target)
+    cache_key = provider.auth_cache_key(target)
+
+    assert cache_key[1][0] == "https://gitlab.example.com"
+    assert cache_key[1][1] == "oauth"
+    assert "profile-secret" not in repr(cache_key)
 
 
 def test_gitlab_auth_settings_trim_tokens_and_redact_error_text(monkeypatch) -> None:

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from pathlib import Path
 from types import ModuleType
 
 import pytest
 
 from anvil.descriptors import TargetDescriptor
 from anvil.execution_context import ExecutionContext
+from anvil.provider_profiles import ProviderProfileConfig
 from anvil.providers.pagerduty.auth import PagerDutyAuthSettings, resolve_auth_settings
 from anvil.providers.pagerduty.errors import PagerDutyDependencyError
 from anvil.providers.pagerduty.provider import (
@@ -153,6 +155,34 @@ def test_auth_check_resolves_explicit_environment(monkeypatch) -> None:
     assert settings.from_email == "admin@example.com"
     assert settings.subdomain == "acme"
     assert "secret-token" not in repr(settings.cache_identity())
+
+
+def test_auth_check_resolves_named_provider_profile(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        "[providers.pagerduty.eu]\n"
+        'token_env = "EU_PD_TOKEN"\n'
+        'auth_type = "bearer"\n'
+        'api_url = "https://api.eu.pagerduty.com"\n'
+        'subdomain = "acme"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EU_PD_TOKEN", "profile-secret")
+    session_factory = FakeSessionFactory()
+    provider = PagerDutyProvider(
+        session_factory=session_factory,
+        profile_config=ProviderProfileConfig(path=config_path),
+    )
+
+    result = provider.auth_check(_target(provider_options={"profile": "eu"}))
+
+    assert result.status is ExecutionStatus.SUCCESS
+    settings = session_factory.validated[0]
+    assert settings.auth_type == "bearer"
+    assert settings.api_url == "https://api.eu.pagerduty.com"
+    assert settings.subdomain == "acme"
 
 
 def test_auth_check_reports_missing_credentials(monkeypatch) -> None:

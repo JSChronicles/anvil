@@ -3,6 +3,7 @@ from __future__ import annotations
 import builtins
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from threading import Event, Lock
 from types import ModuleType, SimpleNamespace
 
@@ -10,6 +11,7 @@ import pytest
 
 from anvil.descriptors import TargetDescriptor
 from anvil.execution_context import ExecutionContext
+from anvil.provider_profiles import ProviderProfileConfig
 from anvil.providers.cloudflare.auth import (
     CloudflareAuthSettings,
     resolve_auth_settings,
@@ -187,6 +189,30 @@ def test_cloudflare_rejects_mixed_and_incomplete_explicit_credentials():
         provider.validate_target(
             _target(provider_options={"api_key_env": "CUSTOM_CF_KEY"})
         )
+
+
+def test_cloudflare_named_profile_allows_target_account_option(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        '[providers.cloudflare.work]\napi_token_env = "CUSTOM_CF_TOKEN"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CUSTOM_CF_TOKEN", "profile-token")
+    session_factory = FakeSessionFactory()
+    provider = CloudflareProvider(
+        session_factory=session_factory,
+        profile_config=ProviderProfileConfig(path=config_path),
+    )
+    target = _target(
+        mode="zones", provider_options={"profile": "work", "account_id": ACCOUNT_A}
+    )
+
+    result = provider.auth_check(target)
+
+    assert result.status is ExecutionStatus.SUCCESS
+    assert session_factory.validation_calls[0].source == "api_token:CUSTOM_CF_TOKEN"
 
 
 def test_cloudflare_auth_resolution_prefers_token_and_supports_legacy(monkeypatch):

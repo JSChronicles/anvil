@@ -8,6 +8,7 @@ from anvil.provider_profiles import (
     ANVIL_CONFIG_ENV,
     ANVIL_CONFIG_PATH,
     ProviderProfileConfig,
+    ProviderProfileResolver,
 )
 
 
@@ -84,3 +85,57 @@ def test_provider_profile_config_rejects_invalid_schema(
         ProviderProfileConfig(path=config_path).load(
             provider_name="github", supported_options={"token_env", "app_id"}
         )
+
+
+def test_provider_profile_resolver_expands_named_profile_and_passthrough(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        '[providers.cloudflare.work]\napi_token_env = "WORK_TOKEN"\n', encoding="utf-8"
+    )
+    resolver = ProviderProfileResolver(
+        provider_name="cloudflare",
+        profile_options={"api_token_env", "base_url"},
+        config=ProviderProfileConfig(path=config_path),
+    )
+
+    options = resolver.resolve({"profile": "work", "account_id": "account"})
+
+    assert options == {"api_token_env": "WORK_TOKEN", "account_id": "account"}
+
+
+def test_provider_profile_resolver_uses_default_without_inline_profile_options(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        '[providers.datadog.default]\nsite = "datadoghq.eu"\n', encoding="utf-8"
+    )
+    resolver = ProviderProfileResolver(
+        provider_name="datadog",
+        profile_options={"site"},
+        config=ProviderProfileConfig(path=config_path),
+    )
+
+    assert resolver.resolve({}) == {"site": "datadoghq.eu"}
+    assert resolver.resolve({"site": "datadoghq.com"}) == {"site": "datadoghq.com"}
+
+
+def test_provider_profile_resolver_rejects_missing_or_mixed_profile(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        '[providers.gitlab.work]\ntoken_env = "GITLAB_TOKEN"\n', encoding="utf-8"
+    )
+    resolver = ProviderProfileResolver(
+        provider_name="gitlab",
+        profile_options={"token_env"},
+        config=ProviderProfileConfig(path=config_path),
+    )
+
+    with pytest.raises(RuntimeError, match="profile 'missing' was not found"):
+        resolver.resolve({"profile": "missing"})
+    with pytest.raises(ValueError, match="cannot be combined.*token_env"):
+        resolver.resolve({"profile": "work", "token_env": "OTHER_TOKEN"})

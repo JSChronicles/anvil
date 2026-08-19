@@ -3,12 +3,14 @@ from __future__ import annotations
 import builtins
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
 import pytest
 
 from anvil.descriptors import TargetDescriptor
 from anvil.execution_context import ExecutionContext
+from anvil.provider_profiles import ProviderProfileConfig
 from anvil.providers.base import ExecutionTarget
 from anvil.providers.datadog.config import (
     DEFAULT_API_KEY_ENV,
@@ -178,6 +180,34 @@ def test_auth_check_returns_actionable_missing_credential(monkeypatch) -> None:
     assert DEFAULT_APP_KEY_ENV in (result.message or "")
     assert "provider.options" in (result.remediation or "")
     assert "api-secret" not in repr(result)
+
+
+def test_auth_check_resolves_named_provider_profile(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        "[providers.datadog.eu]\n"
+        'site = "datadoghq.eu"\n'
+        'api_key_env = "EU_DD_API_KEY"\n'
+        'app_key_env = "EU_DD_APP_KEY"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EU_DD_API_KEY", "api-secret")
+    monkeypatch.setenv("EU_DD_APP_KEY", "app-secret")
+    session_factory = FakeSessionFactory()
+    provider = DatadogProvider(
+        session_factory=session_factory,
+        profile_config=ProviderProfileConfig(path=config_path),
+    )
+
+    result = provider.auth_check(_target(provider_options={"profile": "eu"}))
+
+    assert result.status is ExecutionStatus.SUCCESS
+    settings = session_factory.validate_calls[0]
+    assert settings.site == "datadoghq.eu"
+    assert settings.api_key_env == "EU_DD_API_KEY"
+    assert settings.app_key_env == "EU_DD_APP_KEY"
 
 
 def test_auth_check_uses_injected_factory_and_normalized_site() -> None:
