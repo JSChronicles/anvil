@@ -75,21 +75,9 @@ Anvil is built for teams that need repeatable cloud workflows, such as inventory
 1. Install Anvil with the provider SDKs you need:
    1. Installed package users can choose provider extras with pip. Base installs
       include AWS support and the default CLI behavior:
-      `pip install anvil`
-   1. Azure users should install the Azure extra:
-      `pip install "anvil[azure]"`
-   1. Cloudflare users should install the Cloudflare extra:
-      `pip install "anvil[cloudflare]"`
-   1. Datadog users should install the Datadog extra:
-      `pip install "anvil[datadog]"`
-   1. GCP users should install the GCP extra:
-      `pip install "anvil[gcp]"`
-   1. GitHub users should install the GitHub extra:
-      `pip install "anvil[github]"`
-   1. GitLab users should install the GitLab extra:
-      `pip install "anvil[gitlab]"`
-   1. PagerDuty users should install the PagerDuty extra:
-      `pip install "anvil[pagerduty]"`
+      `uv pip install anvil`
+   1. All other providers require users to install via extras:
+      `uv pip install "anvil[xxxx]"`, so like `uv pip install "anvil[azure]"`
    1. Source checkout users should sync the matching uv extra instead:
       `uv sync --extra <provider>`
 1. When using the uv tool, there are several ways to run and install dependencies. Here are only a couple examples:
@@ -160,9 +148,12 @@ provider:
 
 Profile fields should reference credentials through environment-variable names
 or provider-native credential locations. Anvil does not treat this file as a
-plaintext secret vault. GitHub currently consumes these shared profiles; other
-providers can adopt the same profile contract while retaining their own option
-validation.
+plaintext secret vault. Cloudflare, Datadog, GitHub, GitLab, and PagerDuty
+consume shared profiles while retaining their provider-owned option validation.
+Named profiles cannot be combined with inline profile fields. A `default`
+profile is used when no inline profile fields are configured. Provider-specific
+target selectors remain inline; for example, a Cloudflare `account_id` can be
+used alongside `profile`.
 
 ### Provider task packages
 > [!NOTE]
@@ -171,14 +162,14 @@ validation.
 
 Task compatibility is determined by package location.
 
-For schema-v2 invocation IDs, dependency-data selection, `always_run` recovery,
-module-declared scopes, and configured-target fan-in/fan-out, see
-[Task workflows](docs/task-workflows.md).
+For more information on tasks, result sharing between tasks, always_run tasks and more, see
+[Task workflows](docs/task-workflows.md). # move to website
 
 - `anvil.providers.tasks.<task>` is universal and can run for any provider.
-- `anvil.providers.aws.tasks.<task>` is AWS-only.
-- `anvil.providers.azure.tasks.<task>` is Azure-only.
-- `anvil.providers.gcp.tasks.<task>` is GCP-only.
+- `anvil.providers.aws.tasks.<task>` is AWS-only and so on and so forth.
+
+Use target `dry_run: true` to review planned removals before execution.
+
 
 ### Extension package discovery
 
