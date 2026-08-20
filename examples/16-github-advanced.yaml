@@ -22,11 +22,11 @@ targets:
     includes_parents: true
   tasks:
   - id: code_scanning_alerts
-    name: list_code_scanning_alerts
+    name: list_code_scanning_alert
   - id: secret_scanning_alerts
-    name: list_secret_scanning_alerts
+    name: list_secret_scanning_alert
   - id: dependabot_alerts
-    name: list_dependabot_alerts
+    name: list_dependabot_alert
   - id: branch_protection_audit
     name: audit_branch_protection
   - id: ruleset_audit

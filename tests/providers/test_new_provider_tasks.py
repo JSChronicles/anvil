@@ -5,10 +5,19 @@ from types import SimpleNamespace
 import pytest
 
 from anvil.actions import ActionRecorder
-from anvil.providers.cloudflare.tasks import list_dns_records
-from anvil.providers.datadog.tasks import list_monitors
-from anvil.providers.gitlab.tasks import list_secret_scanning_alerts, search_code
-from anvil.providers.pagerduty.tasks import list_services, remove_user
+from anvil.providers.cloudflare.tasks import (
+    list_account_member,
+    list_dns_record,
+    remove_account_member,
+)
+from anvil.providers.datadog.tasks import disable_user, list_monitor, list_user
+from anvil.providers.github.tasks import list_member as github_list_member
+from anvil.providers.github.tasks import list_team_member as github_list_team_member
+from anvil.providers.github.tasks import remove_team as github_remove_team
+from anvil.providers.github.tasks import remove_team_member as github_remove_team_member
+from anvil.providers.gitlab.tasks import list_member as gitlab_list_member
+from anvil.providers.gitlab.tasks import list_secret_scanning_alert, search_code
+from anvil.providers.pagerduty.tasks import list_service, remove_user
 
 
 def _arguments(
@@ -37,7 +46,7 @@ def test_cloudflare_list_dns_records_uses_zone_scope() -> None:
     )
     arguments = _arguments(provider="cloudflare", target_type="zone", session=session)
 
-    result = list_dns_records.run(**arguments)
+    result = list_dns_record.run(**arguments)
 
     assert result["record_count"] == 1
     assert result["records"] == [{"id": "record-1", "type": "A"}]
@@ -63,12 +72,199 @@ def test_datadog_list_monitors_serializes_sdk_models(
         session=SimpleNamespace(client="datadog-client"),
     )
 
-    result = list_monitors.run(**arguments)
+    result = list_monitor.run(**arguments)
 
     assert result == {
         "monitor_count": 1,
         "monitors": [{"id": 1, "name": "availability"}],
     }
+
+
+def test_datadog_list_and_disable_user_use_array_selectors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from datadog_api_client.v2.api import users_api
+
+    disabled: list[str] = []
+
+    class FakeUsersApi:
+        def __init__(self, client: object) -> None:
+            pass
+
+        def list_users(self, **kwargs):
+            return SimpleNamespace(data=[SimpleNamespace(id="USER1")])
+
+        def disable_user(self, user_id: str) -> None:
+            disabled.append(user_id)
+
+    monkeypatch.setattr(users_api, "UsersApi", FakeUsersApi)
+    session = SimpleNamespace(client=object())
+    listed = list_user.run(
+        **_arguments(
+            provider="datadog",
+            target_type="organization",
+            session=session,
+            metadata={"users": ["USER1"]},
+        )
+    )
+    removed = disable_user.run(
+        **_arguments(
+            provider="datadog",
+            target_type="organization",
+            session=session,
+            metadata={"users": ["USER1"]},
+        )
+    )
+
+    assert listed["user_count"] == 1
+    assert removed["disabled_count"] == 1
+    assert disabled == ["USER1"]
+
+
+def test_user_selector_metadata_rejects_scalar() -> None:
+    with pytest.raises(RuntimeError, match="metadata.users.*array"):
+        remove_user.run(
+            **_arguments(
+                provider="pagerduty",
+                target_type="account",
+                session=SimpleNamespace(client=_PagerDutyClient()),
+                metadata={"users": "USER1"},
+            )
+        )
+
+
+class _CloudflareMembers:
+    def __init__(self) -> None:
+        self.deleted: list[tuple[str, str]] = []
+
+    def list(self, **kwargs):
+        return [SimpleNamespace(id="MEMBER1")]
+
+    def delete(self, member_id: str, *, account_id: str) -> None:
+        self.deleted.append((member_id, account_id))
+
+
+def test_cloudflare_account_member_list_and_remove() -> None:
+    members = _CloudflareMembers()
+    session = SimpleNamespace(
+        client=SimpleNamespace(accounts=SimpleNamespace(members=members))
+    )
+    listed = list_account_member.run(
+        **_arguments(
+            provider="cloudflare",
+            target_type="account",
+            session=session,
+            metadata={"members": ["MEMBER1"]},
+        )
+    )
+    removed = remove_account_member.run(
+        **_arguments(
+            provider="cloudflare",
+            target_type="account",
+            session=session,
+            metadata={"members": ["MEMBER1"]},
+        )
+    )
+
+    assert listed["member_count"] == 1
+    assert removed["removed_count"] == 1
+    assert members.deleted == [("MEMBER1", "123")]
+
+
+class _GithubOrganization:
+    def __init__(self) -> None:
+        self.member = SimpleNamespace(id=1, login="octocat")
+        self.removed_members: list[object] = []
+        self.team = SimpleNamespace(
+            id=7,
+            slug="platform",
+            delete=lambda: None,
+            get_members=lambda: [self.member],
+            remove_membership=self.removed_members.append,
+        )
+
+    def get_members(self):
+        return [self.member]
+
+    def get_teams(self):
+        return [self.team]
+
+
+def test_github_member_list_and_team_remove_dry_run() -> None:
+    organization = _GithubOrganization()
+    session = SimpleNamespace(
+        target_id="octo-org",
+        client=SimpleNamespace(get_organization=lambda login: organization),
+    )
+    listed = github_list_member.run(
+        **_arguments(
+            provider="github",
+            target_type="organization",
+            session=session,
+            metadata={"members": ["octocat"]},
+        )
+    )
+    removed = github_remove_team.run(
+        **_arguments(
+            provider="github",
+            target_type="organization",
+            session=session,
+            metadata={"teams": ["platform"]},
+            dry_run=True,
+        )
+    )
+
+    assert listed["member_count"] == 1
+    assert removed["planned_count"] == 1
+
+
+def test_github_team_member_list_and_remove_use_array_selectors() -> None:
+    organization = _GithubOrganization()
+    session = SimpleNamespace(
+        target_id="octo-org",
+        client=SimpleNamespace(get_organization=lambda login: organization),
+    )
+    metadata = {"teams": ["platform"], "members": ["octocat"]}
+
+    listed = github_list_team_member.run(
+        **_arguments(
+            provider="github",
+            target_type="organization",
+            session=session,
+            metadata=metadata,
+        )
+    )
+    removed = github_remove_team_member.run(
+        **_arguments(
+            provider="github",
+            target_type="organization",
+            session=session,
+            metadata=metadata,
+        )
+    )
+
+    assert listed["membership_count"] == 1
+    assert removed["removed_count"] == 1
+    assert organization.removed_members == [organization.member]
+
+
+def test_gitlab_member_list_uses_group_boundary() -> None:
+    manager = _GitLabManager([SimpleNamespace(id=10, username="alice")])
+    group = SimpleNamespace(members_all=manager)
+    session = SimpleNamespace(
+        client=SimpleNamespace(groups=SimpleNamespace(get=lambda group_id: group))
+    )
+
+    result = gitlab_list_member.run(
+        **_arguments(
+            provider="gitlab",
+            target_type="group",
+            session=session,
+            metadata={"members": ["10"]},
+        )
+    )
+
+    assert result["member_count"] == 1
 
 
 class _GitLabManager:
@@ -93,7 +289,7 @@ def test_gitlab_secret_alert_parity_filters_vulnerabilities() -> None:
         metadata={"severity": "high"},
     )
 
-    result = list_secret_scanning_alerts.run(**arguments)
+    result = list_secret_scanning_alert.run(**arguments)
 
     assert result["alert_count"] == 1
     assert vulnerabilities.parameters["report_type"] == "secret_detection"
@@ -138,18 +334,24 @@ def test_pagerduty_inventory_and_remove_user_dry_run() -> None:
         provider="pagerduty", target_type="account", session=session
     )
 
-    inventory = list_services.run(**inventory_arguments)
+    inventory = list_service.run(**inventory_arguments)
     mutation_arguments = _arguments(
         provider="pagerduty",
         target_type="account",
         session=session,
-        metadata={"user_id": "USER1"},
+        metadata={"users": ["USER1"]},
         dry_run=True,
     )
     mutation = remove_user.run(**mutation_arguments)
 
     assert inventory == {"service_count": 1, "services": [{"id": "service-1"}]}
-    assert mutation == {"user_id": "USER1", "planned": True, "deleted": False}
+    assert mutation == {
+        "requested_count": 1,
+        "planned_count": 1,
+        "removed_count": 0,
+        "failed_count": 0,
+        "users": [{"id": "USER1", "status": "planned"}],
+    }
     assert client.deleted == []
     assert mutation_arguments["actions"].actions[0].startswith("(dry-run)")
 
@@ -160,17 +362,18 @@ def test_pagerduty_remove_user_executes_delete() -> None:
         provider="pagerduty",
         target_type="account",
         session=SimpleNamespace(client=client),
-        metadata={"user_id": "USER1"},
+        metadata={"users": ["USER1"]},
     )
 
     result = remove_user.run(**arguments)
 
-    assert result["deleted"] is True
+    assert result["removed_count"] == 1
+    assert result["users"] == [{"id": "USER1", "status": "removed"}]
     assert client.deleted == ["users/USER1"]
 
 
-def test_pagerduty_remove_user_requires_user_id() -> None:
-    with pytest.raises(RuntimeError, match="metadata.user_id"):
+def test_pagerduty_remove_user_requires_users() -> None:
+    with pytest.raises(RuntimeError, match="metadata.users"):
         remove_user.run(
             **_arguments(
                 provider="pagerduty",

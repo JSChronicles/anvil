@@ -30,7 +30,7 @@ def run(
         Alert count and dependency-scanning vulnerability records.
     """
     alerts = list_vulnerability_alerts(
-        task_name="list_dependabot_alerts",
+        task_name="list_dependabot_alert",
         report_type="dependency_scanning",
         provider=provider,
         execution_target_id=execution_target_id,

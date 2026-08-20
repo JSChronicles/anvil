@@ -58,6 +58,16 @@ DEFAULT_GITHUB_SEARCH_MIN_INTERVAL_SECONDS = 6.5
 DEFAULT_GITHUB_SEARCH_SECONDARY_RATE_COOLDOWN_SECONDS = 60.0
 DEFAULT_GITHUB_RETRY_TOTAL = 1
 GITHUB_FALLBACK_TOKEN_ENVS = ("GITHUB_TOKEN", "GH_TOKEN")
+GITHUB_ORGANIZATION_TASKS = frozenset(
+    {
+        "list_member",
+        "remove_member",
+        "list_team",
+        "remove_team",
+        "list_team_member",
+        "remove_team_member",
+    }
+)
 GITHUB_PROFILE_OPTIONS = {
     "api_url",
     "api_version",
@@ -1209,6 +1219,7 @@ class GithubProvider:
             raise ValueError(f"GitHub mode '{target.mode}' does not allow exclude")
         self._validate_include_values(mode=target.mode, include=target.include)
         self._validate_code_search_isolation(target=target)
+        self._validate_organization_task_isolation(target=target)
 
     def resolve_target_filters(
         self,
@@ -1298,7 +1309,7 @@ class GithubProvider:
 
         if target.mode == MODE_ORGANIZATIONS:
             owner_logins = include or target.include or []
-            if _is_code_search_only_target(target=target):
+            if _is_organization_task_target(target=target):
                 target_ids = owner_logins
                 target_type = "organization"
             else:
@@ -1428,7 +1439,7 @@ class GithubProvider:
         """Require code search to use a dedicated target for efficient planning."""
 
         task_names = {
-            task.get("name")
+            str(task.get("name"))
             for task in target.tasks
             if isinstance(task.get("name"), str) and task.get("name")
         }
@@ -1436,6 +1447,31 @@ class GithubProvider:
             raise ValueError(
                 "GitHub search_code must be configured in its own target so it can "
                 "use the most efficient organization or repository search scope"
+            )
+
+    @staticmethod
+    def _validate_organization_task_isolation(*, target: TargetDescriptor) -> None:
+        """Require organization-owned tasks to use a dedicated organization target."""
+
+        task_names = {
+            str(task.get("name"))
+            for task in target.tasks
+            if isinstance(task.get("name"), str) and task.get("name")
+        }
+        organization_tasks = task_names.intersection(GITHUB_ORGANIZATION_TASKS)
+        if not organization_tasks:
+            return
+        if target.mode != MODE_ORGANIZATIONS:
+            names = ", ".join(sorted(organization_tasks))
+            raise ValueError(
+                f"GitHub organization tasks require organizations mode: {names}"
+            )
+        repository_tasks = task_names.difference(GITHUB_ORGANIZATION_TASKS)
+        if repository_tasks:
+            names = ", ".join(sorted(repository_tasks))
+            raise ValueError(
+                "GitHub organization tasks must use a dedicated target; move "
+                f"repository tasks to another target: {names}"
             )
 
 
@@ -1514,15 +1550,17 @@ def _installation_cache_owner(*, target_id: str, target_type: str) -> str:
     return target_id
 
 
-def _is_code_search_only_target(*, target: TargetDescriptor) -> bool:
-    """Return whether the target contains only GitHub code searches."""
+def _is_organization_task_target(*, target: TargetDescriptor) -> bool:
+    """Return whether every configured task owns an organization boundary."""
 
     task_names = {
         task.get("name")
         for task in target.tasks
         if isinstance(task.get("name"), str) and task.get("name")
     }
-    return task_names == {"search_code"}
+    return task_names == {"search_code"} or (
+        bool(task_names) and task_names.issubset(GITHUB_ORGANIZATION_TASKS)
+    )
 
 
 def _installation_id_from_response(*, data: object, target_id: str) -> int:

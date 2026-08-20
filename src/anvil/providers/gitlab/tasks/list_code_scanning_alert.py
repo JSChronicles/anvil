@@ -30,7 +30,7 @@ def run(
         Alert count and SAST vulnerability records.
     """
     alerts = list_vulnerability_alerts(
-        task_name="list_code_scanning_alerts",
+        task_name="list_code_scanning_alert",
         report_type="sast",
         provider=provider,
         execution_target_id=execution_target_id,

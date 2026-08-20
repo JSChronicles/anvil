@@ -30,7 +30,7 @@ def run(
         Alert count and secret-detection vulnerability records.
     """
     alerts = list_vulnerability_alerts(
-        task_name="list_secret_scanning_alerts",
+        task_name="list_secret_scanning_alert",
         report_type="secret_detection",
         provider=provider,
         execution_target_id=execution_target_id,

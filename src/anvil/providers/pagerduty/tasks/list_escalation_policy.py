@@ -31,7 +31,7 @@ def run(
         Policy count and JSON-serializable escalation policies.
     """
     require_provider(
-        task_name="list_escalation_policies", provider=provider, expected="pagerduty"
+        task_name="list_escalation_policy", provider=provider, expected="pagerduty"
     )
     items = list_resources(
         session=session, resource="escalation_policies", metadata=metadata

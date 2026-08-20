@@ -35,7 +35,7 @@ def run(
     Returns:
         Dashboard count and JSON-serializable dashboard summaries.
     """
-    require_provider(task_name="list_dashboards", provider=provider, expected="datadog")
+    require_provider(task_name="list_dashboard", provider=provider, expected="datadog")
     from datadog_api_client.v1.api.dashboards_api import DashboardsApi
 
     max_results = metadata_int(metadata=metadata, key="max_results")
@@ -45,7 +45,7 @@ def run(
         serialized = json_safe(response)
         raw = serialized.get("dashboards", []) if isinstance(serialized, dict) else []
     if not isinstance(raw, Iterable) or isinstance(raw, str | bytes | dict):
-        raise RuntimeError("list_dashboards received an invalid dashboard collection")
+        raise RuntimeError("list_dashboard received an invalid dashboard collection")
     dashboards = bounded(raw, max_results=max_results)
     __LOGGER__.info(
         f"Listed {len(dashboards)} Datadog dashboard(s) for {execution_target_name}"

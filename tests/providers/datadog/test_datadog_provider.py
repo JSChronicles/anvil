@@ -736,7 +736,7 @@ def test_normal_paginated_task_receives_complete_context_and_result_structure() 
         }
 
     task = ResolvedTask(
-        name="list_monitors",
+        name="list_monitor",
         run=run,
         depends_on=[],
         scope=TaskScope.REGION,

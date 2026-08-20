@@ -51,6 +51,36 @@ def metadata_string(
     return value.strip()
 
 
+def metadata_string_array(
+    *, task_name: str, metadata: dict[str, object], key: str, required: bool = False
+) -> list[str] | None:
+    """Return a normalized array of unique non-empty string selectors."""
+
+    value = metadata.get(key)
+    if value is None:
+        if required:
+            raise RuntimeError(
+                f"{task_name} requires metadata.{key} to be a non-empty array"
+            )
+        return None
+    if not isinstance(value, list) or not value:
+        raise RuntimeError(
+            f"{task_name} expects metadata.{key} to be a non-empty array"
+        )
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, str) or not item.strip():
+            raise RuntimeError(
+                f"{task_name} expects metadata.{key} to contain only non-empty strings"
+            )
+        selector = item.strip()
+        if selector not in seen:
+            normalized.append(selector)
+            seen.add(selector)
+    return normalized
+
+
 def json_safe(value: object) -> object:
     """Convert SDK models and nested containers into JSON-serializable values."""
 
@@ -74,6 +104,15 @@ def json_safe(value: object) -> object:
             if not key.startswith("_")
         }
     return str(value)
+
+
+def mapping_identifier(value: object) -> str | None:
+    """Return a normalized ``id`` from a serialized SDK mapping."""
+
+    if not isinstance(value, Mapping):
+        return None
+    identifier = value.get("id")
+    return None if identifier is None else str(identifier)
 
 
 def bounded(items: Iterable[object], *, max_results: int) -> list[object]:

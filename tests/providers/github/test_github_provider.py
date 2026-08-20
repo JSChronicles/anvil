@@ -367,6 +367,37 @@ def test_github_provider_uses_owner_targets_for_organization_code_search():
     assert session_factory.calls == []
 
 
+def test_github_provider_uses_owner_targets_for_organization_membership_tasks():
+    session_factory = FakeSessionFactory()
+    provider = GithubProvider(session_factory=session_factory)
+    target = _target(
+        name="github-organization-members",
+        mode="organizations",
+        include=["octo-org"],
+        tasks=[{"name": "list_member"}, {"name": "remove_member"}],
+    )
+
+    plan = provider.resolve_execution_targets(
+        target=target, regions=["global"], include=target.include, exclude=None
+    )
+
+    assert [(item.id, item.type) for item in plan.execution_targets] == [
+        ("octo-org", "organization")
+    ]
+    assert session_factory.calls == []
+
+
+def test_github_provider_rejects_mixed_organization_and_repository_tasks():
+    target = _target(
+        mode="organizations",
+        include=["octo-org"],
+        tasks=[{"name": "list_member"}, {"name": "audit_rulesets"}],
+    )
+
+    with pytest.raises(ValueError, match="dedicated target"):
+        GithubProvider().validate_target(target)
+
+
 def test_github_provider_resolves_repository_targets_offline():
     provider = create_provider_instance()
     target = _target(include=["octo-org/example", "octo-org/other"])

@@ -30,7 +30,7 @@ def run(
     Returns:
         Service count and JSON-serializable services.
     """
-    require_provider(task_name="list_services", provider=provider, expected="pagerduty")
+    require_provider(task_name="list_service", provider=provider, expected="pagerduty")
     items = list_resources(session=session, resource="services", metadata=metadata)
     __LOGGER__.info(
         f"Listed {len(items)} PagerDuty service(s) for {execution_target_name}"

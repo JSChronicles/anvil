@@ -38,9 +38,9 @@ def run(
     Raises:
         RuntimeError: If invoked outside a Cloudflare account target.
     """
-    require_provider(task_name="list_zones", provider=provider, expected="cloudflare")
+    require_provider(task_name="list_zone", provider=provider, expected="cloudflare")
     require_target_type(
-        task_name="list_zones",
+        task_name="list_zone",
         execution_target_type=execution_target_type,
         expected="account",
     )
@@ -48,7 +48,7 @@ def run(
     resource = getattr(session.client, "zones", None)
     operation = getattr(resource, "list", None)
     if not callable(operation):
-        raise RuntimeError("list_zones requires Cloudflare zones.list()")
+        raise RuntimeError("list_zone requires Cloudflare zones.list()")
     zones = bounded(
         operation(account={"id": execution_target_id}, per_page=50),
         max_results=max_results,

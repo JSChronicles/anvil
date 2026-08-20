@@ -29,7 +29,7 @@ def run(
     Returns:
         Monitor count and JSON-serializable monitor definitions.
     """
-    require_provider(task_name="list_monitors", provider=provider, expected="datadog")
+    require_provider(task_name="list_monitor", provider=provider, expected="datadog")
     from datadog_api_client.v1.api.monitors_api import MonitorsApi
 
     max_results = metadata_int(metadata=metadata, key="max_results")

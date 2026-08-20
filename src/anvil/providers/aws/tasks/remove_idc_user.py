@@ -8,6 +8,7 @@ from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 
 from anvil.actions import ActionRecorder
+from anvil.providers.tasks._task_helpers import metadata_string_array
 from anvil.task_errors import TaskExecutionError
 
 __LOGGER__ = logging.getLogger(__name__)
@@ -36,18 +37,15 @@ def _get_active_sso_instance(sso_admin_client) -> tuple[str, str, str]:
     )
 
 
-def _list_disabled_users(
+def _list_users(
     identitystore_client, identity_store_id: str
 ) -> list[dict[str, object]]:
-    disabled_users: list[dict[str, object]] = []
+    users: list[dict[str, object]] = []
 
     paginator = identitystore_client.get_paginator("list_users")
 
     for page in paginator.paginate(IdentityStoreId=identity_store_id):
         for user in page.get("Users", []):
-            if user.get("UserStatus") != "DISABLED":
-                continue
-
             user_id = user["UserId"]
 
             emails = [
@@ -56,7 +54,7 @@ def _list_disabled_users(
                 if email.get("Value")
             ]
 
-            disabled_users.append(
+            users.append(
                 {
                     "UserId": user_id,
                     "UserName": user.get("UserName"),
@@ -66,39 +64,37 @@ def _list_disabled_users(
                 }
             )
 
-            __LOGGER__.debug(f"Disabled user found: {user.get('UserName')} ({user_id})")
-
-    return disabled_users
-
-
-def _resolve_user_id_filters(
-    metadata: dict[str, object],
-) -> tuple[set[str] | None, set[str] | None]:
-    include_raw = metadata.get("include_user_ids")
-    exclude_raw = metadata.get("exclude_user_ids")
-
-    if include_raw is not None and exclude_raw is not None:
-        raise RuntimeError(
-            "remove_disabled_idc_users requires only one of "
-            "metadata.include_user_ids or metadata.exclude_user_ids to be set"
-        )
-
-    def _as_id_set(raw: object, key: str) -> set[str] | None:
-        if raw is None:
-            return None
-
-        if not isinstance(raw, list) or not all(isinstance(item, str) for item in raw):
-            raise RuntimeError(
-                f"remove_disabled_idc_users requires metadata.{key} to be a "
-                "list of UserId strings"
+            __LOGGER__.debug(
+                f"Identity Center user found: {user.get('UserName')} ({user_id})"
             )
 
-        return set(raw)
+    return users
 
-    return (
-        _as_id_set(include_raw, "include_user_ids"),
-        _as_id_set(exclude_raw, "exclude_user_ids"),
+
+def _resolve_status(metadata: dict[str, object]) -> str | None:
+    """Normalize a boolean or Identity Store status selector."""
+
+    raw = metadata.get("status")
+    if raw is None:
+        return None
+    if isinstance(raw, bool):
+        return "ENABLED" if raw else "DISABLED"
+    if isinstance(raw, str) and raw.strip().upper() in {"ENABLED", "DISABLED"}:
+        return raw.strip().upper()
+    raise RuntimeError(
+        "remove_idc_user expects metadata.status to be true, false, "
+        "'ENABLED', or 'DISABLED'"
     )
+
+
+def _user_selector_values(user: dict[str, object]) -> set[str]:
+    """Return case-insensitive ID, username, and email selector values."""
+
+    values = {user.get("UserId"), user.get("UserName")}
+    emails = user.get("Emails", [])
+    if isinstance(emails, list):
+        values.update(emails)
+    return {str(value).casefold() for value in values if value is not None}
 
 
 def run(
@@ -114,28 +110,29 @@ def run(
     dependency_data: dict[str, object],
     actions: ActionRecorder,
 ) -> dict[str, object]:
-    """Remove disabled users from IAM Identity Center.
+    """Remove selected users from IAM Identity Center.
 
     This AWS task runs in the IAM Identity Center owner account. It enumerates
-    every user in the Identity Store via `list_users`, filters to users whose
-    `UserStatus` is `DISABLED`, optionally filter further with
-    `include_user_ids` or `exclude_user_ids`, and deletes every user that
-    remains. Deletions run concurrently. A failure deleting one user does not stop the others;
-    failures are collected and raised together at the end via `TaskExecutionError`.
-    dry-run supported.
+    every user in the Identity Store via ``list_users`` and filters by one or
+    more user identifiers, status, or both. User selectors match ``UserId``,
+    ``UserName``, or email address. Boolean status values map to Identity Store
+    status: ``false`` selects ``DISABLED`` and ``true`` selects ``ENABLED``.
+    Status-only selection supports bulk cleanup. Deletions run concurrently;
+    failures are collected and raised together after all selected users have
+    been attempted. Dry-run is supported.
 
     Metadata:
         identity_center_region: Optional AWS region for the IAM Identity
             Center and Identity Store clients. Defaults to the current
             session region.
-        include_user_ids: Optional list of Identity Store `UserId` strings.
-            When set, only disabled users in this list are actioned; all
-            other disabled users are left alone. Mutually exclusive with
-            `exclude_user_ids`.
-        exclude_user_ids: Optional list of Identity Store `UserId` strings.
-            When set, disabled users in this list are left alone and every
-            other disabled user is actioned. Mutually exclusive with
-            `include_user_ids`.
+        users: Optional non-empty array of Identity Store user IDs, usernames,
+            or email addresses. One or more values are supported.
+        status: Optional boolean or ``ENABLED``/``DISABLED`` string. ``false``
+            selects disabled users and ``true`` selects enabled users. This
+            selector can be used without ``users`` for bulk cleanup.
+
+        At least one of ``users`` or ``status`` is required. When both are
+        provided, a user must match both filters.
 
     Args:
         provider: Provider name for the current execution target.
@@ -146,25 +143,21 @@ def run(
         session: Boto3 session scoped to the current region.
         dry_run: Whether execution is running in dry-run mode.
         metadata: Task metadata containing optional Identity Center region
-            and optional include/exclude UserId lists.
+            and user/status selectors.
         dependency_data: Runtime data selected from declared task dependencies.
             This task requires none.
         actions: Action recorder provided by the engine.
 
     Returns:
-        A payload containing the Identity Center region, disabled user
-        count, targeted user count (after include/exclude filtering),
-        removed count, failed count, failed user details (with an `error`
-        message per entry), and disabled user details (UserId, UserName,
-        Emails, UserType, UserStatus), or `{"skipped": True}` for non-owner
-        accounts.
+        A payload containing the Identity Center region, applied status,
+        discovered and targeted counts, planned/removed/failed counts,
+        unmatched selectors, failed user details, and targeted user details,
+        or ``{"skipped": True}`` for non-owner accounts.
 
     Raises:
         ValueError: If metadata.identity_center_region is not a string.
-        RuntimeError: If no active IAM Identity Center instance exists, if
-            both metadata.include_user_ids and metadata.exclude_user_ids are
-            set, or if either is set to something other than a list of
-            strings.
+        RuntimeError: If no active IAM Identity Center instance exists, no
+            selector is supplied, or a selector has an invalid shape/value.
         TaskExecutionError: If one or more targeted users failed to delete.
             `partial_result` carries the same payload described above,
             including which users succeeded and which failed.
@@ -180,7 +173,14 @@ def run(
     else:
         raise ValueError("metadata.identity_center_region must be a string")
 
-    include_ids, exclude_ids = _resolve_user_id_filters(metadata)
+    user_selectors = metadata_string_array(
+        task_name="remove_idc_user", metadata=metadata, key="users"
+    )
+    selected_status = _resolve_status(metadata)
+    if user_selectors is None and selected_status is None:
+        raise RuntimeError(
+            "remove_idc_user requires metadata.users, metadata.status, or both"
+        )
 
     __LOGGER__.info(f"Using Identity Center region '{identity_center_region}'")
 
@@ -200,28 +200,52 @@ def run(
         )
         return {"skipped": True}
 
-    disabled_users = _list_disabled_users(identitystore_client, identity_store_id)
-
-    if include_ids is not None:
-        targeted_users = [
-            user for user in disabled_users if user["UserId"] in include_ids
+    users = _list_users(identitystore_client, identity_store_id)
+    normalized_selectors = (
+        {selector.casefold() for selector in user_selectors}
+        if user_selectors is not None
+        else None
+    )
+    matched_selectors = (
+        {
+            selector
+            for user in users
+            for selector in normalized_selectors or set()
+            if selector in _user_selector_values(user)
+        }
+        if normalized_selectors is not None
+        else set()
+    )
+    targeted_users = [
+        user
+        for user in users
+        if (
+            normalized_selectors is None
+            or bool(_user_selector_values(user).intersection(normalized_selectors))
+        )
+        and (selected_status is None or user.get("UserStatus") == selected_status)
+    ]
+    unmatched_users = (
+        [
+            selector
+            for selector in user_selectors
+            if selector.casefold() not in matched_selectors
         ]
-    elif exclude_ids is not None:
-        targeted_users = [
-            user for user in disabled_users if user["UserId"] not in exclude_ids
-        ]
-    else:
-        targeted_users = disabled_users
+        if user_selectors is not None
+        else []
+    )
 
     removed: list[dict[str, object]] = []
     failed: list[dict[str, object]] = []
 
     if dry_run:
         for user in targeted_users:
-            __LOGGER__.info(
-                f"(dry-run) Would remove disabled user '{user['UserName']}' "
-                f"({user['UserId']})"
+            message = (
+                f"(dry-run) Would remove Identity Center user "
+                f"'{user['UserName']}' ({user['UserId']})"
             )
+            __LOGGER__.info(message)
+            actions.record(message)
     else:
         with ThreadPoolExecutor(max_workers=MAX_DELETE_WORKERS) as executor:
             future_to_user = {
@@ -249,32 +273,26 @@ def run(
                     continue
 
                 removed.append(user)
-                __LOGGER__.info(f"Removed disabled user '{user_name}' ({user_id})")
-
-    if dry_run:
-        actions.record(
-            f"(dry-run) Would remove {len(targeted_users)} disabled "
-            "Identity Center user(s)"
-        )
-    else:
-        actions.record(
-            f"Removed {len(removed)} disabled Identity Center user(s), "
-            f"{len(failed)} failed"
-        )
+                message = f"Removed Identity Center user '{user_name}' ({user_id})"
+                __LOGGER__.info(message)
+                actions.record(message)
 
     result = {
         "identity_center_region": identity_center_region,
-        "disabled_count": len(disabled_users),
+        "status": selected_status,
+        "user_count": len(users),
         "targeted_count": len(targeted_users),
+        "planned_count": len(targeted_users) if dry_run else 0,
         "removed_count": len(removed),
         "failed_count": len(failed),
+        "unmatched_users": unmatched_users,
         "failed_users": failed,
-        "disabled_users": disabled_users,
+        "targeted_users": targeted_users,
     }
 
     if failed:
         raise TaskExecutionError(
-            f"remove_disabled_idc_users failed to remove {len(failed)} of "
+            f"remove_idc_user failed to remove {len(failed)} of "
             f"{len(targeted_users)} targeted user(s)",
             partial_result=result,
         )
