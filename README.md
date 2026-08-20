@@ -31,7 +31,7 @@
 
 ## Introduction
 
-Anvil is a declarative provider-aware execution engine for running Python tasks across cloud and service target fleets. Describe the work in YAML, keep task logic in plain Python modules, and let the engine handle authentication, target resolution, dependency ordering, bounded concurrency, and structured results. The current runtime preserves the AWS organization/account behavior and optimizations from earlier releases while supporting Azure, Cloudflare, Datadog, GCP, GitHub, GitLab, and PagerDuty through the same provider-neutral contracts.
+Anvil is a declarative provider-aware execution engine for running Python tasks across cloud and service target fleets. Describe the work in YAML, keep task logic in plain Python modules, and let the engine handle authentication, target resolution, dependency ordering, bounded concurrency, and structured results. The current runtime supports AWS, Azure, Cloudflare, Datadog, GCP, GitHub, GitLab, and PagerDuty through the same provider-neutral contracts.
 
 For more, see the [documentation](https://opsfoundry.dev/).
 
