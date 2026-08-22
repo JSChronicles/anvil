@@ -111,6 +111,7 @@ anvil run       # Execute YAML-defined workflows
 anvil results   # Query JSONL results and rerun failures
 ```
 
+Example AWS task configuration:
 
 This executes the configured targets and tasks, then writes structured results under `./results`.
 
@@ -131,9 +132,20 @@ targets:
         profile: root
     tasks:
       - name: noop
-    dry_run: true
 ```
 
+Example Azure task configuration:
+
+```yaml
+schema_version: 2
+
+targets:
+  - name: azure-subscriptions
+    provider:
+      name: azure
+      mode: subscriptions
+      options: {}
+    include:
       - 00000000-0000-0000-0000-000000000000
     regions:
       - eastus
