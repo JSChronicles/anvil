@@ -105,14 +105,12 @@ Anvil is built for teams that need repeatable cloud workflows, such as inventory
 
 There are multiple global commands:
 ```console
-anvil results   # Query JSONL results and rerun failures
 anvil list      # List available tasks, processors, and providers
 anvil validate  # Inspect environment health or run focused validation checks
 anvil run       # Execute YAML-defined workflows
+anvil results   # Query JSONL results and rerun failures
 ```
 
-
-Run a simple YAML file:
 
 This executes the configured targets and tasks, then writes structured results under `./results`.
 
@@ -136,10 +134,33 @@ targets:
     dry_run: true
 ```
 
+      - 00000000-0000-0000-0000-000000000000
+    regions:
+      - eastus
+    tasks:
+      - name: count_resource_groups
+```
+
+See [more provider configurations](https://opsfoundry.dev/anvil/examples/) for
+simple, multi-target, include/exclude, and advanced YAML files for every
+provider.
+
+
+------------------------------
+
+
 ### Provider profiles
 
-Anvil provider profiles live in `~/.anvil/config.toml`. Set `ANVIL_CONFIG` to
-use a different file. Profiles are namespaced by provider and profile name:
+Anvil provider profiles are optional. Cloudflare, Datadog, GitHub, GitLab, and
+PagerDuty can load reusable settings from `~/.anvil/config.toml`; set
+`ANVIL_CONFIG` to use a different file. AWS, Azure, and GCP continue to use
+their provider-native credential configuration instead.
+
+When neither a named profile nor inline profile fields are configured, Anvil
+first applies `providers.<provider>.default` when that table exists. If it does
+not exist, the provider uses its normal environment variables, SDK credential
+chain, workload identity, or other native fallback where supported. Profiles
+are namespaced by provider and profile name:
 
 ```toml
 [providers.cloudflare.security]
@@ -235,159 +256,27 @@ without importing child implementations; normal execution imports only the
 selected components. Duplicate names are rejected as ambiguous and report every
 conflicting source.
 
-Third-party distributions register their package roots in `pyproject.toml`:
-
-```toml
-[project.entry-points."anvil.providers.tasks"]
-universal-tasks = "company_anvil.tasks"
-
-[project.entry-points."anvil.providers.aws.tasks"]
-aws-tasks = "company_anvil.aws_tasks"
-
-[project.entry-points."anvil.processors"]
-processors = "company_anvil.processors"
-
-[project.entry-points."anvil.provider_packages"]
-providers = "company_anvil.providers"
-```
-
-Each task or processor filename is its component name. Each immediate child of
-a provider collection is a provider package and must expose
-`create_provider_instance()`.
-
 See [Extension best practices](https://opsfoundry.dev/anvil/extension-best-practices/)
-for package layouts and implementation guidance for providers, universal tasks,
-provider tasks, and processors.
-
-Example GCP task configuration:
-
-```yaml
-schema_version: 2
-
-targets:
-  - name: gcp-projects
-    provider:
-      name: gcp
-      mode: projects
-      options:
-        credentials_path: /secure/path/to/credentials.json
-        quota_project_id: anvil-billing-project
-    include:
-      - anvil-dev-project
-    regions:
-      - us-central1
-    tasks:
-      - name: get_project_info
-```
-
-Example Cloudflare zone configuration:
-
-```yaml
-schema_version: 2
-
-targets:
-  - name: cloudflare-zones
-    provider:
-      name: cloudflare
-      mode: zones
-      options:
-        api_token_env: CLOUDFLARE_API_TOKEN
-        account_id: 023e105f4ecef8ad9ca31a8372d0c353
-    include:
-      - 9a7806061c88ada191ed06f989cc3dac
-    regions:
-      - global
-    tasks:
-      - name: noop
-```
-
-Cloudflare supports `accounts` and `zones` modes with one `global` execution
-coordinate. Explicit IDs avoid discovery; omit `include` to discover visible
-resources. API tokens use `CLOUDFLARE_API_TOKEN`; legacy authentication requires
-both `CLOUDFLARE_API_KEY` and `CLOUDFLARE_EMAIL`.
-
-Example Datadog organization configuration:
-
-```yaml
-schema_version: 2
-
-targets:
-  - name: production-observability
-    provider:
-      name: datadog
-      mode: organization
-      options:
-        site: datadoghq.com
-        api_key_env: PROD_DD_API_KEY
-        app_key_env: PROD_DD_APP_KEY
-    regions:
-      - global
-    tasks:
-      - name: noop
-```
-
-Use one top-level target per Datadog organization. The `site` option selects the
-API endpoint and remains separate from Anvil's `global` execution coordinate.
-
-Example GitLab project configuration:
-
-```yaml
-schema_version: 2
-
-targets:
-  - name: gitlab-projects
-    provider:
-      name: gitlab
-      mode: projects
-      options:
-        url: https://gitlab.example.com
-        auth_type: private
-        token_env: ANVIL_GITLAB_TOKEN
-    include:
-      - platform/security/api
-    regions:
-      - global
-    tasks:
-      - name: noop
-```
-
-GitLab supports `groups` and `projects` modes on GitLab.com or self-managed
-instances. Selectors accept numeric IDs or full paths, including nested groups.
-Tokens used for discovery and read-only tasks should include `read_api` or `api`.
-
-Example PagerDuty account configuration:
-
-```yaml
-schema_version: 2
-
-targets:
-  - name: pagerduty-production
-    provider:
-      name: pagerduty
-      mode: account
-      options:
-        token_env: PAGERDUTY_API_TOKEN
-        subdomain: example
-    tasks:
-      - name: noop
-```
-
-PagerDuty executes at account scope while leaving teams, services, and SDK
-pagination available to task code through the runtime session. Set
-`auth_type: bearer` for OAuth access tokens or configure `api_url` for another
-PagerDuty service region.
+for package layouts, current entry-point groups, provider factories, and
+implementation guidance. See the
+[Task contract](https://opsfoundry.dev/anvil/task-contract/#task-packages-and-discovery)
+for task compatibility, lazy discovery, and ambiguity behavior.
 
 The [Provider reference](https://opsfoundry.dev/anvil/providers/) documents all
 stock provider modes, authentication options, target selectors, locations, and
-validation behavior. See [Selectors and regions](https://opsfoundry.dev/anvil/selectors-and-regions/)
+validation behavior and includes a focused configuration example for every
+provider.
+
+See [Selectors and regions](https://opsfoundry.dev/anvil/selectors-and-regions/)
 for exact `include`, `exclude`, `all`, glob, `management`, and `payer` rules.
 
-For delegated-administrator patterns, keep the base session on the
-delegated-admin profile. Anvil uses that base session directly for the
-delegated-admin account if it appears in Organizations discovery, and assumes
-`role_name` in every other selected account, including the management/payer
-account. AWS organization targets accept `management` and `payer` as
-case-insensitive aliases for that account in `include` and `exclude` filters.
+For [delegated-administrator patterns](https://opsfoundry.dev/guides/aws/programmatic-account-access/#delegated-admin-security-access),
+keep the base session on the delegated-admin profile. Anvil uses that base
+session directly for the delegated-admin account if it appears in Organizations
+discovery, and assumes `role_name` in every other selected account, including
+the management/payer account. AWS organization targets accept `management` and
+`payer` as case-insensitive aliases for that account in `include` and `exclude`
+filters.
 
 ```yaml
 schema_version: 2
@@ -407,6 +296,9 @@ targets:
     tasks:
       - name: noop
 ```
+
+------------------------------
+
 
 ### Results
 
@@ -527,64 +419,6 @@ run into one HTML report.
 
 To build a custom processor, see
 [Extension best practices](https://opsfoundry.dev/anvil/extension-best-practices/#build-a-processor).
-
-------------------------------
-
-Run a more detailed YAML:
-
-This shows multi-region execution, concurrency, account filtering, task dependencies, fail-fast behavior, dry-run mode, and task metadata.
-
-```console
-anvil run --config-file ./yaml/advanced.yaml
-```
-
-```yaml
-# advanced.yaml example
-schema_version: 2
-max_parallel_targets: 2
-
-targets:
-  - name: place
-    provider:
-      name: aws
-      mode: organization
-      options:
-        profile: place-root
-        role_name: OrganizationAccountAccessRole
-    # Organizations support explicit regions, all, glob selectors, and mixed
-    # glob plus explicit selectors.
-    regions:
-      - us-east-1
-      - us-west-2
-
-    max_workers: 5
-    max_parallel_regions: 2
-    fail_fast: false
-    dry_run: true
-
-    include:
-      - "111111111111"
-      - "222222222222"
-
-    tasks:
-      - name: discover_iam_users
-
-      - name: backup_iam_users
-        depends_on:
-          - discover_iam_users
-
-      - name: remove_iam_user
-        depends_on:
-          - discover_iam_users
-          - backup_iam_users
-
-    metadata:
-      user_name: test
-```
-
-See [Configuration](https://opsfoundry.dev/anvil/configuration/) for schema
-defaults and limits, and [Execution model](https://opsfoundry.dev/anvil/execution-model/)
-for scope, concurrency, caching, failure, and result behavior.
 
 
 ## Example Benchmarks
