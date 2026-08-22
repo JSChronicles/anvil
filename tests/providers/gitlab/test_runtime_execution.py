@@ -12,6 +12,7 @@ from anvil.providers.base import ExecutionTarget
 from anvil.providers.gitlab.auth import resolve_auth_settings
 from anvil.providers.gitlab.provider import GitLabExecutionTargetData, GitLabProvider
 from anvil.providers.gitlab.session import GitLabSession
+from anvil.providers.gitlab.tasks._api import project_for_task
 from anvil.results import ExecutionStatus
 from anvil.runner import _execute_provider_execution_target
 from anvil.task_loader import ResolvedTask
@@ -82,6 +83,38 @@ class FakeSessionFactory:
 
     def close_client(self, client: object) -> None:
         self.closed.append(client)
+
+
+def test_gitlab_session_reuses_project_lookup() -> None:
+    project = SimpleNamespace(id=42, path_with_namespace="root/project")
+    client = FakeClient(resource=project, resource_type="project")
+    session = GitLabSession(
+        target_id=42,
+        target_type="project",
+        region_name="global",
+        client=client,
+        url="https://gitlab.com",
+        auth_source="test",
+    )
+
+    first = project_for_task(
+        task_name="first_task",
+        provider="gitlab",
+        execution_target_id="42",
+        execution_target_type="project",
+        session=session,
+    )
+    second = project_for_task(
+        task_name="second_task",
+        provider="gitlab",
+        execution_target_id="42",
+        execution_target_type="project",
+        session=session,
+    )
+
+    assert first is project
+    assert second is project
+    assert client.projects.get_calls == [42]
 
 
 def _target(*, mode: str, selector: str) -> TargetDescriptor:

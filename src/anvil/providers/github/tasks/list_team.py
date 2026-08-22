@@ -1,6 +1,8 @@
 """List teams in the current GitHub organization."""
 
 import logging
+from itertools import islice
+
 from anvil.actions import ActionRecorder
 from anvil.providers.github.tasks._organization import (
     github_identity,
@@ -43,11 +45,7 @@ def run(
     if not callable(operation):
         raise RuntimeError("list_team requires GitHub organization.get_teams()")
     maximum = metadata_int(metadata=metadata, key="max_results")
-    teams = [
-        github_identity(item)
-        for index, item in enumerate(operation())
-        if index < maximum
-    ]
+    teams = [github_identity(item) for item in islice(operation(), maximum)]
     selectors = metadata_string_array(
         task_name="list_team", metadata=metadata, key="teams"
     )

@@ -23,6 +23,11 @@ def project_for_task(
         execution_target_type=execution_target_type,
         expected="project",
     )
+    session_get_project = getattr(session, "get_project", None)
+    if callable(session_get_project):
+        return session_get_project()
+
+    # Preserve compatibility with lightweight third-party and test sessions.
     projects = getattr(session.client, "projects", None)
     get_project = getattr(projects, "get", None)
     if not callable(get_project):

@@ -34,7 +34,8 @@ def run(
 
     max_results = metadata_int(metadata=metadata, key="max_results")
     monitors = bounded(
-        MonitorsApi(session.client).list_monitors(), max_results=max_results
+        MonitorsApi(session.client).list_monitors(page_size=max_results),
+        max_results=max_results,
     )
     __LOGGER__.info(
         f"Listed {len(monitors)} Datadog monitor(s) for {execution_target_name}"

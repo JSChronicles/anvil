@@ -1,6 +1,6 @@
 """Focused behavior tests for the first Cloudflare, Datadog, GitLab, and PagerDuty tasks."""
 
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
@@ -12,6 +12,7 @@ from anvil.providers.cloudflare.tasks import (
 )
 from anvil.providers.datadog.tasks import disable_user, list_monitor, list_user
 from anvil.providers.github.tasks import list_member as github_list_member
+from anvil.providers.github.tasks import list_team as github_list_team
 from anvil.providers.github.tasks import list_team_member as github_list_team_member
 from anvil.providers.github.tasks import remove_team as github_remove_team
 from anvil.providers.github.tasks import remove_team_member as github_remove_team_member
@@ -62,7 +63,8 @@ def test_datadog_list_monitors_serializes_sdk_models(
         def __init__(self, client: object) -> None:
             assert client == "datadog-client"
 
-        def list_monitors(self):
+        def list_monitors(self, *, page_size: int):
+            assert page_size == 2
             return [SimpleNamespace(id=1, name="availability")]
 
     monkeypatch.setattr(monitors_api, "MonitorsApi", FakeMonitorsApi)
@@ -70,6 +72,7 @@ def test_datadog_list_monitors_serializes_sdk_models(
         provider="datadog",
         target_type="organization",
         session=SimpleNamespace(client="datadog-client"),
+        metadata={"max_results": 2},
     )
 
     result = list_monitor.run(**arguments)
@@ -188,6 +191,54 @@ class _GithubOrganization:
 
     def get_teams(self):
         return [self.team]
+
+
+class _CountingIterator:
+    def __init__(self, items: list[object]) -> None:
+        self._items = iter(items)
+        self.consumed = 0
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        item = next(self._items)
+        self.consumed += 1
+        return item
+
+
+@pytest.mark.parametrize(
+    ("task", "operation_name", "result_key"),
+    [
+        (github_list_member, "get_members", "member_count"),
+        (github_list_team, "get_teams", "team_count"),
+    ],
+)
+def test_github_list_limit_stops_paginated_iteration(
+    task: ModuleType, operation_name: str, result_key: str
+) -> None:
+    items = [
+        SimpleNamespace(id=index, login=f"user-{index}", slug=f"team-{index}")
+        for index in range(5)
+    ]
+    iterator = _CountingIterator(items)
+    organization = SimpleNamespace(**{operation_name: lambda: iterator})
+    session = SimpleNamespace(
+        target_id="octo-org",
+        client=SimpleNamespace(get_organization=lambda login: organization),
+    )
+
+    result = task.run(
+        **_arguments(
+            provider="github",
+            target_type="organization",
+            session=session,
+            metadata={"max_results": 2},
+        )
+    )
+
+    assert result[result_key] == 2
+    assert iterator.consumed == 2
 
 
 def test_github_member_list_and_team_remove_dry_run() -> None:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import ModuleType
 
 from anvil.providers.gitlab.auth import GitLabAuthSettings
@@ -23,6 +23,34 @@ class GitLabSession:
     client: object
     url: str
     auth_source: str
+    _project_cache: dict[int, object] = field(
+        default_factory=dict, init=False, repr=False, compare=False
+    )
+
+    def get_project(self) -> object:
+        """Return the target project, loading it at most once per session.
+
+        Returns:
+            The python-gitlab project for this target-scoped session.
+
+        Raises:
+            RuntimeError: If the session is not project-scoped or the client does
+                not expose project lookup.
+        """
+
+        if self.target_type != "project":
+            raise RuntimeError("GitLab session is not scoped to a project")
+        project = self._project_cache.get(self.target_id)
+        if project is None:
+            projects = getattr(self.client, "projects", None)
+            get_project = getattr(projects, "get", None)
+            if not callable(get_project):
+                raise RuntimeError(
+                    "python-gitlab client does not expose projects.get()"
+                )
+            project = get_project(self.target_id)
+            self._project_cache[self.target_id] = project
+        return project
 
 
 class GitLabSessionFactory:
