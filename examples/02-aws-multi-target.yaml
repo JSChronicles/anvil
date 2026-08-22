@@ -1,32 +1,32 @@
 schema_version: 2
 max_parallel_targets: 2
 targets:
-- name: aws-production
-  provider:
-    name: aws
-    mode: organization
-    options:
-      profile: production-root
-      role_name: OrganizationAccountAccessRole
-  regions:
-  - us-east-1
-  - us-west-2
-  dry_run: true
-  tasks:
-  - name: count_vpc
+  - name: aws-production
+    provider:
+      name: aws
+      mode: organization
+      options:
+        profile: production-root
+        role_name: OrganizationAccountAccessRole
+    regions:
+      - us-east-1
+      - us-west-2
+    dry_run: true
+    tasks:
+      - name: count_vpc
 
-- name: aws-security
-  provider:
-    name: aws
-    mode: accounts
-    options:
-      profile: security
-      role_name: AuditRole
-  regions:
-  - us-east-1
-  include:
-  - '222222222222'
-  - '333333333333'
-  dry_run: true
-  tasks:
-  - name: count_subnets_with_timings
+  - name: aws-security
+    provider:
+      name: aws
+      mode: accounts
+      options:
+        profile: security
+        role_name: AuditRole
+    regions:
+      - us-east-1
+    include:
+      - '222222222222'
+      - '333333333333'
+    dry_run: true
+    tasks:
+      - name: count_subnets_with_timings

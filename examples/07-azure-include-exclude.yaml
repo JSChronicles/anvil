@@ -1,34 +1,34 @@
 schema_version: 2
 targets:
-- name: azure-tenant-include
-  provider:
-    name: azure
-    mode: tenant
-    options:
-      tenant_id: example-tenant-id
-      client_id: example-client-id
-      client_secret: example-client-secret
-  regions:
-  - eastus
-  include:
-  - 11111111-2222-3333-4444-555555555555
-  - 22222222-3333-4444-5555-666666666666
-  dry_run: true
-  tasks:
-  - name: count_resource_groups
+  - name: azure-tenant-include
+    provider:
+      name: azure
+      mode: tenant
+      options:
+        tenant_id: example-tenant-id
+        client_id: example-client-id
+        client_secret: example-client-secret
+    regions:
+      - eastus
+    include:
+      - 11111111-2222-3333-4444-555555555555
+      - 22222222-3333-4444-5555-666666666666
+    dry_run: true
+    tasks:
+      - name: count_resource_groups
 
-- name: azure-tenant-exclude
-  provider:
-    name: azure
-    mode: tenant
-    options:
-      tenant_id: example-tenant-id
-      client_id: example-client-id
-      client_secret: example-client-secret
-  regions:
-  - eastus
-  exclude:
-  - 99999999-aaaa-bbbb-cccc-dddddddddddd
-  dry_run: true
-  tasks:
-  - name: count_resource_groups
+  - name: azure-tenant-exclude
+    provider:
+      name: azure
+      mode: tenant
+      options:
+        tenant_id: example-tenant-id
+        client_id: example-client-id
+        client_secret: example-client-secret
+    regions:
+      - eastus
+    exclude:
+      - 99999999-aaaa-bbbb-cccc-dddddddddddd
+    dry_run: true
+    tasks:
+      - name: count_resource_groups

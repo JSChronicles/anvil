@@ -97,11 +97,10 @@ finding is security-related.
      `src/anvil/providers/tasks/detect_*.py`.
    - Provider-specific stock Anvil tasks live under
      `src/anvil/providers/<provider>/tasks/detect_*.py`.
-   - Third-party, plugin, or project-local tasks live in the plugin task package
-     and must be exposed through the matching provider-owned task entry-point
-     group: `anvil.providers.tasks`, `anvil.providers.aws.tasks`,
-     `anvil.providers.azure.tasks`, `anvil.providers.gcp.tasks`, or
-     `anvil.providers.github.tasks`.
+   - Extension or project-local tasks live in the extension task package and
+     must be exposed through `anvil.providers.tasks` for universal tasks or
+     `anvil.providers.<provider>.tasks` for provider-specific tasks. Use the
+     provider's current name instead of a fixed provider allowlist.
 2. Implement the normal Anvil keyword-only `run()` contract.
 3. Validate metadata before provider API calls.
 4. Use provider SDK or REST pagination helpers for list APIs.

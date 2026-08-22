@@ -1,0 +1,32 @@
+schema_version: 2
+
+targets:
+  - name: datadog-observability-audit
+    provider:
+      name: datadog
+      mode: organization
+      options:
+        api_key_env: DD_PRODUCTION_API_KEY
+        app_key_env: DD_PRODUCTION_APP_KEY
+    regions:
+      - global
+    max_workers: 4
+    fail_fast: true
+    dry_run: true
+    metadata:
+      max_results: 100
+    tasks:
+      - id: monitor_inventory
+        name: list_monitor
+      - id: dashboard_inventory
+        name: list_dashboard
+      - id: user_inventory
+        name: list_user
+      - id: disable_departed_users
+        name: disable_user
+        metadata:
+          users:
+            - 11111111-2222-3333-4444-555555555555
+    post_run:
+      - processor: html_report
+        output: datadog-observability-audit.html

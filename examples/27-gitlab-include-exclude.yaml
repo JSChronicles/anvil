@@ -1,0 +1,31 @@
+schema_version: 2
+
+targets:
+  - name: gitlab-group-include
+    provider:
+      name: gitlab
+      mode: groups
+      options:
+        token_env: GITLAB_TOKEN
+    regions:
+      - global
+    include:
+      - acme/platform
+      - acme/security
+    dry_run: true
+    tasks:
+      - name: list_member
+
+  - name: gitlab-project-exclude
+    provider:
+      name: gitlab
+      mode: projects
+      options:
+        token_env: GITLAB_TOKEN
+    regions:
+      - global
+    exclude:
+      - acme/archived-project
+    dry_run: true
+    tasks:
+      - name: audit_repo_security_settings

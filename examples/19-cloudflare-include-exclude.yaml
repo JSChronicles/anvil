@@ -1,0 +1,32 @@
+schema_version: 2
+
+targets:
+  - name: cloudflare-account-include
+    provider:
+      name: cloudflare
+      mode: accounts
+      options:
+        api_token_env: CLOUDFLARE_API_TOKEN
+    regions:
+      - global
+    include:
+      - '11111111111111111111111111111111'
+      - '22222222222222222222222222222222'
+    dry_run: true
+    tasks:
+      - name: list_account_member
+
+  - name: cloudflare-zone-exclude
+    provider:
+      name: cloudflare
+      mode: zones
+      options:
+        api_token_env: CLOUDFLARE_API_TOKEN
+        account_id: '11111111111111111111111111111111'
+    regions:
+      - global
+    exclude:
+      - ffffffffffffffffffffffffffffffff
+    dry_run: true
+    tasks:
+      - name: list_dns_record

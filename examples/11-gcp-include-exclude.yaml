@@ -1,16 +1,16 @@
 schema_version: 2
 targets:
-- name: gcp-project-include
-  provider:
-    name: gcp
-    mode: projects
-    options:
-      quota_project_id: anvil-billing-project
-  regions:
-  - us-central1
-  include:
-  - anvil-dev-project
-  - anvil-prod-project
-  dry_run: true
-  tasks:
-  - name: get_project_info
+  - name: gcp-project-include
+    provider:
+      name: gcp
+      mode: projects
+      options:
+        quota_project_id: anvil-billing-project
+    regions:
+      - us-central1
+    include:
+      - anvil-dev-project
+      - anvil-prod-project
+    dry_run: true
+    tasks:
+      - name: get_project_info

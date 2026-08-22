@@ -1,14 +1,14 @@
 schema_version: 2
 targets:
-- name: gcp-simple-project
-  provider:
-    name: gcp
-    mode: projects
-    options: {}
-  regions:
-  - us-central1
-  include:
-  - anvil-dev-project
-  dry_run: true
-  tasks:
-  - name: get_project_info
+  - name: gcp-simple-project
+    provider:
+      name: gcp
+      mode: projects
+      options: {}
+    regions:
+      - us-central1
+    include:
+      - anvil-dev-project
+    dry_run: true
+    tasks:
+      - name: get_project_info

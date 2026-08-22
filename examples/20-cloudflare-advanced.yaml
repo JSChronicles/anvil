@@ -1,0 +1,26 @@
+schema_version: 2
+
+targets:
+  - name: cloudflare-dns-inventory
+    provider:
+      name: cloudflare
+      mode: zones
+      options:
+        api_token_env: CLOUDFLARE_SECURITY_AUDIT_TOKEN
+        account_id: '11111111111111111111111111111111'
+    regions:
+      - global
+    include:
+      - aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      - bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    max_workers: 4
+    fail_fast: true
+    dry_run: true
+    metadata:
+      max_results: 100
+    tasks:
+      - id: dns_record_inventory
+        name: list_dns_record
+    post_run:
+      - processor: html_report
+        output: cloudflare-dns-inventory.html

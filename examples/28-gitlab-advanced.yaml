@@ -1,31 +1,30 @@
 schema_version: 2
+
 targets:
-  - name: github-security-audit
+  - name: gitlab-security-audit
     provider:
-      name: github
-      mode: repositories
+      name: gitlab
+      mode: projects
       options:
-        app_id: '12345'
-        private_key_env: GITHUB_APP_PRIVATE_KEY
+        token_env: GITLAB_SECURITY_AUDIT_TOKEN
     regions:
       - global
     include:
-      - octo-org/platform-api
-      - octo-org/platform-web
+      - acme/platform-api
+      - acme/platform-web
     max_workers: 4
     fail_fast: true
     dry_run: true
     metadata:
-      state: open
-      branch: main
+      state: detected
+      severity: high
       max_results: 100
-      includes_parents: true
     tasks:
       - id: code_scanning_alerts
         name: list_code_scanning_alert
       - id: secret_scanning_alerts
         name: list_secret_scanning_alert
-      - id: dependabot_alerts
+      - id: dependency_alerts
         name: list_dependabot_alert
       - id: branch_protection_audit
         name: audit_branch_protection
@@ -35,4 +34,4 @@ targets:
         name: audit_repo_security_settings
     post_run:
       - processor: html_report
-        output: github-security-audit.html
+        output: gitlab-security-audit.html

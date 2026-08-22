@@ -1,0 +1,13 @@
+schema_version: 2
+
+targets:
+  - name: pagerduty-simple-account
+    provider:
+      name: pagerduty
+      mode: account
+      options: {}
+    regions:
+      - global
+    dry_run: true
+    tasks:
+      - name: list_service

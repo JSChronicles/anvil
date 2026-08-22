@@ -1,0 +1,13 @@
+schema_version: 2
+
+targets:
+  - name: datadog-simple-organization
+    provider:
+      name: datadog
+      mode: organization
+      options: {}
+    regions:
+      - global
+    dry_run: true
+    tasks:
+      - name: list_monitor

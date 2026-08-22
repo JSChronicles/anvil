@@ -48,7 +48,7 @@ consumer task error before its `run()` function is called.
 Task scope is module-declared with `TASK_SCOPE`; do not put scope in YAML.
 
 For a complete configured-target fan-out/fan-in and recovery example, see
-`examples/17-aws-config-cleanup-workflow.yaml`.
+`examples/33-aws-config-cleanup-workflow.yaml`.
 
 ## Region Selection
 

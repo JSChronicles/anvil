@@ -1,45 +1,45 @@
 schema_version: 2
 max_parallel_targets: 3
 targets:
-- name: production
-  provider:
-    name: aws
-    mode: organization
-    options:
-      profile: production
-      role_name: OrganizationAccountAccessRole
-  regions:
-  - us-east-1
-  max_workers: 10
-  fail_fast: false
-  dry_run: true
-  tasks:
-  - name: noop
-- name: security
-  provider:
-    name: aws
-    mode: organization
-    options:
-      profile: security
-      role_name: OrganizationAccountAccessRole
-  regions:
-  - us-east-1
-  max_workers: 10
-  fail_fast: false
-  dry_run: true
-  tasks:
-  - name: noop
-- name: sandbox
-  provider:
-    name: aws
-    mode: organization
-    options:
-      profile: sandbox
-      role_name: OrganizationAccountAccessRole
-  regions:
-  - us-east-1
-  max_workers: 10
-  fail_fast: false
-  dry_run: true
-  tasks:
-  - name: noop
+  - name: production
+    provider:
+      name: aws
+      mode: organization
+      options:
+        profile: production
+        role_name: OrganizationAccountAccessRole
+    regions:
+      - us-east-1
+    max_workers: 10
+    fail_fast: false
+    dry_run: true
+    tasks:
+      - name: noop
+  - name: security
+    provider:
+      name: aws
+      mode: organization
+      options:
+        profile: security
+        role_name: OrganizationAccountAccessRole
+    regions:
+      - us-east-1
+    max_workers: 10
+    fail_fast: false
+    dry_run: true
+    tasks:
+      - name: noop
+  - name: sandbox
+    provider:
+      name: aws
+      mode: organization
+      options:
+        profile: sandbox
+        role_name: OrganizationAccountAccessRole
+    regions:
+      - us-east-1
+    max_workers: 10
+    fail_fast: false
+    dry_run: true
+    tasks:
+      - name: noop

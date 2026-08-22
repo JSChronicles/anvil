@@ -3,7 +3,7 @@ name: anvil-task-builder
 description: Builds and maintains Anvil task modules, workflows, schemas, runner behavior, SARIF-compatible detect_ tasks, and plugin templates. Use when user asks to "create an Anvil task", "edit this task", "add dry-run behavior", "record actions", "return task results", "create a SARIF task", "create a detect task", "update Anvil YAML", "modify schemas", "change account execution", "update plugin templates", "add concurrency for the payer account", or "build a management-account-only task".
 metadata:
   author: JSChronicles
-  version: "0.9"
+  version: "0.10"
 ---
 
 # Anvil Task Builder
@@ -41,10 +41,14 @@ Use this skill to create Anvil tasks that satisfy the runtime contract, behave s
 - Treat renaming a discovered task or changing its metadata contract as a
   breaking change. Update YAML examples, documentation, and tests, and use a
   breaking Conventional Commit marker plus a `BREAKING CHANGE:` footer.
-- Plugin task packages must be exposed through provider-owned task entry-point groups:
-  `anvil.providers.tasks`, `anvil.providers.aws.tasks`,
-  `anvil.providers.azure.tasks`, `anvil.providers.gcp.tasks`, or
-  `anvil.providers.github.tasks`.
+- Extension task packages must use `anvil.providers.tasks` for universal tasks
+  or `anvil.providers.<provider>.tasks` for provider-specific tasks. Derive
+  `<provider>` from the provider's current `ProviderMetadata.name`; do not copy
+  a fixed provider allowlist into plugin guidance.
+- Extension processor packages use `anvil.processors`. Provider collection
+  packages use `anvil.provider_packages` and expose one immediate child package
+  per provider with `create_provider_instance()`. Do not use legacy generic
+  plugin or per-component entry points.
 - Every task module must define a callable keyword-only `run()` function.
 - Every task `run()` function must have a useful Google-style docstring. Include a short summary plus `Args:`, `Returns:`, and `Raises:` sections when applicable; document required `metadata` keys explicitly.
 - The provided `session` is already scoped to the provider target and region.

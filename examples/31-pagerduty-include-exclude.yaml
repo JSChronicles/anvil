@@ -1,0 +1,20 @@
+schema_version: 2
+
+# PagerDuty targets represent one account, so target-level include and exclude
+# are intentionally unsupported. Select resources in task metadata.
+targets:
+  - name: pagerduty-selected-users
+    provider:
+      name: pagerduty
+      mode: account
+      options:
+        token_env: PAGERDUTY_SECURITY_AUDIT_TOKEN
+    regions:
+      - global
+    dry_run: true
+    tasks:
+      - name: list_user
+        metadata:
+          users:
+            - PABC123
+            - PDEF456

@@ -4,17 +4,17 @@ schema_version: 2
 # An AWS accounts target with configured-target tasks must select exactly one
 # explicit account; Anvil rejects this before authentication or preflight.
 targets:
-- name: invalid-multi-account-config-cleanup
-  provider:
-    name: aws
-    mode: accounts
-    options:
-      profile: security-audit
-      role_name: OrganizationAccountAccessRole
-  include:
-  - '111111111111'
-  - '222222222222'
-  regions:
-  - us-east-1
-  tasks:
-  - name: snapshot_org_config
+  - name: invalid-multi-account-config-cleanup
+    provider:
+      name: aws
+      mode: accounts
+      options:
+        profile: security-audit
+        role_name: OrganizationAccountAccessRole
+    include:
+      - '111111111111'
+      - '222222222222'
+    regions:
+      - us-east-1
+    tasks:
+      - name: snapshot_org_config

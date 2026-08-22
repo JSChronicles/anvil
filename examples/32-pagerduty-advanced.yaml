@@ -1,0 +1,33 @@
+schema_version: 2
+
+targets:
+  - name: pagerduty-operations-audit
+    provider:
+      name: pagerduty
+      mode: account
+      options:
+        token_env: PAGERDUTY_PRODUCTION_TOKEN
+    regions:
+      - global
+    max_workers: 4
+    fail_fast: true
+    dry_run: true
+    metadata:
+      max_results: 100
+    tasks:
+      - id: service_inventory
+        name: list_service
+      - id: escalation_policy_inventory
+        name: list_escalation_policy
+      - id: team_inventory
+        name: list_team
+      - id: user_inventory
+        name: list_user
+      - id: remove_departed_users
+        name: remove_user
+        metadata:
+          users:
+            - PABC123
+    post_run:
+      - processor: html_report
+        output: pagerduty-operations-audit.html

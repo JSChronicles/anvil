@@ -19,26 +19,39 @@ tasks:
   - name: count_vpc
 ```
 
-For project-local or plugin tasks, expose the task package through the provider-owned entry point group that matches task scope:
+For extension or project-local tasks, expose the task package through the
+provider-owned entry-point group that matches task compatibility:
 
 ```toml
 [project.entry-points."anvil.providers.tasks"]
 project-universal = "tasks.universal"
 
-[project.entry-points."anvil.providers.aws.tasks"]
-project-aws = "tasks.aws"
-
-[project.entry-points."anvil.providers.azure.tasks"]
-project-azure = "tasks.azure"
-
-[project.entry-points."anvil.providers.gcp.tasks"]
-project-gcp = "tasks.gcp"
-
-[project.entry-points."anvil.providers.github.tasks"]
-project-github = "tasks.github"
+[project.entry-points."anvil.providers.<provider>.tasks"]
+project-provider = "tasks.provider_specific"
 ```
 
-Anvil discovers modules inside packages registered in provider-owned task entry point groups. Directories named `tasks/` are conventional only; they are not automatically scanned unless registered.
+Replace `<provider>` with the current provider name, such as `aws`,
+`cloudflare`, `datadog`, `gitlab`, or `pagerduty`. This convention applies to
+every provider and avoids a stale hard-coded allowlist.
+
+Anvil discovers modules inside packages registered in provider-owned task entry
+point groups. Directories named `tasks/` are conventional only; they are not
+automatically scanned unless registered.
+
+The other supported extension entry points are package-level registrations:
+
+```toml
+[project.entry-points."anvil.processors"]
+processors = "company_anvil.processors"
+
+[project.entry-points."anvil.provider_packages"]
+providers = "company_anvil.providers"
+```
+
+Each immediate child of a provider collection package is a provider package
+and must expose `create_provider_instance()`. Do not use legacy generic plugin
+entry points or register individual tasks, processors, or providers as entry
+points.
 
 Every task module must define a callable keyword-only `run()` function. Use the provider-neutral signature:
 
@@ -77,9 +90,10 @@ Runtime facts:
 - Tasks run once per concrete region by default. A task module may declare
   `TASK_SCOPE = "target"` to run once per execution target or
   `TASK_SCOPE = "configured_target"` to run once for the configured YAML target.
-- Providers declare which task scopes they support. AWS supports
-  `configured_target` and `region`; Azure, GCP, and GitHub support `region` and
-  `target`.
+- Providers declare which task scopes they support. Read
+  `ProviderMetadata.supported_task_scopes` instead of maintaining a provider
+  allowlist. Stock AWS currently supports `configured_target` and `region`;
+  the other stock providers currently support `region` and `target`.
 - A target-scoped task receives the first resolved concrete provider location
   as `region`, and its session uses that location. No synthetic target-scope or
   global sentinel is introduced. GitHub's `global` value is a real provider
