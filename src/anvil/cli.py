@@ -13,6 +13,7 @@ import os
 import shlex
 import shutil
 import sys
+import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from importlib import metadata as importlib_metadata
@@ -1475,8 +1476,18 @@ def main() -> None:
     # Suppress repeated botocore SSO cache reads at INFO while keeping Anvil INFO logs.
     logging.getLogger("botocore.tokens").setLevel(logging.WARNING)
     # Provider SDK INFO logs include credential probing and HTTP request details.
-    for sdk_logger_name in ("azure", "github", "google"):
+    # httpx backs the Cloudflare SDK's HTTP client and logs every request/response
+    # at INFO by default.
+    for sdk_logger_name in ("azure", "github", "google", "httpx", "httpcore"):
         logging.getLogger(sdk_logger_name).setLevel(logging.WARNING)
+    # The Cloudflare SDK's pydantic models emit benign serializer warnings for a
+    # known upstream scope-typing mismatch (PolicyResourceGroupScope); they carry
+    # no actionable information for Anvil users.
+    warnings.filterwarnings(
+        "ignore",
+        message=r"Pydantic serializer warnings:",
+        category=UserWarning,
+    )
 
     try:
         exit_code = args.func(args)
