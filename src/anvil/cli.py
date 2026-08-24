@@ -1284,6 +1284,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Anvil config-driven provider target processing runner"
     )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"anvil {_package_version('anvil')}",
+    )
 
     subparsers = parser.add_subparsers(dest="command", required=False)
 

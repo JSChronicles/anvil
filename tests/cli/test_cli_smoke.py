@@ -21,6 +21,18 @@ def test_cli_no_args_exits(monkeypatch):
         main()
 
 
+def test_cli_version_prints_installed_package_version(monkeypatch, capsys):
+    cli = _import_cli_or_skip()
+    monkeypatch.setattr(cli, "_package_version", lambda _: "1.2.3")
+    monkeypatch.setattr("sys.argv", ["anvil", "--version"])
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+
+    assert exc_info.value.code == 0
+    assert capsys.readouterr().out == "anvil 1.2.3\n"
+
+
 def test_cmd_run_processes_multiple_config_files_in_order(monkeypatch):
     from pathlib import Path
     from types import SimpleNamespace

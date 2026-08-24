@@ -25,6 +25,7 @@ Write all Python code for Python 3.14 or newer. Prefer simple, maintainable solu
 - Use descriptive variable names. Avoid single-character names except for true mathematical expressions.
 - Avoid pass-through aliases for simple dictionary access.
 - For CLIs, prefer one real console entrypoint that owns argument parsing, logging setup, and the top-level error boundary.
+- Every installable Python application that exposes a console command must provide a root-level `--version` flag backed by installed distribution metadata.
 - Map subcommands to `_cmd_*` handler functions instead of rebuilding argv and calling other module CLIs.
 - Keep library modules as typed functions and data objects, not alternate command-line scripts, unless a standalone script is explicitly needed.
 - Return clean operational CLI failures by catching expected exceptions at the top-level entrypoint and logging one useful message.
