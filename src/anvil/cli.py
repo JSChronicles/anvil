@@ -1285,9 +1285,7 @@ def main() -> None:
         description="Anvil config-driven provider target processing runner"
     )
     parser.add_argument(
-        "--version",
-        action="version",
-        version=f"anvil {_package_version('anvil')}",
+        "--version", action="version", version=f"anvil {_package_version('anvil')}"
     )
 
     subparsers = parser.add_subparsers(dest="command", required=False)
@@ -1489,9 +1487,7 @@ def main() -> None:
     # known upstream scope-typing mismatch (PolicyResourceGroupScope); they carry
     # no actionable information for Anvil users.
     warnings.filterwarnings(
-        "ignore",
-        message=r"Pydantic serializer warnings:",
-        category=UserWarning,
+        "ignore", message=r"Pydantic serializer warnings:", category=UserWarning
     )
 
     try:
