@@ -1,6 +1,9 @@
 ---
 name: python-best-practices
 description: Applies modern Python coding standards for maintainable .py files, CLIs, tests, and package structure. Use when user asks to "write Python", "review Python", "refactor this Python", "add type hints", "improve error handling", "add logging", "write tests", "build an argparse CLI", or improve concurrency, caching, dataclasses, or project layout.
+metadata:
+  author: JSChronicles
+  version: "0.10"
 ---
 
 
