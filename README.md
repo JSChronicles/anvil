@@ -91,8 +91,10 @@ Anvil is built for teams that need repeatable cloud workflows, such as inventory
       `uv pip install anvil`
    1. All other providers require users to install via extras:
       `uv pip install "anvil[xxxx]"`, so like `uv pip install "anvil[azure]"`
+   1. Install every optional provider dependency with:
+      `uv pip install "anvil[all]"`
    1. Source checkout users should sync the matching uv extra instead:
-      `uv sync --extra <provider>`
+      `uv sync --extra <provider>`, or use `uv sync --extra all` for every provider
 1. When using the uv tool, there are several ways to run and install dependencies. Here are only a couple examples:
 1. uv sync:
    1. Sync the project's dependencies with the environment: uv sync

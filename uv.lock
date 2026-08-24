@@ -26,6 +26,34 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+all = [
+    { name = "azure-identity" },
+    { name = "azure-keyvault-secrets" },
+    { name = "azure-mgmt-authorization" },
+    { name = "azure-mgmt-compute" },
+    { name = "azure-mgmt-keyvault" },
+    { name = "azure-mgmt-monitor" },
+    { name = "azure-mgmt-network" },
+    { name = "azure-mgmt-resource" },
+    { name = "azure-mgmt-resource-subscriptions" },
+    { name = "azure-mgmt-resourcegraph" },
+    { name = "azure-mgmt-storage" },
+    { name = "azure-mgmt-subscription" },
+    { name = "cloudflare" },
+    { name = "datadog-api-client" },
+    { name = "google-auth" },
+    { name = "google-cloud-asset" },
+    { name = "google-cloud-compute" },
+    { name = "google-cloud-container" },
+    { name = "google-cloud-iam" },
+    { name = "google-cloud-logging" },
+    { name = "google-cloud-monitoring" },
+    { name = "google-cloud-resource-manager" },
+    { name = "google-cloud-storage" },
+    { name = "pagerduty" },
+    { name = "pygithub" },
+    { name = "python-gitlab" },
+]
 azure = [
     { name = "azure-identity" },
     { name = "azure-keyvault-secrets" },
@@ -79,6 +107,13 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "anvil", extras = ["azure"], marker = "extra == 'all'" },
+    { name = "anvil", extras = ["cloudflare"], marker = "extra == 'all'" },
+    { name = "anvil", extras = ["datadog"], marker = "extra == 'all'" },
+    { name = "anvil", extras = ["gcp"], marker = "extra == 'all'" },
+    { name = "anvil", extras = ["github"], marker = "extra == 'all'" },
+    { name = "anvil", extras = ["gitlab"], marker = "extra == 'all'" },
+    { name = "anvil", extras = ["pagerduty"], marker = "extra == 'all'" },
     { name = "azure-identity", marker = "extra == 'azure'" },
     { name = "azure-keyvault-secrets", marker = "extra == 'azure'" },
     { name = "azure-mgmt-authorization", marker = "extra == 'azure'" },
@@ -109,7 +144,7 @@ requires-dist = [
     { name = "python-gitlab", marker = "extra == 'gitlab'", specifier = ">=8.5.0,<9.0.0" },
     { name = "pyyaml", specifier = ">=6.0.3,<7.0.0" },
 ]
-provides-extras = ["azure", "cloudflare", "datadog", "gcp", "github", "gitlab", "pagerduty"]
+provides-extras = ["all", "azure", "cloudflare", "datadog", "gcp", "github", "gitlab", "pagerduty"]
 
 [package.metadata.requires-dev]
 dev = [
