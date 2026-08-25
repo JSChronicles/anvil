@@ -735,8 +735,12 @@ def _diagnostic_dependency_checks() -> list[DiagnosticCheck]:
     dependencies = [
         ("aws", "boto3", "boto3"),
         ("azure", "azure.identity", "azure-identity"),
+        ("cloudflare", "cloudflare", "cloudflare"),
+        ("datadog", "datadog_api_client", "datadog-api-client"),
         ("gcp", "google.auth", "google-auth"),
         ("github", "github", "PyGithub"),
+        ("gitlab", "gitlab", "python-gitlab"),
+        ("pagerduty", "pagerduty", "pagerduty"),
     ]
 
     checks: list[DiagnosticCheck] = []

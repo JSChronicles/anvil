@@ -107,11 +107,48 @@ Anvil is built for teams that need repeatable cloud workflows, such as inventory
 
 There are multiple global commands:
 ```console
+anvil --version  # Print the installed Anvil version
 anvil list      # List available tasks, processors, and providers
 anvil validate  # Inspect environment health or run focused validation checks
 anvil run       # Execute YAML-defined workflows
 anvil results   # Query JSONL results and rerun failures
 ```
+
+### Container image
+
+The official batteries-included OCI image is published publicly to GitHub
+Container Registry with every first-party provider dependency installed. It
+uses the existing Anvil CLI directly and does not include cloud CLIs, Terraform,
+kubectl, or other unrelated operator tooling.
+
+Run a specific release locally with Docker or Podman:
+
+```console
+docker run --rm ghcr.io/jschronicles/anvil:<version> --version
+```
+
+Mount the working directory to make configuration available and retain results:
+
+```console
+docker run --rm \
+  --volume "$PWD:/workspace" \
+  ghcr.io/jschronicles/anvil:<version> \
+  run --config-file /workspace/anvil.yaml
+```
+
+Anvil writes run output beneath `/workspace/results`. The mounted directory must
+be writable by the image's non-root user (UID and GID `10001`). Supply cloud and
+service credentials at runtime through environment variables, workload identity,
+managed identity, or read-only credential mounts; never add credentials to an
+image. Provider profiles can be mounted at `/home/anvil/.anvil/config.toml` or
+selected with `ANVIL_CONFIG`.
+
+Stable releases publish exact and minor tags plus `latest`. Starting with Anvil
+1.0, releases also publish a major tag. Prereleases publish only their exact tag.
+For reproducible deployments, pin the image digest reported by GHCR.
+The publication workflow verifies anonymous access; repository administrators
+must set the GHCR package visibility to public if it does not inherit the public
+repository visibility on its first publication.
 
 Example AWS task configuration:
 

@@ -5,6 +5,18 @@
 
 version: 2
 updates:
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      time: "07:55"
+      timezone: "America/Chicago"
+    commit-message:
+      prefix: "chore(docker)"
+    labels:
+      - "dependencies"
+      - "docker"
+
   - package-ecosystem: "uv"
     directory: "/"
     schedule:
