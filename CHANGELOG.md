@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 <!-- version list -->
 
+## v0.33.2 (2026-08-25)
+
+### Performance Improvements
+
+- **docker**: Improve dependency caching and build efficiency
+  ([`b9622d9`](https://github.com/JSChronicles/anvil/commit/b9622d95d23872790ca4fe737e17e8adaafa1cfd))
+
+
 ## v0.33.1 (2026-08-25)
 
 ### Bug Fixes
