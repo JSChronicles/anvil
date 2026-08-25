@@ -306,7 +306,8 @@ jobs:
             "${tag_arguments[@]}" \
             "${digest_sources[@]}"
           primary_tag="${tags[0]}"
-          digest="$(docker buildx imagetools inspect "$primary_tag" | awk '/^Digest:/ {print $2; exit}')"
+          inspect_output="$(docker buildx imagetools inspect "$primary_tag")"
+          digest="$(awk '/^Digest:/ {print $2; exit}' <<< "$inspect_output")"
           if [[ -z "$digest" ]]; then
             echo "::error::could not resolve published image digest"
             exit 1
