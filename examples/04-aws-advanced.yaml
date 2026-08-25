@@ -1,34 +1,34 @@
 schema_version: 2
 max_parallel_targets: 2
 targets:
-- name: aws-lambda-runtime-audit
-  provider:
-    name: aws
-    mode: organization
-    options:
-      profile: security-audit
-      role_name: OrganizationAccountAccessRole
-  regions:
-  - us-*
-  - ca-central-1
-  include:
-  - '111111111111'
-  - '222222222222'
-  max_workers: 4
-  max_parallel_regions: 2
-  fail_fast: true
-  dry_run: true
-  metadata:
-    runtimes:
-    - python3.8
-    - nodejs16.x
-  tasks:
-  # Advanced examples use descriptive invocation IDs so result records remain
-  # clear even when a component is configured more than once elsewhere.
-  - id: vpc_count
-    name: count_vpc
-  - id: deprecated_runtime_findings
-    name: detect_deprecated_lambda_runtimes
-  post_run:
-  - processor: sarif_report
-    output: aws-lambda-runtime-audit.sarif
+  - name: aws-lambda-runtime-audit
+    provider:
+      name: aws
+      mode: organization
+      options:
+        profile: security-audit
+        role_name: OrganizationAccountAccessRole
+    regions:
+      - us-*
+      - ca-central-1
+    include:
+      - '111111111111'
+      - '222222222222'
+    max_workers: 4
+    max_parallel_regions: 2
+    fail_fast: true
+    dry_run: true
+    metadata:
+      runtimes:
+        - python3.8
+        - nodejs16.x
+    tasks:
+      # Advanced examples use descriptive invocation IDs so result records remain
+      # clear even when a component is configured more than once elsewhere.
+      - id: vpc_count
+        name: count_vpc
+      - id: deprecated_runtime_findings
+        name: detect_deprecated_lambda_runtimes
+    post_run:
+      - processor: sarif_report
+        output: aws-lambda-runtime-audit.sarif

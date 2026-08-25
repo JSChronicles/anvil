@@ -1,0 +1,21 @@
+schema_version: 2
+
+# Datadog targets represent one key-bound organization, so target-level include
+# and exclude are intentionally unsupported. Select resources in task metadata.
+targets:
+  - name: datadog-selected-users
+    provider:
+      name: datadog
+      mode: organization
+      options:
+        api_key_env: DD_SECURITY_AUDIT_API_KEY
+        app_key_env: DD_SECURITY_AUDIT_APP_KEY
+    regions:
+      - global
+    dry_run: true
+    tasks:
+      - name: list_user
+        metadata:
+          users:
+            - 11111111-2222-3333-4444-555555555555
+            - aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee

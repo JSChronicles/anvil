@@ -1,0 +1,37 @@
+schema_version: 2
+
+targets:
+  - name: gitlab-security-audit
+    provider:
+      name: gitlab
+      mode: projects
+      options:
+        token_env: GITLAB_SECURITY_AUDIT_TOKEN
+    regions:
+      - global
+    include:
+      - acme/platform-api
+      - acme/platform-web
+    max_workers: 4
+    fail_fast: true
+    dry_run: true
+    metadata:
+      state: detected
+      severity: high
+      max_results: 100
+    tasks:
+      - id: code_scanning_alerts
+        name: list_code_scanning_alert
+      - id: secret_scanning_alerts
+        name: list_secret_scanning_alert
+      - id: dependency_alerts
+        name: list_dependabot_alert
+      - id: branch_protection_audit
+        name: audit_branch_protection
+      - id: ruleset_audit
+        name: audit_rulesets
+      - id: repository_security_audit
+        name: audit_repo_security_settings
+    post_run:
+      - processor: html_report
+        output: gitlab-security-audit.html

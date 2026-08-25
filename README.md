@@ -31,9 +31,22 @@
 
 ## Introduction
 
-Anvil is a declarative provider-aware execution engine for running Python tasks across cloud target and region fleets. Describe the work in YAML, keep task logic in plain Python modules, and let the engine handle authentication, target resolution, dependency ordering, bounded concurrency, and structured results. The current runtime preserves the AWS organization/account behavior and optimizations from earlier releases while adding explicit Azure subscription and GCP project target support.
+Anvil is a declarative provider-aware execution engine for running Python tasks across cloud and service target fleets. Describe the work in YAML, keep task logic in plain Python modules, and let the engine handle authentication, target resolution, dependency ordering, bounded concurrency, and structured results. The current runtime supports AWS, Azure, Cloudflare, Datadog, GCP, GitHub, GitLab, and PagerDuty through the same provider-neutral contracts.
 
-For more, see the [documentation](https://opsfoundry.dev/).
+For complete Anvil documentation, see the
+[Anvil documentation hub](https://opsfoundry.dev/anvil/).
+
+Key references:
+
+- [Configuration](https://opsfoundry.dev/anvil/configuration/)
+- [Providers](https://opsfoundry.dev/anvil/providers/) and
+  [provider profiles](https://opsfoundry.dev/anvil/provider-profiles/)
+- [Built-in tasks and processors](https://opsfoundry.dev/anvil/built-in-components/)
+- [Task contract](https://opsfoundry.dev/anvil/task-contract/) and
+  [task workflows](https://opsfoundry.dev/anvil/task-workflows/)
+- [CLI and results](https://opsfoundry.dev/anvil/cli/)
+- [Extension best practices](https://opsfoundry.dev/anvil/extension-best-practices/)
+- [Complete examples](https://opsfoundry.dev/anvil/examples/)
 
 ### Why Anvil?
 
@@ -46,6 +59,9 @@ Anvil is built for teams that need repeatable cloud workflows, such as inventory
   - AWS can discover active organization accounts and enabled regions, with include/exclude filtering.
   - Azure subscriptions and GCP projects can run from explicit IDs or provider
     discovery.
+  - Cloudflare preserves account and zone boundaries, GitLab preserves group and
+    project boundaries, and Datadog and PagerDuty execute at organization or
+    account scope without forcing cloud-specific hierarchy concepts.
 - Parallel execution and caching
   - Control concurrency at the target, account, and region levels. See [Caching and reuse](https://opsfoundry.dev/anvil/execution-model/#cache-and-reuse-boundaries).
 - Shared discovery and session reuse
@@ -55,8 +71,8 @@ Anvil is built for teams that need repeatable cloud workflows, such as inventory
 - Built-in tasks
   - Use provider-package tasks for common AWS operations and universal tasks
     where they apply.
-  - Provider-owned task plugin entry points can add universal tasks or
-    provider-specific AWS, Azure, and GCP tasks.
+  - Provider-owned task package entry points can add universal tasks or tasks
+    for any discovered provider.
 - Structured output and safer operations
   - Record structured results at task, account/target, target group, and engine levels.
 
@@ -66,19 +82,19 @@ Anvil is built for teams that need repeatable cloud workflows, such as inventory
 >
 > The template exposes project-local processors without forking Anvil.
 >
-> If you do not need/want the full Anvil framework and only want a simple starting point for small AWS Organization tasks, see: [`templates/aws_multi_account_template.py`](https://opsfoundry.dev/anvil/examples/#standalone-multi-account-script-template)
+> If you do not need/want the full Anvil framework and only want a simple starting point for small AWS Organization tasks, see: [`templates/aws_multi_account_template.py`](https://opsfoundry.dev/anvil/examples/#standalone-aws-multi-account-template)
 
 
 1. Install Anvil with the provider SDKs you need:
    1. Installed package users can choose provider extras with pip. Base installs
       include AWS support and the default CLI behavior:
-      `pip install anvil`
-   1. Azure users should install the Azure extra:
-      `pip install "anvil[azure]"`
-   1. GCP users should install the GCP extra:
-      `pip install "anvil[gcp]"`
+      `uv pip install anvil`
+   1. All other providers require users to install via extras:
+      `uv pip install "anvil[xxxx]"`, so like `uv pip install "anvil[azure]"`
+   1. Install every optional provider dependency with:
+      `uv pip install "anvil[all]"`
    1. Source checkout users should sync the matching uv extra instead:
-      `uv sync --extra azure` or `uv sync --extra gcp`
+      `uv sync --extra <provider>`, or use `uv sync --extra all` for every provider
 1. When using the uv tool, there are several ways to run and install dependencies. Here are only a couple examples:
 1. uv sync:
    1. Sync the project's dependencies with the environment: uv sync
@@ -91,14 +107,13 @@ Anvil is built for teams that need repeatable cloud workflows, such as inventory
 
 There are multiple global commands:
 ```console
-anvil results   # Query JSONL results and rerun failures
 anvil list      # List available tasks, processors, and providers
 anvil validate  # Inspect environment health or run focused validation checks
 anvil run       # Execute YAML-defined workflows
+anvil results   # Query JSONL results and rerun failures
 ```
 
-
-Run a simple YAML file:
+Example AWS task configuration:
 
 This executes the configured targets and tasks, then writes structured results under `./results`.
 
@@ -119,53 +134,7 @@ targets:
         profile: root
     tasks:
       - name: noop
-    dry_run: true
 ```
-
-### Provider task packages
-> [!NOTE]
-> Duplicate task names across all packages and plugins applicable to the selected provider are rejected as ambiguous.
->
-
-Task compatibility is determined by package location.
-
-For schema-v2 invocation IDs, dependency-data selection, `always_run` recovery,
-module-declared scopes, and configured-target fan-in/fan-out, see
-[Task workflows](docs/task-workflows.md).
-
-- `anvil.providers.tasks.<task>` is universal and can run for any provider.
-- `anvil.providers.aws.tasks.<task>` is AWS-only.
-- `anvil.providers.azure.tasks.<task>` is Azure-only.
-- `anvil.providers.gcp.tasks.<task>` is GCP-only.
-
-### Extension package discovery
-
-Tasks, processors, and providers are discovered from package folders. Adding a
-public module or provider folder to an already registered package does not
-require another entry-point declaration. Discovery records names and sources
-without importing child implementations; normal execution imports only the
-selected components. Duplicate names are rejected as ambiguous and report every
-conflicting source.
-
-Third-party distributions register their package roots in `pyproject.toml`:
-
-```toml
-[project.entry-points."anvil.providers.tasks"]
-universal-tasks = "company_anvil.tasks"
-
-[project.entry-points."anvil.providers.aws.tasks"]
-aws-tasks = "company_anvil.aws_tasks"
-
-[project.entry-points."anvil.processors"]
-processors = "company_anvil.processors"
-
-[project.entry-points."anvil.provider_packages"]
-providers = "company_anvil.providers"
-```
-
-Each task or processor filename is its component name. Each immediate child of
-a provider collection is a provider package and must expose
-`create_provider_instance()`.
 
 Example Azure task configuration:
 
@@ -186,33 +155,142 @@ targets:
       - name: count_resource_groups
 ```
 
-Example GCP task configuration:
+See [more provider configurations](https://opsfoundry.dev/anvil/examples/) for
+simple, multi-target, include/exclude, and advanced YAML files for every
+provider.
 
-```yaml
-schema_version: 2
 
-targets:
-  - name: gcp-projects
-    provider:
-      name: gcp
-      mode: projects
-      options:
-        credentials_path: /secure/path/to/credentials.json
-        quota_project_id: anvil-billing-project
-    include:
-      - anvil-dev-project
-    regions:
-      - us-central1
-    tasks:
-      - name: get_project_info
+------------------------------
+
+
+### Provider profiles
+
+Anvil provider profiles are optional. Cloudflare, Datadog, GitHub, GitLab, and
+PagerDuty can load reusable settings from `~/.anvil/config.toml`; set
+`ANVIL_CONFIG` to use a different file. AWS, Azure, and GCP continue to use
+their provider-native credential configuration instead.
+
+When neither a named profile nor inline profile fields are configured, Anvil
+first applies `providers.<provider>.default` when that table exists. If it does
+not exist, the provider uses its normal environment variables, SDK credential
+chain, workload identity, or other native fallback where supported. Profiles
+are namespaced by provider and profile name:
+
+```toml
+[providers.cloudflare.security]
+api_token_env = "CLOUDFLARE_SECURITY_TOKEN"
+
+[providers.github.work]
+token_env = "GITHUB_WORK_TOKEN"
+api_url = "https://api.github.com"
+
+[providers.gitlab.default]
+token_env = "GITLAB_TOKEN"
+url = "https://gitlab.example.com"
 ```
 
-For delegated-administrator patterns, keep the base session on the
-delegated-admin profile. Anvil uses that base session directly for the
-delegated-admin account if it appears in Organizations discovery, and assumes
-`role_name` in every other selected account, including the management/payer
-account. AWS organization targets accept `management` and `payer` as
-case-insensitive aliases for that account in `include` and `exclude` filters.
+These fields identify environment variables or provider-native credential
+locations; they do not contain the credentials themselves. Set the referenced
+variables through your shell, CI secret store, or runtime environment.
+
+Select a named profile with `provider.options.profile`. A profile named
+`default` is selected automatically when the target does not provide inline
+authentication or connection options. The following target fragments omit
+unrelated fields with `# ...`.
+
+Cloudflare uses the named `security` profile while keeping its resource
+selector inline:
+
+```yaml
+provider:
+  name: cloudflare
+  mode: zones
+  options:
+    profile: security
+    account_id: '11111111111111111111111111111111'
+# ...
+```
+
+GitHub references the named `work` profile:
+
+```yaml
+provider:
+  name: github
+  mode: repositories
+  options:
+    profile: work
+# ...
+```
+
+GitLab uses `providers.gitlab.default` because no profile or inline connection
+fields are configured:
+
+```yaml
+provider:
+  name: gitlab
+  mode: projects
+  options: {}
+# ...
+```
+
+A named profile cannot be combined with inline profile fields such as
+`token_env`, `api_url`, or `url`. Resource selectors that do not belong to the
+profile remain inline, as shown by Cloudflare's `account_id`. Each provider
+continues to validate its own supported profile and target options.
+
+See [Provider profiles](https://opsfoundry.dev/anvil/provider-profiles/) for
+default-profile behavior, supported fields, and multi-account or multi-endpoint
+patterns.
+
+### Provider task packages
+> [!NOTE]
+> Duplicate task names across all packages and plugins applicable to the selected provider are rejected as ambiguous.
+>
+
+Task compatibility is determined by package location.
+
+See the [built-in component catalog](https://opsfoundry.dev/anvil/built-in-components/)
+for the tasks shipped by each provider. For invocation IDs, task-to-task result
+sharing, `always_run`, partial recovery results, and scope-aware dependencies,
+see [Task workflows](https://opsfoundry.dev/anvil/task-workflows/).
+
+- `anvil.providers.tasks.<task>` is universal and can run for any provider.
+- `anvil.providers.<provider>.tasks.<task>` runs only for the provider named by
+  that package segment.
+
+Use target `dry_run: true` to review planned removals before execution.
+
+
+### Extension package discovery
+
+Tasks, processors, and providers are discovered from package folders. Adding a
+public module or provider folder to an already registered package does not
+require another entry-point declaration. Discovery records names and sources
+without importing child implementations; normal execution imports only the
+selected components. Duplicate names are rejected as ambiguous and report every
+conflicting source.
+
+See [Extension best practices](https://opsfoundry.dev/anvil/extension-best-practices/)
+for package layouts, current entry-point groups, provider factories, and
+implementation guidance. See the
+[Task contract](https://opsfoundry.dev/anvil/task-contract/#task-packages-and-discovery)
+for task compatibility, lazy discovery, and ambiguity behavior.
+
+The [Provider reference](https://opsfoundry.dev/anvil/providers/) documents all
+stock provider modes, authentication options, target selectors, locations, and
+validation behavior and includes a focused configuration example for every
+provider.
+
+See [Selectors and regions](https://opsfoundry.dev/anvil/selectors-and-regions/)
+for exact `include`, `exclude`, `all`, glob, `management`, and `payer` rules.
+
+For [delegated-administrator patterns](https://opsfoundry.dev/guides/aws/programmatic-account-access/#delegated-admin-security-access),
+keep the base session on the delegated-admin profile. Anvil uses that base
+session directly for the delegated-admin account if it appears in Organizations
+discovery, and assumes `role_name` in every other selected account, including
+the management/payer account. AWS organization targets accept `management` and
+`payer` as case-insensitive aliases for that account in `include` and `exclude`
+filters.
 
 ```yaml
 schema_version: 2
@@ -232,6 +310,9 @@ targets:
     tasks:
       - name: noop
 ```
+
+------------------------------
+
 
 ### Results
 
@@ -281,7 +362,7 @@ additional required parameters that Anvil cannot supply at runtime.
 `--providers` validates the provider contract. `--auth` validates cloud access
 for the configured targets after loading and validating the config file.
 
-See more at [Task validation](https://opsfoundry.dev/anvil/task-contract/#task-validation).
+See more at [Task validation](https://opsfoundry.dev/anvil/task-contract/#validation).
 
 ### Processors
 
@@ -350,59 +431,8 @@ See more at [HTML result reports](https://opsfoundry.dev/anvil/cli/#processors),
 including examples for separating target-level reports or combining a completed
 run into one HTML report.
 
-------------------------------
-
-Run a more detailed YAML:
-
-This shows multi-region execution, concurrency, account filtering, task dependencies, fail-fast behavior, dry-run mode, and task metadata.
-
-```console
-anvil run --config-file ./yaml/advanced.yaml
-```
-
-```yaml
-# advanced.yaml example
-schema_version: 2
-max_parallel_targets: 2
-
-targets:
-  - name: place
-    provider:
-      name: aws
-      mode: organization
-      options:
-        profile: place-root
-        role_name: OrganizationAccountAccessRole
-    # Organizations support explicit regions, all, glob selectors, and mixed
-    # glob plus explicit selectors.
-    regions:
-      - us-east-1
-      - us-west-2
-
-    max_workers: 5
-    max_parallel_regions: 2
-    fail_fast: false
-    dry_run: true
-
-    include:
-      - "111111111111"
-      - "222222222222"
-
-    tasks:
-      - name: discover_iam_users
-
-      - name: backup_iam_users
-        depends_on:
-          - discover_iam_users
-
-      - name: remove_iam_user
-        depends_on:
-          - discover_iam_users
-          - backup_iam_users
-
-    metadata:
-      user_name: test
-```
+To build a custom processor, see
+[Extension best practices](https://opsfoundry.dev/anvil/extension-best-practices/#build-a-processor).
 
 
 ## Example Benchmarks

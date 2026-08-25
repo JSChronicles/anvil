@@ -13,6 +13,7 @@ import os
 import shlex
 import shutil
 import sys
+import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from importlib import metadata as importlib_metadata
@@ -36,6 +37,7 @@ from anvil.processor_loader import (
     run_processors,
 )
 from anvil.processor_validation import processor_validation_errors
+from anvil.provider_profiles import ProviderProfileConfig
 from anvil.provider_loader import (
     ProviderDescriptor,
     discover_providers,
@@ -834,6 +836,8 @@ def _env_present(name: str) -> bool:
 def _diagnostic_auth_source_checks() -> list[DiagnosticCheck]:
     home = Path.home()
     aws_config_path = home / ".aws" / "config"
+    anvil_config_path = ProviderProfileConfig().path
+    anvil_config_exists = anvil_config_path.exists()
     checks = [
         DiagnosticCheck(
             section="Auth Sources",
@@ -863,9 +867,9 @@ def _diagnostic_auth_source_checks() -> list[DiagnosticCheck]:
         ),
         DiagnosticCheck(
             section="Auth Sources",
-            status="OK" if _env_present("ANVIL_GITHUB_CONFIG") else "WARN",
-            label="ANVIL_GITHUB_CONFIG",
-            detail="set" if _env_present("ANVIL_GITHUB_CONFIG") else "not set",
+            status="OK" if anvil_config_exists else "WARN",
+            label="Anvil config",
+            detail=str(anvil_config_path) if anvil_config_exists else "not found",
         ),
     ]
 
@@ -1280,6 +1284,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Anvil config-driven provider target processing runner"
     )
+    parser.add_argument(
+        "--version", action="version", version=f"anvil {_package_version('anvil')}"
+    )
 
     subparsers = parser.add_subparsers(dest="command", required=False)
 
@@ -1472,8 +1479,16 @@ def main() -> None:
     # Suppress repeated botocore SSO cache reads at INFO while keeping Anvil INFO logs.
     logging.getLogger("botocore.tokens").setLevel(logging.WARNING)
     # Provider SDK INFO logs include credential probing and HTTP request details.
-    for sdk_logger_name in ("azure", "github", "google"):
+    # httpx backs the Cloudflare SDK's HTTP client and logs every request/response
+    # at INFO by default.
+    for sdk_logger_name in ("azure", "github", "google", "httpx", "httpcore"):
         logging.getLogger(sdk_logger_name).setLevel(logging.WARNING)
+    # The Cloudflare SDK's pydantic models emit benign serializer warnings for a
+    # known upstream scope-typing mismatch (PolicyResourceGroupScope); they carry
+    # no actionable information for Anvil users.
+    warnings.filterwarnings(
+        "ignore", message=r"Pydantic serializer warnings:", category=UserWarning
+    )
 
     try:
         exit_code = args.func(args)

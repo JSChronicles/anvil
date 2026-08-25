@@ -1,0 +1,16 @@
+schema_version: 2
+
+targets:
+  - name: cloudflare-simple-account
+    provider:
+      name: cloudflare
+      mode: accounts
+      options:
+        api_token_env: CLOUDFLARE_API_TOKEN
+    regions:
+      - global
+    include:
+      - '11111111111111111111111111111111'
+    dry_run: true
+    tasks:
+      - name: list_account_member

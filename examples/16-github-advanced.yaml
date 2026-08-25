@@ -1,38 +1,38 @@
 schema_version: 2
 targets:
-- name: github-security-audit
-  provider:
-    name: github
-    mode: repositories
-    options:
-      app_id: '12345'
-      private_key_env: GITHUB_APP_PRIVATE_KEY
-  regions:
-  - global
-  include:
-  - octo-org/platform-api
-  - octo-org/platform-web
-  max_workers: 4
-  fail_fast: true
-  dry_run: true
-  metadata:
-    state: open
-    branch: main
-    max_results: 100
-    includes_parents: true
-  tasks:
-  - id: code_scanning_alerts
-    name: list_code_scanning_alerts
-  - id: secret_scanning_alerts
-    name: list_secret_scanning_alerts
-  - id: dependabot_alerts
-    name: list_dependabot_alerts
-  - id: branch_protection_audit
-    name: audit_branch_protection
-  - id: ruleset_audit
-    name: audit_rulesets
-  - id: repository_security_audit
-    name: audit_repo_security_settings
-  post_run:
-  - processor: html_report
-    output: github-security-audit.html
+  - name: github-security-audit
+    provider:
+      name: github
+      mode: repositories
+      options:
+        app_id: '12345'
+        private_key_env: GITHUB_APP_PRIVATE_KEY
+    regions:
+      - global
+    include:
+      - octo-org/platform-api
+      - octo-org/platform-web
+    max_workers: 4
+    fail_fast: true
+    dry_run: true
+    metadata:
+      state: open
+      branch: main
+      max_results: 100
+      includes_parents: true
+    tasks:
+      - id: code_scanning_alerts
+        name: list_code_scanning_alert
+      - id: secret_scanning_alerts
+        name: list_secret_scanning_alert
+      - id: dependabot_alerts
+        name: list_dependabot_alert
+      - id: branch_protection_audit
+        name: audit_branch_protection
+      - id: ruleset_audit
+        name: audit_rulesets
+      - id: repository_security_audit
+        name: audit_repo_security_settings
+    post_run:
+      - processor: html_report
+        output: github-security-audit.html

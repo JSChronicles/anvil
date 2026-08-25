@@ -1,26 +1,26 @@
 schema_version: 2
 max_parallel_targets: 2
 targets:
-- name: azure-resource-group-inventory
-  provider:
-    name: azure
-    mode: tenant
-    options:
-      tenant_id: example-tenant-id
-      client_id: example-client-id
-      client_secret: example-client-secret
-  regions:
-  - eastus
-  - westus2
-  exclude:
-  - 99999999-aaaa-bbbb-cccc-dddddddddddd
-  max_workers: 4
-  max_parallel_regions: 2
-  fail_fast: true
-  dry_run: true
-  tasks:
-  - id: resource_group_count
-    name: count_resource_groups
-  post_run:
-  - processor: html_report
-    output: azure-resource-group-inventory.html
+  - name: azure-resource-group-inventory
+    provider:
+      name: azure
+      mode: tenant
+      options:
+        tenant_id: example-tenant-id
+        client_id: example-client-id
+        client_secret: example-client-secret
+    regions:
+      - eastus
+      - westus2
+    exclude:
+      - 99999999-aaaa-bbbb-cccc-dddddddddddd
+    max_workers: 4
+    max_parallel_regions: 2
+    fail_fast: true
+    dry_run: true
+    tasks:
+      - id: resource_group_count
+        name: count_resource_groups
+    post_run:
+      - processor: html_report
+        output: azure-resource-group-inventory.html

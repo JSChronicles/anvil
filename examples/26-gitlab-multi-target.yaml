@@ -1,0 +1,33 @@
+schema_version: 2
+max_parallel_targets: 2
+
+targets:
+  - name: gitlab-platform-group
+    provider:
+      name: gitlab
+      mode: groups
+      options:
+        token_env: GITLAB_TOKEN
+    regions:
+      - global
+    include:
+      - acme/platform
+    dry_run: true
+    tasks:
+      - name: list_member
+
+  - name: gitlab-application-projects
+    provider:
+      name: gitlab
+      mode: projects
+      options:
+        token_env: GITLAB_TOKEN
+    regions:
+      - global
+    include:
+      - acme/application-api
+      - acme/application-web
+    dry_run: true
+    tasks:
+      - name: audit_branch_protection
+      - name: audit_repo_security_settings

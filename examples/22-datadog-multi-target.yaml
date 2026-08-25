@@ -1,0 +1,32 @@
+schema_version: 2
+max_parallel_targets: 2
+
+targets:
+  - name: datadog-production
+    provider:
+      name: datadog
+      mode: organization
+      options:
+        site: datadoghq.com
+        api_key_env: DD_PRODUCTION_API_KEY
+        app_key_env: DD_PRODUCTION_APP_KEY
+    regions:
+      - global
+    dry_run: true
+    tasks:
+      - name: list_monitor
+      - name: list_dashboard
+
+  - name: datadog-europe
+    provider:
+      name: datadog
+      mode: organization
+      options:
+        site: datadoghq.eu
+        api_key_env: DD_EU_API_KEY
+        app_key_env: DD_EU_APP_KEY
+    regions:
+      - global
+    dry_run: true
+    tasks:
+      - name: list_user

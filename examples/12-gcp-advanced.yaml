@@ -1,26 +1,26 @@
 schema_version: 2
 max_parallel_targets: 2
 targets:
-- name: gcp-project-inventory
-  provider:
-    name: gcp
-    mode: projects
-    options:
-      credentials_path: /secure/path/to/gcp-service-account.json
-      quota_project_id: anvil-billing-project
-  regions:
-  - us-central1
-  - us-east1
-  include:
-  - anvil-dev-project
-  - anvil-prod-project
-  max_workers: 4
-  max_parallel_regions: 2
-  fail_fast: true
-  dry_run: true
-  tasks:
-  - id: project_inventory
-    name: get_project_info
-  post_run:
-  - processor: html_report
-    output: gcp-project-inventory.html
+  - name: gcp-project-inventory
+    provider:
+      name: gcp
+      mode: projects
+      options:
+        credentials_path: /secure/path/to/gcp-service-account.json
+        quota_project_id: anvil-billing-project
+    regions:
+      - us-central1
+      - us-east1
+    include:
+      - anvil-dev-project
+      - anvil-prod-project
+    max_workers: 4
+    max_parallel_regions: 2
+    fail_fast: true
+    dry_run: true
+    tasks:
+      - id: project_inventory
+        name: get_project_info
+    post_run:
+      - processor: html_report
+        output: gcp-project-inventory.html

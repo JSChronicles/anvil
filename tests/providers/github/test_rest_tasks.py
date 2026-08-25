@@ -9,9 +9,9 @@ from anvil.providers.github.tasks import (
     audit_branch_protection,
     audit_repo_security_settings,
     audit_rulesets,
-    list_code_scanning_alerts,
-    list_dependabot_alerts,
-    list_secret_scanning_alerts,
+    list_code_scanning_alert,
+    list_dependabot_alert,
+    list_secret_scanning_alert,
 )
 
 
@@ -83,19 +83,19 @@ def _run_task(
     ("task", "path", "metadata", "expected_filters"),
     [
         (
-            list_code_scanning_alerts,
+            list_code_scanning_alert,
             "/repos/octo-org/example/code-scanning/alerts",
             {"state": "open", "severity": "high", "max_results": 1},
             {"state": "open", "severity": "high"},
         ),
         (
-            list_secret_scanning_alerts,
+            list_secret_scanning_alert,
             "/repos/octo-org/example/secret-scanning/alerts",
             {"state": "resolved", "validity": "active"},
             {"state": "resolved", "validity": "active"},
         ),
         (
-            list_dependabot_alerts,
+            list_dependabot_alert,
             "/repos/octo-org/example/dependabot/alerts",
             {"state": "open", "ecosystem": "pip"},
             {"state": "open", "ecosystem": "pip"},
@@ -124,9 +124,9 @@ def test_alert_tasks_list_repository_alerts_with_filters(
 @pytest.mark.parametrize(
     ("task", "path"),
     [
-        (list_code_scanning_alerts, "/orgs/octo-org/code-scanning/alerts"),
-        (list_secret_scanning_alerts, "/orgs/octo-org/secret-scanning/alerts"),
-        (list_dependabot_alerts, "/orgs/octo-org/dependabot/alerts"),
+        (list_code_scanning_alert, "/orgs/octo-org/code-scanning/alerts"),
+        (list_secret_scanning_alert, "/orgs/octo-org/secret-scanning/alerts"),
+        (list_dependabot_alert, "/orgs/octo-org/dependabot/alerts"),
     ],
 )
 def test_alert_tasks_support_organization_targets(task, path: str) -> None:

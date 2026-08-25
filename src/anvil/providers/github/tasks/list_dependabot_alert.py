@@ -1,5 +1,5 @@
 """
-List GitHub code scanning alerts for the current organization or repository target.
+List GitHub Dependabot alerts for the current organization or repository target.
 """
 
 from __future__ import annotations
@@ -18,15 +18,18 @@ from anvil.providers.github.tasks._rest import (
 
 __LOGGER__ = logging.getLogger(__name__)
 
-TASK_NAME = "list_code_scanning_alerts"
+TASK_NAME = "list_dependabot_alert"
 ALLOWED_FILTERS = (
-    "tool_name",
-    "tool_guid",
-    "ref",
     "state",
     "severity",
+    "ecosystem",
+    "package",
+    "manifest",
+    "scope",
     "sort",
     "direction",
+    "epss_percentage",
+    "has",
 )
 
 
@@ -43,7 +46,7 @@ def run(
     dependency_data: dict[str, object],
     actions: ActionRecorder,
 ) -> dict[str, object]:
-    """List code scanning alerts for a GitHub target."""
+    """List Dependabot alerts for a GitHub target."""
 
     require_github_provider(task_name=TASK_NAME, provider=provider)
     max_results = metadata_int(
@@ -59,18 +62,18 @@ def run(
         task_name=TASK_NAME,
         execution_target_id=execution_target_id,
         execution_target_type=execution_target_type,
-        suffix="code-scanning/alerts",
+        suffix="dependabot/alerts",
     )
     alerts = list_rest_items(
         session=session, path=endpoint, params=params, max_results=max_results
     )
 
     __LOGGER__.info(
-        f"Listed {len(alerts)} GitHub code scanning alert(s) for "
+        f"Listed {len(alerts)} GitHub Dependabot alert(s) for "
         f"{execution_target_type} {execution_target_name} region={region}"
     )
     actions.record(
-        f"Listed {len(alerts)} GitHub code scanning alert(s) for "
+        f"Listed {len(alerts)} GitHub Dependabot alert(s) for "
         f"{execution_target_type} {execution_target_id} region {region}"
     )
     return {"alert_count": len(alerts), "alerts": alerts, "filters": params}

@@ -1,14 +1,14 @@
 schema_version: 2
 targets:
-- name: aws-simple-organization
-  provider:
-    name: aws
-    mode: organization
-    options:
-      profile: security-audit
-      role_name: OrganizationAccountAccessRole
-  regions:
-  - us-east-1
-  dry_run: true
-  tasks:
-  - name: count_vpc
+  - name: aws-simple-organization
+    provider:
+      name: aws
+      mode: organization
+      options:
+        profile: security-audit
+        role_name: OrganizationAccountAccessRole
+    regions:
+      - us-east-1
+    dry_run: true
+    tasks:
+      - name: count_vpc

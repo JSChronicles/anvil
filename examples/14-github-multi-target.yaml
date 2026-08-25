@@ -1,38 +1,38 @@
 schema_version: 2
 max_parallel_targets: 2
 targets:
-- name: github-platform-repositories
-  provider:
-    name: github
-    mode: repositories
-    options:
-      token_env: GITHUB_TOKEN
-  regions:
-  - global
-  include:
-  - octo-org/platform-api
-  - octo-org/platform-web
-  dry_run: true
-  metadata:
-    branch: main
-  tasks:
-  - name: audit_branch_protection
-  - name: audit_repo_security_settings
+  - name: github-platform-repositories
+    provider:
+      name: github
+      mode: repositories
+      options:
+        token_env: GITHUB_TOKEN
+    regions:
+      - global
+    include:
+      - octo-org/platform-api
+      - octo-org/platform-web
+    dry_run: true
+    metadata:
+      branch: main
+    tasks:
+      - name: audit_branch_protection
+      - name: audit_repo_security_settings
 
-- name: github-application-repositories
-  provider:
-    name: github
-    mode: repositories
-    options:
-      token_env: GITHUB_TOKEN
-  regions:
-  - global
-  include:
-  - octo-org/app-api
-  - octo-org/app-web
-  dry_run: true
-  metadata:
-    branch: main
-  tasks:
-  - name: audit_branch_protection
-  - name: audit_repo_security_settings
+  - name: github-application-repositories
+    provider:
+      name: github
+      mode: repositories
+      options:
+        token_env: GITHUB_TOKEN
+    regions:
+      - global
+    include:
+      - octo-org/app-api
+      - octo-org/app-web
+    dry_run: true
+    metadata:
+      branch: main
+    tasks:
+      - name: audit_branch_protection
+      - name: audit_repo_security_settings

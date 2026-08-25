@@ -1,14 +1,14 @@
 schema_version: 2
 targets:
-- name: azure-simple-subscription
-  provider:
-    name: azure
-    mode: subscriptions
-    options: {}
-  regions:
-  - eastus
-  include:
-  - 11111111-2222-3333-4444-555555555555
-  dry_run: true
-  tasks:
-  - name: count_resource_groups
+  - name: azure-simple-subscription
+    provider:
+      name: azure
+      mode: subscriptions
+      options: {}
+    regions:
+      - eastus
+    include:
+      - 11111111-2222-3333-4444-555555555555
+    dry_run: true
+    tasks:
+      - name: count_resource_groups

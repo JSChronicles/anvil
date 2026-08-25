@@ -1,0 +1,34 @@
+schema_version: 2
+max_parallel_targets: 2
+
+targets:
+  - name: cloudflare-production-account
+    provider:
+      name: cloudflare
+      mode: accounts
+      options:
+        api_token_env: CLOUDFLARE_PRODUCTION_TOKEN
+    regions:
+      - global
+    include:
+      - '11111111111111111111111111111111'
+    dry_run: true
+    tasks:
+      - name: list_account_member
+      - name: list_zone
+
+  - name: cloudflare-security-zones
+    provider:
+      name: cloudflare
+      mode: zones
+      options:
+        api_token_env: CLOUDFLARE_SECURITY_TOKEN
+        account_id: '22222222222222222222222222222222'
+    regions:
+      - global
+    include:
+      - aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      - bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    dry_run: true
+    tasks:
+      - name: list_dns_record

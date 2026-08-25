@@ -1,0 +1,16 @@
+schema_version: 2
+
+targets:
+  - name: gitlab-simple-project
+    provider:
+      name: gitlab
+      mode: projects
+      options:
+        token_env: GITLAB_TOKEN
+    regions:
+      - global
+    include:
+      - acme/platform-api
+    dry_run: true
+    tasks:
+      - name: audit_repo_security_settings

@@ -1,0 +1,32 @@
+schema_version: 2
+max_parallel_targets: 2
+
+targets:
+  - name: pagerduty-production
+    provider:
+      name: pagerduty
+      mode: account
+      options:
+        token_env: PAGERDUTY_PRODUCTION_TOKEN
+        subdomain: acme
+    regions:
+      - global
+    dry_run: true
+    tasks:
+      - name: list_service
+      - name: list_escalation_policy
+
+  - name: pagerduty-europe
+    provider:
+      name: pagerduty
+      mode: account
+      options:
+        token_env: PAGERDUTY_EU_TOKEN
+        api_url: https://api.eu.pagerduty.com
+        subdomain: acme-eu
+    regions:
+      - global
+    dry_run: true
+    tasks:
+      - name: list_team
+      - name: list_user
