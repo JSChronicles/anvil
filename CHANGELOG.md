@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 <!-- version list -->
 
+## v0.33.0 (2026-08-25)
+
+### Features
+
+- **container**: Add official multi-platform image
+  ([#77](https://github.com/JSChronicles/anvil/pull/77),
+  [`50572f0`](https://github.com/JSChronicles/anvil/commit/50572f0ce981a891366b633eb9c82ac28027ddb6))
+
+
 ## v0.32.0 (2026-08-25)
 
 ### Bug Fixes
