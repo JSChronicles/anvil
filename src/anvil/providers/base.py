@@ -24,7 +24,11 @@ def secret_fingerprint(secret: str | None) -> str | None:
     if not stripped:
         return None
     return hmac.digest(
-        _SECRET_FINGERPRINT_KEY, stripped.encode("utf-8"), "sha256"
+        _SECRET_FINGERPRINT_KEY,
+        # The random process-local HMAC key prevents offline secret guessing.
+        # codeql[py/weak-sensitive-data-hashing]
+        stripped.encode("utf-8"),
+        "sha256",
     ).hex()
 
 
