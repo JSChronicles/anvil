@@ -4,6 +4,7 @@ FROM python:3.14-slim@sha256:ce40764625a4ff50df3548277632e7f96c4e77fe75fa848aae9
 
 FROM ghcr.io/astral-sh/uv:0.12.5@sha256:e85be844203885286c60ffad8a858d48afb6c5a5c237ca0e67f12e74b8f174b1 AS uv
 
+
 FROM python-base AS builder
 
 COPY --from=uv /uv /usr/local/bin/uv
@@ -14,10 +15,27 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 WORKDIR /opt/anvil
 
-COPY pyproject.toml uv.lock README.md LICENSE ./
+# Install dependencies separately so source changes don't invalidate this layer.
+COPY pyproject.toml uv.lock ./
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync \
+        --locked \
+        --no-dev \
+        --extra all \
+        --no-install-project
+
+# Install Anvil itself after copying the source.
+COPY README.md LICENSE ./
 COPY src ./src
 
-RUN uv sync --locked --no-dev --extra all --no-editable
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync \
+        --locked \
+        --no-dev \
+        --extra all \
+        --no-editable
+
 
 FROM python-base AS runtime
 
@@ -36,8 +54,13 @@ LABEL org.opencontainers.image.title="Anvil" \
       org.opencontainers.image.created="${CREATED}"
 
 RUN groupadd --gid 10001 anvil \
-    && useradd --uid 10001 --gid anvil --create-home --shell /usr/sbin/nologin anvil \
-    && mkdir --parents /opt/anvil /workspace \
+    && useradd \
+        --uid 10001 \
+        --gid anvil \
+        --create-home \
+        --shell /usr/sbin/nologin \
+        anvil \
+    && mkdir --parents /workspace \
     && chown anvil:anvil /workspace
 
 COPY --from=builder /opt/anvil/.venv /opt/anvil/.venv
