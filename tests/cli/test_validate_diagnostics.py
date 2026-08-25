@@ -123,7 +123,11 @@ def test_diagnostic_dependency_checks_report_importable_and_missing(monkeypatch)
     assert by_label["aws"].status == "OK"
     assert by_label["github"].status == "OK"
     assert by_label["azure"].status == "WARN"
+    assert by_label["cloudflare"].status == "WARN"
+    assert by_label["datadog"].status == "WARN"
     assert by_label["gcp"].status == "WARN"
+    assert by_label["gitlab"].status == "WARN"
+    assert by_label["pagerduty"].status == "WARN"
 
 
 def test_module_available_treats_missing_parent_package_as_unavailable(monkeypatch):

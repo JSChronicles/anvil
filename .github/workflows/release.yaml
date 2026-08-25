@@ -88,3 +88,15 @@ jobs:
     uses: ./.github/workflows/publish.yaml
     with:
       tag: ${{ needs.tag-release.outputs.tag }}
+
+  publish-container:
+    needs: tag-release
+    if: needs.tag-release.outputs.released == 'true'
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/container.yaml
+    with:
+      tag: ${{ needs.tag-release.outputs.tag }}
+      push: true
+      platforms: linux/amd64,linux/arm64
