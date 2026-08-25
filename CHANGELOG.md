@@ -4,6 +4,113 @@ All notable changes to this project will be documented in this file.
 
 <!-- version list -->
 
+## v0.32.0 (2026-08-25)
+
+### Bug Fixes
+
+- **cli**: Quiet httpx/pydantic noise from Cloudflare SDK
+  ([#76](https://github.com/JSChronicles/anvil/pull/76),
+  [`d3c4d69`](https://github.com/JSChronicles/anvil/commit/d3c4d69a183805eb038b4285fded45d5d2ca273d))
+
+- **security**: Key secret fingerprints with process-local HMAC
+  ([#76](https://github.com/JSChronicles/anvil/pull/76),
+  [`d3c4d69`](https://github.com/JSChronicles/anvil/commit/d3c4d69a183805eb038b4285fded45d5d2ca273d))
+
+### Chores
+
+- **github-actions**: Bump astral-sh/setup-uv ([#74](https://github.com/JSChronicles/anvil/pull/74),
+  [`eec398f`](https://github.com/JSChronicles/anvil/commit/eec398f3a66203b0069dabe3d3bc489a6d3addd8))
+
+- **github-actions**: Bump the github-actions group with 2 updates
+  ([#71](https://github.com/JSChronicles/anvil/pull/71),
+  [`c79075c`](https://github.com/JSChronicles/anvil/commit/c79075c127dc9220acf245c6e42b0338b7a7badf))
+
+- **pre-commit**: Bump the pre-commit group with 2 updates
+  ([#75](https://github.com/JSChronicles/anvil/pull/75),
+  [`62ee555`](https://github.com/JSChronicles/anvil/commit/62ee555415f0ec74fa74e3dbab50bdce8e2c250b))
+
+- **pre-commit**: Bump the pre-commit group with 2 updates
+  ([#72](https://github.com/JSChronicles/anvil/pull/72),
+  [`a2c776c`](https://github.com/JSChronicles/anvil/commit/a2c776c93c6103c08b47db56d244cc075d70a05e))
+
+- **uv**: Bump boto3 in the uv-dependencies group
+  ([#70](https://github.com/JSChronicles/anvil/pull/70),
+  [`283daa9`](https://github.com/JSChronicles/anvil/commit/283daa9303e1f1fd2c72b5a753472c6cdab0c119))
+
+- **uv**: Bump cryptography from 49.0.0 to 50.0.0
+  ([#69](https://github.com/JSChronicles/anvil/pull/69),
+  [`a31ea66`](https://github.com/JSChronicles/anvil/commit/a31ea666ffd4726e380c7137a1d5956f0cd4dae9))
+
+- **uv**: Bump the uv-dependencies group with 9 updates
+  ([#73](https://github.com/JSChronicles/anvil/pull/73),
+  [`8149ad9`](https://github.com/JSChronicles/anvil/commit/8149ad9b4ff62978ce712fa5159bd41056193be1))
+
+### Documentation
+
+- Link README to Anvil documentation ([#76](https://github.com/JSChronicles/anvil/pull/76),
+  [`d3c4d69`](https://github.com/JSChronicles/anvil/commit/d3c4d69a183805eb038b4285fded45d5d2ca273d))
+
+- **examples**: Add configuration examples for new providers
+  ([#76](https://github.com/JSChronicles/anvil/pull/76),
+  [`d3c4d69`](https://github.com/JSChronicles/anvil/commit/d3c4d69a183805eb038b4285fded45d5d2ca273d))
+
+### Features
+
+- **auth**: Add generic Anvil provider profiles
+  ([#76](https://github.com/JSChronicles/anvil/pull/76),
+  [`d3c4d69`](https://github.com/JSChronicles/anvil/commit/d3c4d69a183805eb038b4285fded45d5d2ca273d))
+
+- **cli**: Add root-level --version flag ([#76](https://github.com/JSChronicles/anvil/pull/76),
+  [`d3c4d69`](https://github.com/JSChronicles/anvil/commit/d3c4d69a183805eb038b4285fded45d5d2ca273d))
+
+- **cloudflare**: Add first-class Cloudflare provider
+  ([#76](https://github.com/JSChronicles/anvil/pull/76),
+  [`d3c4d69`](https://github.com/JSChronicles/anvil/commit/d3c4d69a183805eb038b4285fded45d5d2ca273d))
+
+- **datadog**: Add first-class Datadog provider
+  ([#76](https://github.com/JSChronicles/anvil/pull/76),
+  [`d3c4d69`](https://github.com/JSChronicles/anvil/commit/d3c4d69a183805eb038b4285fded45d5d2ca273d))
+
+- **gitlab**: Add first-class GitLab provider ([#76](https://github.com/JSChronicles/anvil/pull/76),
+  [`d3c4d69`](https://github.com/JSChronicles/anvil/commit/d3c4d69a183805eb038b4285fded45d5d2ca273d))
+
+- **packaging**: Add all optional dependency extra
+  ([#76](https://github.com/JSChronicles/anvil/pull/76),
+  [`d3c4d69`](https://github.com/JSChronicles/anvil/commit/d3c4d69a183805eb038b4285fded45d5d2ca273d))
+
+- **pagerduty**: Add first-class PagerDuty provider
+  ([#76](https://github.com/JSChronicles/anvil/pull/76),
+  [`d3c4d69`](https://github.com/JSChronicles/anvil/commit/d3c4d69a183805eb038b4285fded45d5d2ca273d))
+
+- **providers**: Add shared profiles to service providers
+  ([#76](https://github.com/JSChronicles/anvil/pull/76),
+  [`d3c4d69`](https://github.com/JSChronicles/anvil/commit/d3c4d69a183805eb038b4285fded45d5d2ca273d))
+
+- **skills**: Update anvil skill metadata and task naming convention
+  ([#76](https://github.com/JSChronicles/anvil/pull/76),
+  [`d3c4d69`](https://github.com/JSChronicles/anvil/commit/d3c4d69a183805eb038b4285fded45d5d2ca273d))
+
+- **tasks**: Add service provider inventory and audit tasks
+  ([#76](https://github.com/JSChronicles/anvil/pull/76),
+  [`d3c4d69`](https://github.com/JSChronicles/anvil/commit/d3c4d69a183805eb038b4285fded45d5d2ca273d))
+
+- **tasks**: Standardize provider tasks and add bulk identity cleanup
+  ([#76](https://github.com/JSChronicles/anvil/pull/76),
+  [`d3c4d69`](https://github.com/JSChronicles/anvil/commit/d3c4d69a183805eb038b4285fded45d5d2ca273d))
+
+### Performance Improvements
+
+- **providers**: Reduce redundant API requests
+  ([#76](https://github.com/JSChronicles/anvil/pull/76),
+  [`d3c4d69`](https://github.com/JSChronicles/anvil/commit/d3c4d69a183805eb038b4285fded45d5d2ca273d))
+
+### Refactoring
+
+- **providers**: Centralize secret fingerprinting
+  ([#76](https://github.com/JSChronicles/anvil/pull/76),
+  [`d3c4d69`](https://github.com/JSChronicles/anvil/commit/d3c4d69a183805eb038b4285fded45d5d2ca273d))
+
+
 ## v0.31.0 (2026-08-12)
 
 ### Bug Fixes
