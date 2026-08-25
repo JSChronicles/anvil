@@ -275,8 +275,11 @@ jobs:
       - name: Publish multi-platform image
         id: published
         env:
+          DESCRIPTION: Provider-aware cloud task runner
           DIGEST_DIRECTORY: ${{ runner.temp }}/container-digests
           IMAGE: ${{ needs.prepare.outputs.image }}
+          LICENSES: MIT
+          SOURCE: https://github.com/${{ github.repository }}
           TAGS_JSON: ${{ steps.metadata.outputs.json }}
         shell: bash
         run: |
@@ -296,7 +299,12 @@ jobs:
             exit 1
           fi
 
-          docker buildx imagetools create "${tag_arguments[@]}" "${digest_sources[@]}"
+          docker buildx imagetools create \
+            --annotation "index:org.opencontainers.image.description=${DESCRIPTION}" \
+            --annotation "index:org.opencontainers.image.licenses=${LICENSES}" \
+            --annotation "index:org.opencontainers.image.source=${SOURCE}" \
+            "${tag_arguments[@]}" \
+            "${digest_sources[@]}"
           primary_tag="${tags[0]}"
           digest="$(docker buildx imagetools inspect "$primary_tag" | awk '/^Digest:/ {print $2; exit}')"
           if [[ -z "$digest" ]]; then
@@ -308,12 +316,24 @@ jobs:
 
       - name: Verify public image access
         env:
+          DESCRIPTION: Provider-aware cloud task runner
           DIGEST: ${{ steps.published.outputs.digest }}
           IMAGE: ${{ needs.prepare.outputs.image }}
+          LICENSES: MIT
+          SOURCE: https://github.com/${{ github.repository }}
         shell: bash
         run: |
           docker logout ghcr.io
           docker buildx imagetools inspect "${IMAGE}@${DIGEST}" > /dev/null
+          raw_manifest="$(docker buildx imagetools inspect --raw "${IMAGE}@${DIGEST}")"
+          jq --exit-status \
+            --arg description "$DESCRIPTION" \
+            --arg licenses "$LICENSES" \
+            --arg source "$SOURCE" \
+            '.annotations["org.opencontainers.image.description"] == $description
+              and .annotations["org.opencontainers.image.licenses"] == $licenses
+              and .annotations["org.opencontainers.image.source"] == $source' \
+            <<< "$raw_manifest" > /dev/null
 
       - name: Publish summary
         env:
