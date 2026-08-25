@@ -4,6 +4,33 @@ All notable changes to this project will be documented in this file.
 
 <!-- version list -->
 
+## v0.33.1 (2026-08-25)
+
+### Bug Fixes
+
+- **container**: Annotate multi-arch image index
+  ([#82](https://github.com/JSChronicles/anvil/pull/82),
+  [`24832e1`](https://github.com/JSChronicles/anvil/commit/24832e1d7848df7704586ff4acc4dc59fc89a978))
+
+### Chores
+
+- **docker**: Bump astral-sh/uv from 0.10.0 to 0.12.5
+  ([#79](https://github.com/JSChronicles/anvil/pull/79),
+  [`0983f52`](https://github.com/JSChronicles/anvil/commit/0983f522bb9db3fd17eac00760a898901327aa3a))
+
+- **github-actions**: Bump the github-actions group with 3 updates
+  ([#81](https://github.com/JSChronicles/anvil/pull/81),
+  [`515a7d1`](https://github.com/JSChronicles/anvil/commit/515a7d164465fa4bba8462891e93479331ba978c))
+
+- **pre-commit**: Bump the pre-commit group with 2 updates
+  ([#78](https://github.com/JSChronicles/anvil/pull/78),
+  [`f28d65b`](https://github.com/JSChronicles/anvil/commit/f28d65b32e896007ed3815c659f081f7c344545e))
+
+- **uv**: Bump the uv-dependencies group with 7 updates
+  ([#80](https://github.com/JSChronicles/anvil/pull/80),
+  [`c1a8ab2`](https://github.com/JSChronicles/anvil/commit/c1a8ab219321566b67f96d0498a0ff8ec03eccd5))
+
+
 ## v0.33.0 (2026-08-25)
 
 ### Features
