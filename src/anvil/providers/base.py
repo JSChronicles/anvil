@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import hashlib
+import hmac
 import inspect
+import secrets
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Protocol
@@ -11,16 +12,20 @@ from anvil.execution_context import ExecutionContext
 from anvil.regions import ALL_REGION_SELECTOR, is_region_selector
 from anvil.results import ExecutionStatus
 
+_SECRET_FINGERPRINT_KEY = secrets.token_bytes(32)
+
 
 def secret_fingerprint(secret: str | None) -> str | None:
-    """Return a stable digest for a secret without exposing the secret."""
+    """Return a process-local keyed digest without exposing the secret."""
 
     if secret is None:
         return None
     stripped = secret.strip()
     if not stripped:
         return None
-    return hashlib.sha256(stripped.encode("utf-8")).hexdigest()
+    return hmac.digest(
+        _SECRET_FINGERPRINT_KEY, stripped.encode("utf-8"), "sha256"
+    ).hex()
 
 
 @dataclass(frozen=True, slots=True)
