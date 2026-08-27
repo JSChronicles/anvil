@@ -12,6 +12,7 @@ from anvil.providers.tasks._task_helpers import metadata_string_array
 from anvil.task_errors import TaskExecutionError
 
 __LOGGER__ = logging.getLogger(__name__)
+TASK_SCOPE = "configured_target"
 
 BOTO_CONFIG = Config(max_pool_connections=40)
 

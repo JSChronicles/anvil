@@ -105,9 +105,9 @@ def test_aws_rejects_ambiguous_configured_target_before_runtime() -> None:
         )
 
 
-def test_aws_declares_configured_target_capability() -> None:
+def test_aws_declares_supported_task_scopes() -> None:
     assert AwsProvider.metadata.supported_task_scopes == frozenset(
-        {"configured_target", "region"}
+        {"configured_target", "target", "region"}
     )
 
 

@@ -112,7 +112,8 @@ class ListableDescriptor(Protocol):
 class DetailDescriptor(ListableDescriptor, Protocol):
     """Descriptor fields needed for CLI detail output."""
 
-    load: Callable[[], Callable]
+    @property
+    def load(self) -> Callable[[], Callable]: ...
 
 
 class DiscoveryIssueDescriptor(Protocol):

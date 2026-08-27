@@ -1,16 +1,23 @@
 from __future__ import annotations
 
 import logging
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import boto3
 from botocore.config import Config
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 
 from anvil.actions import ActionRecorder
+from anvil.task_errors import TaskExecutionError
 
 __LOGGER__ = logging.getLogger(__name__)
+TASK_SCOPE = "configured_target"
 
 BOTO_CONFIG = Config(max_pool_connections=40)
+MAX_MANAGEMENT_WORKERS = 5
+DELETION_POLL_INTERVAL_SECONDS = 1.0
+DELETION_MAX_ATTEMPTS = 60
 
 
 def _get_active_sso_instance(sso_admin_client) -> tuple[str, str, str]:
@@ -53,22 +60,33 @@ def _get_permission_set_name_cache(
 
     paginator = sso_admin_client.get_paginator("list_permission_sets")
 
-    for page in paginator.paginate(InstanceArn=instance_arn):
-        for permission_set_arn in page.get("PermissionSets", []):
-            try:
-                description = sso_admin_client.describe_permission_set(
-                    InstanceArn=instance_arn, PermissionSetArn=permission_set_arn
-                )["PermissionSet"]
+    permission_set_arns = [
+        permission_set_arn
+        for page in paginator.paginate(InstanceArn=instance_arn)
+        for permission_set_arn in page.get("PermissionSets", [])
+        if isinstance(permission_set_arn, str)
+    ]
 
-                permission_set_cache[permission_set_arn] = description.get(
-                    "Name", permission_set_arn
-                )
+    def describe(permission_set_arn: str) -> tuple[str, str]:
+        try:
+            description = sso_admin_client.describe_permission_set(
+                InstanceArn=instance_arn, PermissionSetArn=permission_set_arn
+            )["PermissionSet"]
+            name = description.get("Name", permission_set_arn)
+            return permission_set_arn, name if isinstance(
+                name, str
+            ) else permission_set_arn
+        except ClientError as error:
+            __LOGGER__.warning(
+                f"Could not describe permission set '{permission_set_arn}': {error}"
+            )
+            return permission_set_arn, permission_set_arn
 
-            except ClientError as error:
-                __LOGGER__.warning(
-                    f"Could not describe permission set '{permission_set_arn}': {error}"
-                )
-                permission_set_cache[permission_set_arn] = permission_set_arn
+    with ThreadPoolExecutor(
+        max_workers=min(MAX_MANAGEMENT_WORKERS, max(1, len(permission_set_arns)))
+    ) as executor:
+        for permission_set_arn, name in executor.map(describe, permission_set_arns):
+            permission_set_cache[permission_set_arn] = name
 
     return permission_set_cache
 
@@ -81,7 +99,9 @@ def _collect_group_assignments(
 ) -> list[dict[str, str]]:
     assignments: list[dict[str, str]] = []
 
-    for permission_set_arn, permission_set_name in permission_set_cache.items():
+    def collect_permission_set(item: tuple[str, str]) -> list[dict[str, str]]:
+        permission_set_arn, permission_set_name = item
+        collected: list[dict[str, str]] = []
         paginator = sso_admin_client.get_paginator(
             "list_accounts_for_provisioned_permission_set"
         )
@@ -103,7 +123,7 @@ def _collect_group_assignments(
                 ):
                     for assignment in assignment_page.get("AccountAssignments", []):
                         if assignment.get("PrincipalType") == "GROUP":
-                            assignments.append(
+                            collected.append(
                                 {
                                     "PermissionSetArn": permission_set_arn,
                                     "PermissionSetName": permission_set_name,
@@ -112,6 +132,14 @@ def _collect_group_assignments(
                                     "GroupId": assignment["PrincipalId"],
                                 }
                             )
+        return collected
+
+    permission_sets = list(permission_set_cache.items())
+    with ThreadPoolExecutor(
+        max_workers=min(MAX_MANAGEMENT_WORKERS, max(1, len(permission_sets)))
+    ) as executor:
+        for collected in executor.map(collect_permission_set, permission_sets):
+            assignments.extend(collected)
 
     return assignments
 
@@ -121,17 +149,71 @@ def _validate_groups(
 ) -> dict[str, bool]:
     group_existence: dict[str, bool] = {}
 
-    for group_id in group_ids:
+    def group_exists(group_id: str) -> tuple[str, bool]:
         try:
             identitystore_client.describe_group(
                 IdentityStoreId=identity_store_id, GroupId=group_id
             )
-            group_existence[group_id] = True
-
+            return group_id, True
         except identitystore_client.exceptions.ResourceNotFoundException:
-            group_existence[group_id] = False
+            return group_id, False
+
+    with ThreadPoolExecutor(
+        max_workers=min(MAX_MANAGEMENT_WORKERS, max(1, len(group_ids)))
+    ) as executor:
+        for group_id, exists in executor.map(group_exists, sorted(group_ids)):
+            group_existence[group_id] = exists
 
     return group_existence
+
+
+def _delete_assignment_and_wait(
+    sso_admin_client, *, instance_arn: str, entry: dict[str, str]
+) -> dict[str, str]:
+    """Delete one account assignment and wait for its terminal AWS status."""
+
+    response = sso_admin_client.delete_account_assignment(
+        InstanceArn=instance_arn,
+        TargetId=entry["AccountId"],
+        TargetType="AWS_ACCOUNT",
+        PermissionSetArn=entry["PermissionSetArn"],
+        PrincipalType="GROUP",
+        PrincipalId=entry["GroupId"],
+    )
+    raw_status = response.get("AccountAssignmentDeletionStatus", {})
+    if not isinstance(raw_status, dict):
+        raise RuntimeError("AWS returned an invalid account-assignment deletion status")
+    status = raw_status.get("Status")
+    request_id = raw_status.get("RequestId")
+
+    for _attempt in range(DELETION_MAX_ATTEMPTS):
+        if status == "SUCCEEDED":
+            return entry
+        if status == "FAILED":
+            reason = raw_status.get("FailureReason", "unknown failure")
+            raise RuntimeError(f"AWS account-assignment deletion failed: {reason}")
+        if status != "IN_PROGRESS" or not isinstance(request_id, str):
+            raise RuntimeError(
+                "AWS account-assignment deletion returned neither a terminal status "
+                "nor a request ID"
+            )
+        time.sleep(DELETION_POLL_INTERVAL_SECONDS)
+        response = sso_admin_client.describe_account_assignment_deletion_status(
+            InstanceArn=instance_arn, AccountAssignmentDeletionRequestId=request_id
+        )
+        next_status = response.get("AccountAssignmentDeletionStatus", {})
+        if not isinstance(next_status, dict):
+            raise RuntimeError(
+                "AWS returned an invalid account-assignment deletion status"
+            )
+        raw_status = next_status
+        status = raw_status.get("Status")
+        request_id = raw_status.get("RequestId", request_id)
+
+    raise RuntimeError(
+        f"AWS account-assignment deletion did not finish after "
+        f"{DELETION_MAX_ATTEMPTS} status checks"
+    )
 
 
 def run(
@@ -205,22 +287,15 @@ def run(
 
     org_client = session.client("organizations", config=BOTO_CONFIG)
 
-    instances_response = sso_admin_client.list_instances()
-    instances = instances_response.get("Instances", [])
-
-    active_instance = next(
-        (instance for instance in instances if instance.get("Status") == "ACTIVE"), None
-    )
-
-    if not active_instance:
+    try:
+        instance_arn, identity_store_id, owner_account_id = _get_active_sso_instance(
+            sso_admin_client
+        )
+    except ValueError as error:
         raise RuntimeError(
             f"No active Identity Center instance found in region "
             f"'{identity_center_region}'"
-        )
-
-    instance_arn = active_instance["InstanceArn"]
-    identity_store_id = active_instance["IdentityStoreId"]
-    owner_account_id = active_instance["OwnerAccountId"]
+        ) from error
 
     if account_id != owner_account_id:
         __LOGGER__.info(
@@ -264,32 +339,43 @@ def run(
         )
 
     removed: list[dict[str, str]] = []
+    failed: list[dict[str, str]] = []
 
-    for entry in missing_assignments:
-        if dry_run:
+    if dry_run:
+        for entry in missing_assignments:
             __LOGGER__.info(
                 f"(dry-run) Would remove GROUP '{entry['GroupId']}' "
                 f"from permission set '{entry['PermissionSetName']}' "
                 f"in account '{entry['AccountName']}'"
             )
-            continue
-
-        sso_admin_client.delete_account_assignment(
-            InstanceArn=instance_arn,
-            TargetId=entry["AccountId"],
-            TargetType="AWS_ACCOUNT",
-            PermissionSetArn=entry["PermissionSetArn"],
-            PrincipalType="GROUP",
-            PrincipalId=entry["GroupId"],
-        )
-
-        removed.append(entry)
-
-        __LOGGER__.info(
-            f"Removed GROUP '{entry['GroupId']}' "
-            f"from permission set '{entry['PermissionSetName']}' "
-            f"in account '{entry['AccountName']}'"
-        )
+    else:
+        with ThreadPoolExecutor(
+            max_workers=min(MAX_MANAGEMENT_WORKERS, max(1, len(missing_assignments)))
+        ) as executor:
+            future_to_entry = {
+                executor.submit(
+                    _delete_assignment_and_wait,
+                    sso_admin_client,
+                    instance_arn=instance_arn,
+                    entry=entry,
+                ): entry
+                for entry in missing_assignments
+            }
+            for future in as_completed(future_to_entry):
+                entry = future_to_entry[future]
+                try:
+                    removed.append(future.result())
+                    __LOGGER__.info(
+                        f"Removed GROUP '{entry['GroupId']}' from permission set "
+                        f"'{entry['PermissionSetName']}' in account "
+                        f"'{entry['AccountName']}'"
+                    )
+                except (BotoCoreError, RuntimeError) as error:
+                    failed.append({**entry, "Error": str(error)})
+                    __LOGGER__.warning(
+                        f"Failed to remove GROUP '{entry['GroupId']}' from "
+                        f"permission set '{entry['PermissionSetName']}': {error}"
+                    )
 
     if dry_run:
         actions.record(
@@ -299,9 +385,19 @@ def run(
     else:
         actions.record(f"Removed {len(removed)} missing group assignment(s)")
 
-    return {
+    result: dict[str, object] = {
         "identity_center_region": identity_center_region,
         "missing_count": len(missing_assignments),
+        "planned_count": len(missing_assignments) if dry_run else 0,
         "removed_count": len(removed),
+        "failed_count": len(failed),
         "missing": missing_assignments,
+        "failed": failed,
     }
+    if failed:
+        raise TaskExecutionError(
+            f"remove_missing_group_assignments failed to remove {len(failed)} of "
+            f"{len(missing_assignments)} assignment(s)",
+            partial_result=result,
+        )
+    return result

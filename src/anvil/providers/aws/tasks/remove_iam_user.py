@@ -6,8 +6,11 @@ from typing import Any
 from botocore.exceptions import ClientError
 
 from anvil.actions import ActionRecorder
+from anvil.providers.tasks._task_helpers import metadata_string_array
+from anvil.task_errors import TaskExecutionError
 
 __LOGGER__ = logging.getLogger(__name__)
+TASK_SCOPE = "target"
 
 
 def _list_paginated_user_resources(
@@ -29,7 +32,14 @@ def _list_paginated_user_resources(
 
 def cleanup_user_resources(
     iam_client, user_name: str, dry_run: bool, actions: ActionRecorder
-) -> None:
+) -> int:
+    """Remove or plan removal of resources attached to one IAM user.
+
+    Returns:
+        The number of attached resources discovered for removal.
+    """
+
+    resource_count = 0
     # Groups
     groups = _list_paginated_user_resources(
         iam_client,
@@ -38,6 +48,7 @@ def cleanup_user_resources(
         user_name=user_name,
     )
     for group in groups:
+        resource_count += 1
         name = group["GroupName"]
         if dry_run:
             __LOGGER__.debug(f"(dry-run) Would remove user from group: {name}")
@@ -53,6 +64,7 @@ def cleanup_user_resources(
         user_name=user_name,
     )
     for key in access_keys:
+        resource_count += 1
         key_id = key["AccessKeyId"]
         if dry_run:
             __LOGGER__.debug(f"(dry-run) Would delete access key: {key_id}")
@@ -68,6 +80,7 @@ def cleanup_user_resources(
         user_name=user_name,
     )
     for device in mfa_devices:
+        resource_count += 1
         serial = device["SerialNumber"]
         if dry_run:
             __LOGGER__.debug(f"(dry-run) Would deactivate MFA device: {serial}")
@@ -85,6 +98,7 @@ def cleanup_user_resources(
         user_name=user_name,
     )
     for ssh in ssh_keys:
+        resource_count += 1
         ssh_id = ssh["SSHPublicKeyId"]
         if dry_run:
             __LOGGER__.debug(f"(dry-run) Would delete SSH key: {ssh_id}")
@@ -102,6 +116,7 @@ def cleanup_user_resources(
             raise
 
     for cred in svc_creds.get("ServiceSpecificCredentials", []):
+        resource_count += 1
         cred_id = cred["ServiceSpecificCredentialId"]
         if dry_run:
             __LOGGER__.debug(f"(dry-run) Would delete service credential: {cred_id}")
@@ -119,6 +134,7 @@ def cleanup_user_resources(
         user_name=user_name,
     )
     for cert in certificates:
+        resource_count += 1
         cert_id = cert["CertificateId"]
         if dry_run:
             __LOGGER__.debug(f"(dry-run) Would delete certificate: {cert_id}")
@@ -136,6 +152,7 @@ def cleanup_user_resources(
         user_name=user_name,
     )
     for policy in attached_policies:
+        resource_count += 1
         arn = policy["PolicyArn"]
         if dry_run:
             __LOGGER__.debug(f"(dry-run) Would detach policy: {arn}")
@@ -151,6 +168,7 @@ def cleanup_user_resources(
         user_name=user_name,
     )
     for name in inline_policy_names:
+        resource_count += 1
         if dry_run:
             __LOGGER__.debug(f"(dry-run) Would delete inline policy: {name}")
         else:
@@ -166,6 +184,7 @@ def cleanup_user_resources(
     )
     tag_keys = [tag["Key"] for tag in tags]
     if tag_keys:
+        resource_count += len(tag_keys)
         if dry_run:
             __LOGGER__.debug(f"(dry-run) Would remove tags: {tag_keys}")
         else:
@@ -175,6 +194,7 @@ def cleanup_user_resources(
     # Login Profile
     try:
         iam_client.get_login_profile(UserName=user_name)
+        resource_count += 1
         if dry_run:
             __LOGGER__.debug("(dry-run) Would delete login profile")
         else:
@@ -184,6 +204,33 @@ def cleanup_user_resources(
         if error.response["Error"]["Code"] != "NoSuchEntity":
             __LOGGER__.error(f"Error deleting login profile for {user_name}: {error}")
             raise
+
+    return resource_count
+
+
+def _selected_users(metadata: dict[str, object]) -> list[str]:
+    """Return the required, normalized IAM user selectors."""
+
+    users = metadata_string_array(
+        task_name="remove_iam_user", metadata=metadata, key="users", required=True
+    )
+    if users is None:  # The shared validator guarantees this for required arrays.
+        raise RuntimeError(
+            "remove_iam_user requires metadata.users to be a non-empty array"
+        )
+    return users
+
+
+def _user_exists(iam_client, user_name: str) -> bool:
+    """Return whether an IAM user currently exists."""
+
+    try:
+        iam_client.get_user(UserName=user_name)
+    except ClientError as error:
+        if error.response["Error"]["Code"] == "NoSuchEntity":
+            return False
+        raise
+    return True
 
 
 def run(
@@ -198,18 +245,17 @@ def run(
     metadata: dict[str, object],
     dependency_data: dict[str, object],
     actions: ActionRecorder,
-) -> None:
-    """Remove IAM resources attached to a configured IAM user.
+) -> dict[str, object]:
+    """Remove selected IAM users after cleaning their attached resources.
 
-    This AWS task deletes user-attached resources before user deletion workflows.
-    It removes group memberships, access keys, MFA devices, SSH public keys,
+    This target-scoped AWS task runs once per resolved account and removes
+    group memberships, access keys, MFA devices, SSH public keys,
     service-specific credentials, signing certificates, attached policies,
-    inline policies, tags, and the console login profile. In dry-run mode it
-    logs planned deletions without mutating IAM resources.
+    inline policies, tags, and the console login profile, then deletes each IAM
+    user. In dry-run mode it reports planned deletions without mutating IAM.
 
     Metadata:
-        user_name: Required IAM user name whose attached resources should be
-            removed.
+        users: Required non-empty array of IAM user names to remove.
 
     Args:
         provider: Provider name for the current execution target.
@@ -219,32 +265,74 @@ def run(
         region: Current AWS region.
         session: Boto3 session scoped to the current region.
         dry_run: Whether execution is running in dry-run mode.
-        metadata: Task metadata containing the IAM user name.
+        metadata: Task metadata containing IAM user selectors.
         dependency_data: Runtime data selected from declared task dependencies.
         actions: Action recorder provided by the engine.
 
+    Returns:
+        A payload containing planned, removed, skipped, and failed IAM users
+        plus discovered attached-resource counts.
+
     Raises:
-        RuntimeError: If metadata.user_name is missing or not a string.
+        RuntimeError: If ``metadata.users`` is missing or invalid.
         botocore.exceptions.ClientError: If an unexpected AWS API error occurs.
+        TaskExecutionError: If one or more selected users fail to be removed.
     """
-    user_name = metadata.get("user_name")
-
-    if not isinstance(user_name, str):
-        raise RuntimeError("remove_iam_user requires metadata.user_name to be a string")
-
-    if not dry_run:
-        __LOGGER__.info(
-            f"Cleaning IAM user '{user_name}' in account "
-            f"{execution_target_name} ({execution_target_id})"
-        )
-
+    user_names = _selected_users(metadata)
     iam_client = session.client("iam")
+    planned: list[dict[str, object]] = []
+    removed: list[dict[str, object]] = []
+    skipped: list[dict[str, object]] = []
+    failed: list[dict[str, object]] = []
 
-    cleanup_user_resources(
-        iam_client=iam_client, user_name=user_name, dry_run=dry_run, actions=actions
-    )
+    for user_name in user_names:
+        try:
+            if not _user_exists(iam_client, user_name):
+                skipped.append({"user_name": user_name, "reason": "not_found"})
+                __LOGGER__.info(f"IAM user '{user_name}' does not exist; skipping")
+                continue
 
+            resource_count = cleanup_user_resources(
+                iam_client=iam_client,
+                user_name=user_name,
+                dry_run=dry_run,
+                actions=actions,
+            )
+            user_result: dict[str, object] = {
+                "user_name": user_name,
+                "attached_resource_count": resource_count,
+            }
+            if dry_run:
+                planned.append(user_result)
+                __LOGGER__.info(f"(dry-run) Would remove IAM user '{user_name}'")
+            else:
+                iam_client.delete_user(UserName=user_name)
+                removed.append(user_result)
+                __LOGGER__.info(f"Removed IAM user '{user_name}'")
+        except ClientError as error:
+            failed.append({"user_name": user_name, "error": str(error)})
+            __LOGGER__.warning(f"Failed to remove IAM user '{user_name}': {error}")
+
+    result: dict[str, object] = {
+        "selected_count": len(user_names),
+        "planned_count": len(planned),
+        "removed_count": len(removed),
+        "skipped_count": len(skipped),
+        "failed_count": len(failed),
+        "planned_users": planned,
+        "removed_users": removed,
+        "skipped_users": skipped,
+        "failed_users": failed,
+    }
     if dry_run:
-        actions.record(f"(dry-run) Would remove IAM user resources for {user_name}")
+        actions.record(f"(dry-run) Would remove {len(planned)} IAM user(s)")
     else:
-        actions.record(f"Removed IAM user resources for {user_name}")
+        actions.record(f"Removed {len(removed)} IAM user(s)")
+
+    if failed:
+        raise TaskExecutionError(
+            f"remove_iam_user failed to remove {len(failed)} of "
+            f"{len(user_names)} selected user(s)",
+            partial_result=result,
+        )
+    return result

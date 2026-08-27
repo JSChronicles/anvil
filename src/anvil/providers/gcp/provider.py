@@ -3,6 +3,10 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from google.auth.credentials import Credentials
 
 from anvil.descriptors import TargetDescriptor
 from anvil.execution_context import ExecutionContext
@@ -121,7 +125,7 @@ class GcpSession:
 
     project_id: str
     location: str
-    credentials: object
+    credentials: Credentials
     quota_project_id: str | None = None
 
 
@@ -133,7 +137,7 @@ class GcpSessionFactory:
         *,
         credentials_path: str | None = None,
         quota_project_id: str | None = None,
-    ) -> object:
+    ) -> Credentials:
         try:
             import google.auth
         except ImportError as error:

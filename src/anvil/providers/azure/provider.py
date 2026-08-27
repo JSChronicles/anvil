@@ -4,6 +4,10 @@ import logging
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from azure.core.credentials import TokenCredential
 
 from anvil.benchmark import BenchmarkRecorder
 from anvil.descriptors import TargetDescriptor
@@ -136,7 +140,7 @@ class AzureSession:
 
     subscription_id: str
     location: str
-    credential: object
+    credential: TokenCredential
 
 
 class AzureSessionFactory:
@@ -148,7 +152,7 @@ class AzureSessionFactory:
         tenant_id: str | None = None,
         client_id: str | None = None,
         client_secret: str | None = None,
-    ) -> object:
+    ) -> TokenCredential:
         try:
             from azure.identity import ClientSecretCredential, DefaultAzureCredential
         except ImportError as error:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import boto3
@@ -10,6 +11,8 @@ from botocore.exceptions import ClientError
 from anvil.actions import ActionRecorder
 
 __LOGGER__ = logging.getLogger(__name__)
+TASK_SCOPE = "configured_target"
+MAX_MANAGEMENT_WORKERS = 5
 
 
 def _list_organizational_units(
@@ -22,7 +25,11 @@ def _list_organizational_units(
     for page in paginator.paginate(ParentId=parent_id):
         for organizational_unit in page.get("OrganizationalUnits", []):
             organizational_units.append(
-                {"Name": organizational_unit["Name"], "Id": organizational_unit["Id"]}
+                {
+                    "Name": organizational_unit["Name"],
+                    "Id": organizational_unit["Id"],
+                    "ParentId": parent_id,
+                }
             )
 
     return organizational_units
@@ -41,22 +48,91 @@ def _list_policies_for_target(
     return policies
 
 
-def _list_accounts(org_client: BaseClient) -> list[dict[str, object]]:
+def _list_all_organizational_units(
+    root_id: str, org_client: BaseClient
+) -> list[dict[str, object]]:
+    """Return every OU below the root with parent relationships preserved."""
+
+    organizational_units: list[dict[str, object]] = []
+    pending_parent_ids = [root_id]
+    while pending_parent_ids:
+        parent_id = pending_parent_ids.pop()
+        children = _list_organizational_units(parent_id, org_client)
+        organizational_units.extend(children)
+        pending_parent_ids.extend(
+            child_id
+            for child in children
+            if isinstance((child_id := child.get("Id")), str)
+        )
+    return organizational_units
+
+
+def _list_accounts_for_parents(
+    org_client: BaseClient, parent_ids: list[str]
+) -> list[dict[str, object]]:
+    """Return accounts directly contained by the supplied roots and OUs."""
+
     accounts: list[dict[str, object]] = []
 
-    paginator = org_client.get_paginator("list_accounts")
+    def list_for_parent(parent_id: str) -> list[dict[str, object]]:
+        parent_accounts: list[dict[str, object]] = []
+        paginator = org_client.get_paginator("list_accounts_for_parent")
+        for page in paginator.paginate(ParentId=parent_id):
+            for account in page.get("Accounts", []):
+                account_copy = dict(account)
+                account_copy["ParentId"] = parent_id
+                joined_timestamp = account_copy.get("JoinedTimestamp")
+                if joined_timestamp is not None:
+                    account_copy["JoinedTimestamp"] = joined_timestamp.isoformat()
+                parent_accounts.append(account_copy)
+        return parent_accounts
 
-    for page in paginator.paginate():
-        for account in page.get("Accounts", []):
-            account_copy = dict(account)
-
-            joined_timestamp = account_copy.get("JoinedTimestamp")
-            if joined_timestamp is not None:
-                account_copy["JoinedTimestamp"] = joined_timestamp.isoformat()
-
-            accounts.append(account_copy)
+    with ThreadPoolExecutor(
+        max_workers=min(MAX_MANAGEMENT_WORKERS, max(1, len(parent_ids)))
+    ) as executor:
+        for parent_accounts in executor.map(list_for_parent, parent_ids):
+            accounts.extend(parent_accounts)
 
     return accounts
+
+
+def _enrich_organizational_unit(
+    organizational_unit: dict[str, object],
+    *,
+    org_client: BaseClient,
+    control_tower_client: BaseClient,
+) -> dict[str, object]:
+    """Add policies, ARN, and enabled controls to one OU record."""
+
+    enriched = dict(organizational_unit)
+    ou_id = enriched.get("Id")
+    if not isinstance(ou_id, str):
+        raise TypeError("OrganizationalUnit Id must be a string")
+    enriched["Policies"] = _list_policies_for_target(ou_id, org_client)
+    description = org_client.describe_organizational_unit(OrganizationalUnitId=ou_id)[
+        "OrganizationalUnit"
+    ]
+    ou_arn = description["Arn"]
+    if not isinstance(ou_arn, str):
+        raise TypeError("OrganizationalUnit Arn must be a string")
+    enriched["Arn"] = ou_arn
+    enriched["EnabledControls"] = _list_enabled_controls_for_ou(
+        control_tower_client, ou_arn
+    )
+    return enriched
+
+
+def _enrich_account(
+    account: dict[str, object], *, org_client: BaseClient
+) -> dict[str, object]:
+    """Add attached service-control policies to one account record."""
+
+    enriched = dict(account)
+    account_id = enriched.get("Id")
+    if not isinstance(account_id, str):
+        raise TypeError("Account Id must be a string")
+    enriched["Policies"] = _list_policies_for_target(account_id, org_client)
+    return enriched
 
 
 def _list_enabled_controls_for_ou(
@@ -150,43 +226,39 @@ def run(
 
     __LOGGER__.debug(f"Resolved root ID '{root_id}'")
 
-    organizational_units = _list_organizational_units(root_id, org_client)
-    accounts = _list_accounts(org_client)
+    discovered_ous = _list_all_organizational_units(root_id, org_client)
+    parent_ids = [root_id] + [
+        ou_id
+        for organizational_unit in discovered_ous
+        if isinstance((ou_id := organizational_unit.get("Id")), str)
+    ]
+    accounts = _list_accounts_for_parents(org_client, parent_ids)
 
-    for organizational_unit in organizational_units:
-        ou_id_value = organizational_unit.get("Id")
-        if not isinstance(ou_id_value, str):
-            raise TypeError("OrganizationalUnit Id must be a string")
-
-        __LOGGER__.debug(f"Gathering SCPs for OU '{organizational_unit.get('Name')}'")
-
-        organizational_unit["Policies"] = _list_policies_for_target(
-            ou_id_value, org_client
+    with ThreadPoolExecutor(
+        max_workers=min(MAX_MANAGEMENT_WORKERS, max(1, len(discovered_ous)))
+    ) as executor:
+        organizational_units = list(
+            executor.map(
+                lambda item: _enrich_organizational_unit(
+                    item,
+                    org_client=org_client,
+                    control_tower_client=control_tower_client,
+                ),
+                discovered_ous,
+            )
         )
 
-        describe_response = org_client.describe_organizational_unit(
-            OrganizationalUnitId=ou_id_value
+    with ThreadPoolExecutor(
+        max_workers=min(MAX_MANAGEMENT_WORKERS, max(1, len(accounts)))
+    ) as executor:
+        accounts = list(
+            executor.map(
+                lambda item: _enrich_account(item, org_client=org_client), accounts
+            )
         )
 
-        ou_arn = describe_response["OrganizationalUnit"]["Arn"]
-
-        __LOGGER__.debug(
-            f"Gathering Control Tower enabled controls for OU "
-            f"'{organizational_unit.get('Name')}'"
-        )
-
-        organizational_unit["EnabledControls"] = _list_enabled_controls_for_ou(
-            control_tower_client, ou_arn
-        )
-
-    for account in accounts:
-        account_id_value = account.get("Id")
-        if not isinstance(account_id_value, str):
-            raise TypeError("Account Id must be a string")
-
-        __LOGGER__.debug(f"Gathering SCPs for account '{account.get('Name')}'")
-
-        account["Policies"] = _list_policies_for_target(account_id_value, org_client)
+    organizational_units.sort(key=lambda item: str(item.get("Id", "")))
+    accounts.sort(key=lambda item: str(item.get("Id", "")))
 
     actions.record(
         f"Collected {len(organizational_units)} OUs and {len(accounts)} accounts"

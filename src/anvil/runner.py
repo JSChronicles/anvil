@@ -1985,21 +1985,28 @@ def _run_target_pipeline(
             ThreadPoolExecutor(max_workers=worker_limit) as prepare_executor,
             ThreadPoolExecutor(max_workers=worker_limit) as execute_executor,
         ):
-            preflight_futures: dict[Future[PreparedTarget], int] = {
-                prepare_executor.submit(
-                    prepare_target,
-                    index=index,
-                    target=target,
-                    cli_dry_run=cli_dry_run,
-                    cli_include=cli_include,
-                    cli_exclude=cli_exclude,
-                    preparation_cache=preparation_cache,
-                    auth_cache=auth_cache,
-                    benchmark_enabled=benchmark_enabled,
+            preflight_futures: dict[
+                Future[PreparedTarget | TargetExecutionOutcome], int
+            ] = {
+                cast(
+                    Future[PreparedTarget | TargetExecutionOutcome],
+                    prepare_executor.submit(
+                        prepare_target,
+                        index=index,
+                        target=target,
+                        cli_dry_run=cli_dry_run,
+                        cli_include=cli_include,
+                        cli_exclude=cli_exclude,
+                        preparation_cache=preparation_cache,
+                        auth_cache=auth_cache,
+                        benchmark_enabled=benchmark_enabled,
+                    ),
                 ): index
                 for index, target in enumerate(targets)
             }
-            execution_futures: dict[Future[TargetExecutionOutcome], PreparedTarget] = {}
+            execution_futures: dict[
+                Future[PreparedTarget | TargetExecutionOutcome], PreparedTarget
+            ] = {}
 
             # This loop coordinates two concurrent flows:
             # - preflight futures prepare targets and record auth results in input order
@@ -2014,8 +2021,11 @@ def _run_target_pipeline(
                     if next_target is None:
                         break
 
-                    future = execute_executor.submit(
-                        run_prepared_target, prepared_target=next_target
+                    future = cast(
+                        Future[PreparedTarget | TargetExecutionOutcome],
+                        execute_executor.submit(
+                            run_prepared_target, prepared_target=next_target
+                        ),
                     )
                     execution_futures[future] = next_target
 
@@ -2030,7 +2040,12 @@ def _run_target_pipeline(
                 done, _ = wait(waited_futures, return_when=FIRST_COMPLETED)
                 for future in done:
                     if future in preflight_futures:
-                        prepared_target = future.result()
+                        prepared_result = future.result()
+                        if not isinstance(prepared_result, PreparedTarget):
+                            raise TypeError(
+                                "target preparation returned an execution outcome"
+                            )
+                        prepared_target = prepared_result
                         auth_results_by_index[prepared_target.index] = (
                             prepared_target.auth_result
                         )
@@ -2046,6 +2061,8 @@ def _run_target_pipeline(
                     )
 
                     outcome = future.result()
+                    if not isinstance(outcome, TargetExecutionOutcome):
+                        raise TypeError("target execution returned a prepared target")
                     target_results_by_index[outcome.index] = outcome.target_result
 
                     if outcome.target_result.has_failures:

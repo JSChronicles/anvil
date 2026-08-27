@@ -39,7 +39,7 @@ def run(
     metadata: dict[str, object],
     dependency_data: dict[str, object],
     actions: ActionRecorder,
-) -> None:
+) -> dict[str, object]:
     """Compare ECS container instances to corresponding Auto Scaling Groups.
 
     For each configured ECS cluster, the task compares EC2 instance IDs
@@ -88,6 +88,7 @@ def run(
 
     autoscaling_client = session.client("autoscaling", region_name=ecs_region)
     ecs_client = session.client("ecs", region_name=ecs_region)
+    cluster_results: list[dict[str, object]] = []
 
     for cluster in cluster_names:
         __LOGGER__.debug(
@@ -126,23 +127,31 @@ def run(
         if container_instances:
             __LOGGER__.debug(f"Gathering ec2InstanceIds for cluster '{cluster}'")
 
-            ecs_instance_ids = {
-                container_instance["ec2InstanceId"]
-                for container_instance in container_instances
-            }
+            ecs_instance_ids: set[str] = set()
 
             __LOGGER__.debug(
                 f"Initializing list for instances with 0 running tasks "
                 f"in cluster '{cluster}'"
             )
 
-            instances_with_zero_tasks: list[str] = []
+            instances_with_zero_tasks: set[str] = set()
 
             for container_instance in container_instances:
-                if container_instance["runningTasksCount"] == 0:
-                    instances_with_zero_tasks.append(
-                        container_instance["ec2InstanceId"]
+                instance_id = container_instance.get("ec2InstanceId")
+                running_task_count = container_instance.get("runningTasksCount")
+                if not isinstance(instance_id, str):
+                    raise RuntimeError(
+                        "ECS describe_container_instances returned a container "
+                        "instance without a string ec2InstanceId"
                     )
+                if not isinstance(running_task_count, int):
+                    raise RuntimeError(
+                        "ECS describe_container_instances returned a container "
+                        "instance without an integer runningTasksCount"
+                    )
+                ecs_instance_ids.add(instance_id)
+                if running_task_count == 0:
+                    instances_with_zero_tasks.add(instance_id)
 
             diff_instance_ids = ecs_instance_ids - asg_instance_ids
 
@@ -158,12 +167,46 @@ def run(
                     f"All ECS instances in cluster '{cluster}' "
                     f"are part of the ASG '{cluster}-asg'."
                 )
-                __LOGGER__.info(
-                    f"ECS instances with 0 running tasks "
-                    f"in cluster '{cluster}': {instances_with_zero_tasks}"
-                )
+            __LOGGER__.info(
+                f"ECS instances with 0 running tasks "
+                f"in cluster '{cluster}': {instances_with_zero_tasks}"
+            )
+            cluster_results.append(
+                {
+                    "cluster": cluster,
+                    "asg_name": f"{cluster}-asg",
+                    "ecs_instance_ids": sorted(ecs_instance_ids),
+                    "asg_instance_ids": sorted(asg_instance_ids),
+                    "instances_missing_from_asg": sorted(diff_instance_ids),
+                    "instances_with_zero_tasks": sorted(instances_with_zero_tasks),
+                }
+            )
 
         else:
             __LOGGER__.info(f"No container instances found in cluster '{cluster}'.")
+            cluster_results.append(
+                {
+                    "cluster": cluster,
+                    "asg_name": f"{cluster}-asg",
+                    "ecs_instance_ids": [],
+                    "asg_instance_ids": sorted(asg_instance_ids),
+                    "instances_missing_from_asg": [],
+                    "instances_with_zero_tasks": [],
+                }
+            )
 
     actions.record(f"Completed ASG vs ECS comparison for {len(cluster_names)} clusters")
+    return {
+        "cluster_count": len(cluster_results),
+        "clusters": cluster_results,
+        "missing_from_asg_count": sum(
+            len(result["instances_missing_from_asg"])
+            for result in cluster_results
+            if isinstance(result["instances_missing_from_asg"], list)
+        ),
+        "zero_task_instance_count": sum(
+            len(result["instances_with_zero_tasks"])
+            for result in cluster_results
+            if isinstance(result["instances_with_zero_tasks"], list)
+        ),
+    }
