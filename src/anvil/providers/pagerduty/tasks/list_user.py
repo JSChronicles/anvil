@@ -44,7 +44,9 @@ def run(
     selectors = metadata_string_array(
         task_name="list_user", metadata=metadata, key="users"
     )
-    users = list_resources(session=session, resource="users", metadata=metadata)
+    users = list_resources(
+        task_name="list_user", session=session, resource="users", metadata=metadata
+    )
     if selectors is None:
         matched = users
         unmatched: list[str] = []

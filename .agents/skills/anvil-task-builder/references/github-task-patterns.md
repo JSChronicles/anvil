@@ -17,14 +17,16 @@ Repository-only tasks should validate and split `execution_target_id` with
 
 ## REST Helpers
 
-Use helpers from `anvil.providers.github.tasks._rest` instead of reaching into
+Use metadata validators from `anvil.providers.tasks._task_helpers` and REST
+helpers from `anvil.providers.github.tasks._rest` instead of reaching into
 PyGithub directly when a REST endpoint is needed:
 
 - `require_github_provider(...)` validates provider compatibility.
 - `require_repository_target(...)` validates repository targets and returns
   `(owner, repo)`.
-- `metadata_bool(...)`, `metadata_int(...)`, `metadata_string(...)`, and
-  `metadata_params(...)` validate YAML metadata.
+- `metadata_bool(...)`, `metadata_int(...)`, and `metadata_string(...)` validate
+  scalar YAML metadata consistently across providers.
+- `metadata_params(...)` validates GitHub REST query parameters.
 - `rest_get(...)` performs a single REST GET through the runtime session client.
 - `list_rest_items(...)` handles paginated REST list endpoints with
   `max_results`.

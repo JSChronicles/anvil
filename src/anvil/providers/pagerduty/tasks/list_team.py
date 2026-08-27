@@ -31,7 +31,9 @@ def run(
         Team count and JSON-serializable teams.
     """
     require_provider(task_name="list_team", provider=provider, expected="pagerduty")
-    items = list_resources(session=session, resource="teams", metadata=metadata)
+    items = list_resources(
+        task_name="list_team", session=session, resource="teams", metadata=metadata
+    )
     __LOGGER__.info(
         f"Listed {len(items)} PagerDuty team(s) for {execution_target_name}"
     )

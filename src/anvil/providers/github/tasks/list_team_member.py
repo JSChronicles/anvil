@@ -58,7 +58,9 @@ def run(
         for value in (getattr(team, "id", None), getattr(team, "slug", None))
         if value is not None
     }
-    maximum = metadata_int(metadata=metadata, key="max_results")
+    maximum = metadata_int(
+        task_name="list_team_member", metadata=metadata, key="max_results"
+    )
     selected_members = (
         {item.lower() for item in member_selectors}
         if member_selectors is not None

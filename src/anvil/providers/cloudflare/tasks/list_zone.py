@@ -44,7 +44,9 @@ def run(
         execution_target_type=execution_target_type,
         expected="account",
     )
-    max_results = metadata_int(metadata=metadata, key="max_results")
+    max_results = metadata_int(
+        task_name="list_zone", metadata=metadata, key="max_results"
+    )
     resource = getattr(session.client, "zones", None)
     operation = getattr(resource, "list", None)
     if not callable(operation):

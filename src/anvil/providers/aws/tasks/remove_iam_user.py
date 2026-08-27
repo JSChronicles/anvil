@@ -211,14 +211,9 @@ def cleanup_user_resources(
 def _selected_users(metadata: dict[str, object]) -> list[str]:
     """Return the required, normalized IAM user selectors."""
 
-    users = metadata_string_array(
+    return metadata_string_array(
         task_name="remove_iam_user", metadata=metadata, key="users", required=True
     )
-    if users is None:  # The shared validator guarantees this for required arrays.
-        raise RuntimeError(
-            "remove_iam_user requires metadata.users to be a non-empty array"
-        )
-    return users
 
 
 def _user_exists(iam_client, user_name: str) -> bool:

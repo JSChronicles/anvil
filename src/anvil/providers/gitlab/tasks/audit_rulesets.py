@@ -38,11 +38,15 @@ def run(
         session=session,
     )
     protected = list_manager(
-        manager=getattr(project, "protectedbranches", None), metadata=metadata
+        task_name="audit_rulesets",
+        manager=getattr(project, "protectedbranches", None),
+        metadata=metadata,
     )
     approvals_manager = getattr(project, "approvalrules", None)
     approvals = (
-        list_manager(manager=approvals_manager, metadata=metadata)
+        list_manager(
+            task_name="audit_rulesets", manager=approvals_manager, metadata=metadata
+        )
         if approvals_manager is not None
         else []
     )

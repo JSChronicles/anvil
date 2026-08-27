@@ -16,56 +16,6 @@ class _GitHubRequester(Protocol):
     ) -> tuple[object, object]: ...
 
 
-def metadata_bool(
-    *, task_name: str, metadata: dict[str, object], key: str, default: bool
-) -> bool:
-    """Read a boolean task metadata value."""
-
-    value = metadata.get(key, default)
-    if not isinstance(value, bool):
-        raise RuntimeError(f"{task_name} metadata.{key} must be a boolean")
-    return value
-
-
-def metadata_int(
-    *,
-    task_name: str,
-    metadata: dict[str, object],
-    key: str,
-    default: int,
-    minimum: int = 1,
-    maximum: int | None = None,
-) -> int:
-    """Read a bounded integer task metadata value."""
-
-    value = metadata.get(key, default)
-    if not isinstance(value, int) or isinstance(value, bool) or value < minimum:
-        raise RuntimeError(
-            f"{task_name} metadata.{key} must be an integer greater than or equal "
-            f"to {minimum}"
-        )
-    if maximum is not None and value > maximum:
-        raise RuntimeError(
-            f"{task_name} metadata.{key} must be less than or equal to {maximum}"
-        )
-    return value
-
-
-def metadata_string(
-    *, task_name: str, metadata: dict[str, object], key: str, required: bool = False
-) -> str | None:
-    """Read an optional or required string task metadata value."""
-
-    value = metadata.get(key)
-    if value is None:
-        if required:
-            raise RuntimeError(f"{task_name} requires metadata.{key} to be a string")
-        return None
-    if not isinstance(value, str) or not value.strip():
-        raise RuntimeError(f"{task_name} metadata.{key} must be a non-empty string")
-    return value.strip()
-
-
 def metadata_params(
     *, task_name: str, metadata: dict[str, object], allowed_keys: tuple[str, ...]
 ) -> dict[str, object]:

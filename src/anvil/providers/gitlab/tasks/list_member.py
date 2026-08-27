@@ -40,7 +40,9 @@ def run(
         execution_target_type=execution_target_type,
         session=session,
     )
-    members = list_members(resource=resource, metadata=metadata)
+    members = list_members(
+        task_name="list_member", resource=resource, metadata=metadata
+    )
     selectors = metadata_string_array(
         task_name="list_member", metadata=metadata, key="members"
     )

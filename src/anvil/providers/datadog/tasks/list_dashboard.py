@@ -38,7 +38,9 @@ def run(
     require_provider(task_name="list_dashboard", provider=provider, expected="datadog")
     from datadog_api_client.v1.api.dashboards_api import DashboardsApi
 
-    max_results = metadata_int(metadata=metadata, key="max_results")
+    max_results = metadata_int(
+        task_name="list_dashboard", metadata=metadata, key="max_results"
+    )
     response = DashboardsApi(session.client).list_dashboards(count=max_results)
     raw = getattr(response, "dashboards", None)
     if raw is None:

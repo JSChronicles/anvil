@@ -44,7 +44,9 @@ def run(
     operation = getattr(organization, "get_members", None)
     if not callable(operation):
         raise RuntimeError("list_member requires GitHub organization.get_members()")
-    maximum = metadata_int(metadata=metadata, key="max_results")
+    maximum = metadata_int(
+        task_name="list_member", metadata=metadata, key="max_results"
+    )
     members = [github_identity(item) for item in islice(operation(), maximum)]
     selectors = metadata_string_array(
         task_name="list_member", metadata=metadata, key="members"

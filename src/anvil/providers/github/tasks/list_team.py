@@ -44,7 +44,7 @@ def run(
     operation = getattr(organization, "get_teams", None)
     if not callable(operation):
         raise RuntimeError("list_team requires GitHub organization.get_teams()")
-    maximum = metadata_int(metadata=metadata, key="max_results")
+    maximum = metadata_int(task_name="list_team", metadata=metadata, key="max_results")
     teams = [github_identity(item) for item in islice(operation(), maximum)]
     selectors = metadata_string_array(
         task_name="list_team", metadata=metadata, key="teams"

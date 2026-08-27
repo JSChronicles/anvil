@@ -45,7 +45,9 @@ def run(
         execution_target_type=execution_target_type,
         expected="zone",
     )
-    max_results = metadata_int(metadata=metadata, key="max_results")
+    max_results = metadata_int(
+        task_name="list_dns_record", metadata=metadata, key="max_results"
+    )
     dns = getattr(session.client, "dns", None)
     records = getattr(dns, "records", None)
     operation = getattr(records, "list", None)

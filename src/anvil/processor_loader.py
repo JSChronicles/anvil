@@ -21,6 +21,7 @@ from anvil._components import (
     source_from_entry_point,
 )
 from anvil.descriptors import TargetDescriptor
+from anvil.filename_utils import safe_filename_component
 from anvil.results import TargetResult
 
 __LOGGER__ = logging.getLogger(__name__)
@@ -159,14 +160,6 @@ def _parse_processor_specs(
     return specs
 
 
-def _safe_output_filename(name: str) -> str:
-    safe_name = "".join(
-        character if character.isalnum() or character in {".", "-", "_"} else "_"
-        for character in name
-    )
-    return safe_name.strip("._") or "target"
-
-
 def _output_path_parts(output: str) -> list[str]:
     output_path = Path(output)
     parts = [
@@ -214,12 +207,12 @@ def resolve_processor_output_path(
         output_name = parts[-1]
         output_dirs = parts[:-1]
 
-    safe_output_name = _safe_output_filename(output_name)
+    safe_output_name = safe_filename_component(output_name)
     if target_name is not None:
-        safe_output_name = f"{_safe_output_filename(target_name)}-{safe_output_name}"
+        safe_output_name = f"{safe_filename_component(target_name)}-{safe_output_name}"
 
     output_path = reports_dir.joinpath(
-        *(_safe_output_filename(part) for part in output_dirs), safe_output_name
+        *(safe_filename_component(part) for part in output_dirs), safe_output_name
     )
     return _available_output_path(
         output_path=output_path, reserved_paths=reserved_paths

@@ -10,11 +10,10 @@ from anvil.actions import ActionRecorder
 from anvil.providers.github.tasks._rest import (
     DEFAULT_MAX_RESULTS,
     list_rest_items,
-    metadata_bool,
-    metadata_int,
     require_github_provider,
     require_repository_target,
 )
+from anvil.providers.tasks._task_helpers import metadata_bool, metadata_int
 
 __LOGGER__ = logging.getLogger(__name__)
 
