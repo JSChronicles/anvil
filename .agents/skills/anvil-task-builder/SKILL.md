@@ -3,7 +3,7 @@ name: anvil-task-builder
 description: Builds and maintains Anvil task modules, workflows, schemas, runner behavior, SARIF-compatible detect_ tasks, and plugin templates. Use when user asks to "create an Anvil task", "edit this task", "add dry-run behavior", "record actions", "return task results", "create a SARIF task", "create a detect task", "update Anvil YAML", "modify schemas", "change account execution", "update plugin templates", "add concurrency for the payer account", or "build a management-account-only task".
 metadata:
   author: JSChronicles
-  version: "0.10"
+  version: "0.11"
 ---
 
 # Anvil Task Builder
