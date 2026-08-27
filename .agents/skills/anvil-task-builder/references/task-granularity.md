@@ -4,6 +4,7 @@ Before creating or splitting inventory tasks, consider whether related data shou
 
 Prefer separate tasks when:
 
+- The resources have different task scopes or ownership boundaries.
 - The tasks have different safety profiles, especially read-only vs mutating.
 - They are commonly run independently.
 - They need different failure, cleanup, or dependency behavior.
@@ -12,6 +13,7 @@ Prefer separate tasks when:
 
 Consider one combined inventory task when:
 
+- The resources share the same task scope and ownership boundary.
 - The tasks are read-only.
 - They query the same AWS service in the same account-region.
 - They repeat the same list or describe operations.
