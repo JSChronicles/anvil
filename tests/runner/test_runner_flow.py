@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import threading
 from collections import deque
 from types import SimpleNamespace
 
@@ -17,13 +16,13 @@ from anvil.results import EntityResult, EngineState, ExecutionStatus
 from anvil.runner import (
     AuthCheckCache,
     PreparedTarget,
-    _SingleFlightCache,
     _execute_provider_targets,
     _next_eligible_target,
     prepare_target,
     run_multiple_targets,
     run_prepared_target,
 )
+from anvil.singleflight import SingleFlightCache
 from anvil.task_loader import ResolvedExecution, ResolvedTask
 
 
@@ -308,7 +307,7 @@ def test_prepare_target_carries_provider_preflight_and_execution_controls(monkey
         cli_dry_run=True,
         cli_include=None,
         cli_exclude=None,
-        preparation_cache=_SingleFlightCache(),
+        preparation_cache=SingleFlightCache(),
         auth_cache=AuthCheckCache(),
     )
 
@@ -332,7 +331,7 @@ def test_prepare_target_reports_provider_filter_errors_as_config_auth_results(
         cli_dry_run=None,
         cli_include=None,
         cli_exclude=["b"],
-        preparation_cache=_SingleFlightCache(),
+        preparation_cache=SingleFlightCache(),
         auth_cache=AuthCheckCache(),
     )
 
@@ -351,7 +350,7 @@ def test_run_prepared_target_passes_opaque_preflight_to_provider(monkeypatch):
         cli_dry_run=None,
         cli_include=None,
         cli_exclude=None,
-        preparation_cache=_SingleFlightCache(),
+        preparation_cache=SingleFlightCache(),
         auth_cache=AuthCheckCache(),
     )
 
@@ -407,63 +406,6 @@ def test_scheduler_skips_targets_with_overlapping_provider_keys():
 
     assert selected is eligible
     assert list(pending) == [blocked]
-
-
-def test_single_flight_cache_shares_concurrent_work():
-    cache = _SingleFlightCache()
-    started = threading.Event()
-    release = threading.Event()
-    calls = 0
-    results = []
-
-    def create():
-        nonlocal calls
-        calls += 1
-        started.set()
-        assert release.wait(timeout=1.0)
-        return "value"
-
-    def lookup():
-        results.append(cache.get_or_create(key="shared", create=create))
-
-    threads = [threading.Thread(target=lookup) for _ in range(2)]
-    for thread in threads:
-        thread.start()
-    assert started.wait(timeout=1.0)
-    release.set()
-    for thread in threads:
-        thread.join(timeout=1.0)
-
-    assert calls == 1
-    assert sorted(results) == [("value", False, False), ("value", True, True)]
-
-
-def test_single_flight_cache_releases_waiters_after_error():
-    cache = _SingleFlightCache()
-    started = threading.Event()
-    release = threading.Event()
-    errors = []
-
-    def create():
-        started.set()
-        assert release.wait(timeout=1.0)
-        raise ValueError("discovery failed")
-
-    def lookup():
-        try:
-            cache.get_or_create(key="shared", create=create)
-        except ValueError as error:
-            errors.append(str(error))
-
-    threads = [threading.Thread(target=lookup) for _ in range(2)]
-    for thread in threads:
-        thread.start()
-    assert started.wait(timeout=1.0)
-    release.set()
-    for thread in threads:
-        thread.join(timeout=1.0)
-
-    assert errors == ["discovery failed", "discovery failed"]
 
 
 def test_fail_fast_does_not_start_pending_execution_targets(monkeypatch):

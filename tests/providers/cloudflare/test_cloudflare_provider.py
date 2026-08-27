@@ -28,7 +28,8 @@ from anvil.providers.cloudflare.session import (
     CloudflareZone,
 )
 from anvil.results import EngineState, ExecutionStatus
-from anvil.runner import _SingleFlightCache, run_multiple_targets
+from anvil.runner import run_multiple_targets
+from anvil.singleflight import SingleFlightCache
 from anvil.task_context import TaskCallContext
 from anvil.task_loader import ResolvedExecution, ResolvedTask
 
@@ -332,7 +333,7 @@ def test_cloudflare_discovery_filter_reports_unknown_exclusions():
             context=_context(),
             include=None,
             exclude=["c" * 32],
-            cache=_SingleFlightCache(),
+            cache=SingleFlightCache(),
             benchmark=None,
         )
 
@@ -366,7 +367,7 @@ def test_cloudflare_account_preflight_discovers_sorts_excludes_and_keys():
         context=_context(),
         include=None,
         exclude=target.exclude,
-        cache=_SingleFlightCache(),
+        cache=SingleFlightCache(),
         benchmark=benchmark,
     )
 
@@ -391,7 +392,7 @@ def test_cloudflare_zone_preflight_bounds_discovery_and_preserves_parent_metadat
         context=_context(),
         include=None,
         exclude=None,
-        cache=_SingleFlightCache(),
+        cache=SingleFlightCache(),
         benchmark=None,
     )
     plan = provider.resolve_execution_targets(
@@ -420,7 +421,7 @@ def test_cloudflare_preflight_reuses_cache_and_records_hit():
     session_factory = FakeSessionFactory()
     provider = CloudflareProvider(session_factory=session_factory)
     target = _target(include=None)
-    cache = _SingleFlightCache()
+    cache = SingleFlightCache()
     first_benchmark = {}
     second_benchmark = {}
 
@@ -450,7 +451,7 @@ def test_cloudflare_preflight_reuses_cache_and_records_hit():
 def test_cloudflare_preflight_cache_is_partitioned_by_zone_account():
     session_factory = FakeSessionFactory()
     provider = CloudflareProvider(session_factory=session_factory)
-    cache = _SingleFlightCache()
+    cache = SingleFlightCache()
 
     for account_id in (ACCOUNT_A, ACCOUNT_B):
         target = _target(
@@ -486,7 +487,7 @@ def test_cloudflare_preflight_cache_single_flights_concurrent_discovery():
     provider = CloudflareProvider(session_factory=session_factory)
     target = _target(include=None)
 
-    class TrackingCache(_SingleFlightCache):
+    class TrackingCache(SingleFlightCache):
         def __init__(self):
             super().__init__()
             self.calls = 0
@@ -538,7 +539,7 @@ def test_cloudflare_preflight_does_not_cache_discovery_failures():
     session_factory = FlakyFactory()
     provider = CloudflareProvider(session_factory=session_factory)
     target = _target(include=None)
-    cache = _SingleFlightCache()
+    cache = SingleFlightCache()
 
     with pytest.raises(RuntimeError, match="temporary discovery failure"):
         provider.prepare_target(
