@@ -26,6 +26,7 @@ import yaml
 from anvil._components import DiscoveryIssue as DiscoveryIssue
 from anvil.benchmark import BenchmarkRecorder
 from anvil.descriptors import LoadedConfig
+from anvil.filename_utils import safe_filename_component
 from anvil.processor_loader import (
     ProcessorDescriptor,
     ProcessorSpec,
@@ -112,7 +113,8 @@ class ListableDescriptor(Protocol):
 class DetailDescriptor(ListableDescriptor, Protocol):
     """Descriptor fields needed for CLI detail output."""
 
-    load: Callable[[], Callable]
+    @property
+    def load(self) -> Callable[[], Callable]: ...
 
 
 class DiscoveryIssueDescriptor(Protocol):
@@ -198,16 +200,8 @@ def _create_results_run_dir(*, config_file: Path) -> Path:
     return run_dir
 
 
-def _safe_result_filename(name: str) -> str:
-    safe_name = "".join(
-        character if character.isalnum() or character in {".", "-", "_"} else "_"
-        for character in name
-    )
-    return safe_name.strip("._") or "target"
-
-
 def _target_result_file_path(*, target_results_dir: Path, target_name: str) -> Path:
-    safe_name = _safe_result_filename(target_name)
+    safe_name = safe_filename_component(target_name)
     result_file = target_results_dir / f"{safe_name}.json"
     suffix = 1
 

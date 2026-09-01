@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from enum import Enum
+from typing import Literal, overload
 
 DEFAULT_MAX_RESULTS = 1_000
 
@@ -24,19 +25,59 @@ def require_target_type(
         raise RuntimeError(f"{task_name} requires a {expected} target")
 
 
-def metadata_int(
-    *, metadata: dict[str, object], key: str, default: int = DEFAULT_MAX_RESULTS
-) -> int:
-    """Return a positive integer metadata value."""
+def metadata_bool(
+    *, task_name: str, metadata: Mapping[str, object], key: str, default: bool
+) -> bool:
+    """Return a boolean metadata value."""
 
     value = metadata.get(key, default)
-    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
-        raise RuntimeError(f"metadata.{key} must be a positive integer")
+    if not isinstance(value, bool):
+        raise RuntimeError(f"{task_name} metadata.{key} must be a boolean")
     return value
 
 
+def metadata_int(
+    *,
+    task_name: str,
+    metadata: Mapping[str, object],
+    key: str,
+    default: int = DEFAULT_MAX_RESULTS,
+    minimum: int = 1,
+    maximum: int | None = None,
+) -> int:
+    """Return a bounded integer metadata value."""
+
+    value = metadata.get(key, default)
+    if not isinstance(value, int) or isinstance(value, bool) or value < minimum:
+        raise RuntimeError(
+            f"{task_name} metadata.{key} must be an integer greater than or equal "
+            f"to {minimum}"
+        )
+    if maximum is not None and value > maximum:
+        raise RuntimeError(
+            f"{task_name} metadata.{key} must be less than or equal to {maximum}"
+        )
+    return value
+
+
+@overload
 def metadata_string(
-    *, task_name: str, metadata: dict[str, object], key: str, required: bool = False
+    *, task_name: str, metadata: Mapping[str, object], key: str, required: Literal[True]
+) -> str: ...
+
+
+@overload
+def metadata_string(
+    *,
+    task_name: str,
+    metadata: Mapping[str, object],
+    key: str,
+    required: Literal[False] = False,
+) -> str | None: ...
+
+
+def metadata_string(
+    *, task_name: str, metadata: Mapping[str, object], key: str, required: bool = False
 ) -> str | None:
     """Return a normalized optional or required string metadata value."""
 
@@ -51,8 +92,24 @@ def metadata_string(
     return value.strip()
 
 
+@overload
 def metadata_string_array(
-    *, task_name: str, metadata: dict[str, object], key: str, required: bool = False
+    *, task_name: str, metadata: Mapping[str, object], key: str, required: Literal[True]
+) -> list[str]: ...
+
+
+@overload
+def metadata_string_array(
+    *,
+    task_name: str,
+    metadata: Mapping[str, object],
+    key: str,
+    required: Literal[False] = False,
+) -> list[str] | None: ...
+
+
+def metadata_string_array(
+    *, task_name: str, metadata: Mapping[str, object], key: str, required: bool = False
 ) -> list[str] | None:
     """Return a normalized array of unique non-empty string selectors."""
 

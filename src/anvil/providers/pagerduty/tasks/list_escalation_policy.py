@@ -34,7 +34,10 @@ def run(
         task_name="list_escalation_policy", provider=provider, expected="pagerduty"
     )
     items = list_resources(
-        session=session, resource="escalation_policies", metadata=metadata
+        task_name="list_escalation_policy",
+        session=session,
+        resource="escalation_policies",
+        metadata=metadata,
     )
     __LOGGER__.info(
         f"Listed {len(items)} PagerDuty escalation policy/policies for {execution_target_name}"

@@ -41,7 +41,9 @@ def run(
         execution_target_type=execution_target_type,
         session=session,
     )
-    maximum = metadata_int(metadata=metadata, key="max_results")
+    maximum = metadata_int(
+        task_name="search_code", metadata=metadata, key="max_results"
+    )
     matches = bounded(
         project.search("blobs", query, iterator=True), max_results=maximum
     )

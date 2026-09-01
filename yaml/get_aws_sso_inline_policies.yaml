@@ -1,0 +1,13 @@
+schema_version: 2
+targets:
+  - name: aws-organization
+    provider:
+      name: aws
+      mode: organization
+      options:
+        profile: payer-profile
+    regions: [us-east-1]
+    tasks:
+      - name: get_aws_sso_inline_policies
+        metadata:
+          identity_center_region: us-west-2

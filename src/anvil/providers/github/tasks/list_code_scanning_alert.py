@@ -11,10 +11,10 @@ from anvil.providers.github.tasks._rest import (
     DEFAULT_MAX_RESULTS,
     alert_endpoint,
     list_rest_items,
-    metadata_int,
     metadata_params,
     require_github_provider,
 )
+from anvil.providers.tasks._task_helpers import metadata_int
 
 __LOGGER__ = logging.getLogger(__name__)
 

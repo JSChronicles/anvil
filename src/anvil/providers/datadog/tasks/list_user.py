@@ -42,7 +42,7 @@ def run(
     require_provider(task_name="list_user", provider=provider, expected="datadog")
     from datadog_api_client.v2.api.users_api import UsersApi
 
-    maximum = metadata_int(metadata=metadata, key="max_results")
+    maximum = metadata_int(task_name="list_user", metadata=metadata, key="max_results")
     selectors = metadata_string_array(
         task_name="list_user", metadata=metadata, key="users"
     )

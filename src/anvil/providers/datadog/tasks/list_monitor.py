@@ -32,7 +32,9 @@ def run(
     require_provider(task_name="list_monitor", provider=provider, expected="datadog")
     from datadog_api_client.v1.api.monitors_api import MonitorsApi
 
-    max_results = metadata_int(metadata=metadata, key="max_results")
+    max_results = metadata_int(
+        task_name="list_monitor", metadata=metadata, key="max_results"
+    )
     monitors = bounded(
         MonitorsApi(session.client).list_monitors(page_size=max_results),
         max_results=max_results,

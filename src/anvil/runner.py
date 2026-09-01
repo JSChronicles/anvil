@@ -13,7 +13,7 @@ from concurrent.futures import (
     ThreadPoolExecutor,
     wait,
 )
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from typing import cast
 
 from anvil.benchmark import BenchmarkRecorder
@@ -41,6 +41,7 @@ from anvil.results import (
     TaskResult,
     aggregate_execution_statuses,
 )
+from anvil.singleflight import SingleFlightCache
 from anvil.task_context import (
     TaskCallContext,
     merge_task_metadata,
@@ -79,64 +80,6 @@ _SESSION_NOT_CREATED = object()
 
 def _load_provider(provider_name: str) -> Provider:
     return load_provider(provider_name)
-
-
-@dataclass(slots=True)
-class _SingleFlightEntry:
-    event: threading.Event = field(default_factory=threading.Event)
-    value: object | None = None
-    error: BaseException | None = None
-
-
-class _SingleFlightCache:
-    def __init__(self) -> None:
-        self._values: dict[object, object] = {}
-        self._flights: dict[object, _SingleFlightEntry] = {}
-        self._lock = threading.Lock()
-
-    def get_or_create(
-        self, *, key: object, create: Callable[[], object]
-    ) -> tuple[object, bool, bool]:
-        with self._lock:
-            existing = self._values.get(key)
-            if existing is not None:
-                return existing, True, False
-
-            flight = self._flights.get(key)
-            if flight is None:
-                flight = _SingleFlightEntry()
-                self._flights[key] = flight
-                owns_create = True
-            else:
-                owns_create = False
-
-        if owns_create:
-            try:
-                value = create()
-            except BaseException as error:
-                with self._lock:
-                    flight.error = error
-                    self._flights.pop(key, None)
-                    flight.event.set()
-                raise
-
-            with self._lock:
-                existing = self._values.get(key)
-                cached_value = existing if existing is not None else value
-                self._values[key] = cached_value
-                flight.value = cached_value
-                self._flights.pop(key, None)
-                flight.event.set()
-
-            return cached_value, False, False
-
-        flight.event.wait()
-        if flight.error is not None:
-            raise flight.error
-        if flight.value is None:
-            raise RuntimeError("Single-flight cache entry completed empty")
-
-        return flight.value, True, True
 
 
 @dataclass(frozen=True, slots=True)
@@ -185,7 +128,7 @@ class _AuthCheckCacheLookup:
 
 class AuthCheckCache:
     def __init__(self) -> None:
-        self._cache = _SingleFlightCache()
+        self._cache = SingleFlightCache[object, AuthCheckOutcome]()
 
     def get_or_check(
         self, *, key: object, check: Callable[[], AuthCheckOutcome]
@@ -383,7 +326,7 @@ def prepare_target(
     cli_dry_run: bool | None,
     cli_include: list[str] | None,
     cli_exclude: list[str] | None,
-    preparation_cache: _SingleFlightCache,
+    preparation_cache: SingleFlightCache[object, object],
     auth_cache: AuthCheckCache,
     benchmark_enabled: bool = False,
 ) -> PreparedTarget:
@@ -1349,8 +1292,8 @@ def _execute_provider_task_graph(
             for instance in plan.instances
         ),
     )
-    runtime_cache = _SingleFlightCache()
-    session_cache = _SingleFlightCache()
+    runtime_cache = SingleFlightCache[object, object]()
+    session_cache = SingleFlightCache[object, object]()
     created_runtimes: dict[tuple[bool, str], ProviderExecutionRuntime] = {}
     created_sessions: set[tuple[bool, str, str]] = set()
     runtime_benchmarks: dict[tuple[bool, str], dict[str, object]] = {}
@@ -1975,7 +1918,7 @@ def _run_target_pipeline(
     # same-organization exclusion has cleared.
     ready_targets: deque[PreparedTarget] = deque()
     active_execution_keys: set[object] = set()
-    preparation_cache = _SingleFlightCache()
+    preparation_cache = SingleFlightCache[object, object]()
     auth_cache = AuthCheckCache()
 
     if targets:
@@ -1985,21 +1928,28 @@ def _run_target_pipeline(
             ThreadPoolExecutor(max_workers=worker_limit) as prepare_executor,
             ThreadPoolExecutor(max_workers=worker_limit) as execute_executor,
         ):
-            preflight_futures: dict[Future[PreparedTarget], int] = {
-                prepare_executor.submit(
-                    prepare_target,
-                    index=index,
-                    target=target,
-                    cli_dry_run=cli_dry_run,
-                    cli_include=cli_include,
-                    cli_exclude=cli_exclude,
-                    preparation_cache=preparation_cache,
-                    auth_cache=auth_cache,
-                    benchmark_enabled=benchmark_enabled,
+            preflight_futures: dict[
+                Future[PreparedTarget | TargetExecutionOutcome], int
+            ] = {
+                cast(
+                    Future[PreparedTarget | TargetExecutionOutcome],
+                    prepare_executor.submit(
+                        prepare_target,
+                        index=index,
+                        target=target,
+                        cli_dry_run=cli_dry_run,
+                        cli_include=cli_include,
+                        cli_exclude=cli_exclude,
+                        preparation_cache=preparation_cache,
+                        auth_cache=auth_cache,
+                        benchmark_enabled=benchmark_enabled,
+                    ),
                 ): index
                 for index, target in enumerate(targets)
             }
-            execution_futures: dict[Future[TargetExecutionOutcome], PreparedTarget] = {}
+            execution_futures: dict[
+                Future[PreparedTarget | TargetExecutionOutcome], PreparedTarget
+            ] = {}
 
             # This loop coordinates two concurrent flows:
             # - preflight futures prepare targets and record auth results in input order
@@ -2014,8 +1964,11 @@ def _run_target_pipeline(
                     if next_target is None:
                         break
 
-                    future = execute_executor.submit(
-                        run_prepared_target, prepared_target=next_target
+                    future = cast(
+                        Future[PreparedTarget | TargetExecutionOutcome],
+                        execute_executor.submit(
+                            run_prepared_target, prepared_target=next_target
+                        ),
                     )
                     execution_futures[future] = next_target
 
@@ -2030,7 +1983,12 @@ def _run_target_pipeline(
                 done, _ = wait(waited_futures, return_when=FIRST_COMPLETED)
                 for future in done:
                     if future in preflight_futures:
-                        prepared_target = future.result()
+                        prepared_result = future.result()
+                        if not isinstance(prepared_result, PreparedTarget):
+                            raise TypeError(
+                                "target preparation returned an execution outcome"
+                            )
+                        prepared_target = prepared_result
                         auth_results_by_index[prepared_target.index] = (
                             prepared_target.auth_result
                         )
@@ -2046,6 +2004,8 @@ def _run_target_pipeline(
                     )
 
                     outcome = future.result()
+                    if not isinstance(outcome, TargetExecutionOutcome):
+                        raise TypeError("target execution returned a prepared target")
                     target_results_by_index[outcome.index] = outcome.target_result
 
                     if outcome.target_result.has_failures:

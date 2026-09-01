@@ -49,7 +49,9 @@ def run(
     selectors = metadata_string_array(
         task_name="list_account_member", metadata=metadata, key="members"
     )
-    maximum = metadata_int(metadata=metadata, key="max_results")
+    maximum = metadata_int(
+        task_name="list_account_member", metadata=metadata, key="max_results"
+    )
     accounts = getattr(session.client, "accounts", None)
     members_resource = getattr(accounts, "members", None)
     operation = getattr(members_resource, "list", None)

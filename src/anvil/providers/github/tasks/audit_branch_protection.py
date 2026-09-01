@@ -8,12 +8,12 @@ import logging
 
 from anvil.actions import ActionRecorder
 from anvil.providers.github.tasks._rest import (
-    metadata_string,
     require_github_provider,
     require_repository_target,
     rest_get,
     runtime_error_from_provider_error,
 )
+from anvil.providers.tasks._task_helpers import metadata_string
 
 __LOGGER__ = logging.getLogger(__name__)
 

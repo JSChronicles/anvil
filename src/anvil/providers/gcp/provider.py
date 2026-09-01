@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-import threading
-from collections.abc import Callable
 from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from google.auth.credentials import Credentials
 
 from anvil.descriptors import TargetDescriptor
 from anvil.execution_context import ExecutionContext
@@ -22,6 +24,7 @@ from anvil.providers.base import (
 )
 from anvil.regions import is_region_selector, resolve_location_selectors
 from anvil.results import ExecutionStatus
+from anvil.singleflight import SingleFlightCache
 
 DEFAULT_REGIONS = ("us-central1",)
 MODE_ORGANIZATION = "organization"
@@ -42,66 +45,7 @@ class GcpProject:
     display_name: str | None = None
 
 
-@dataclass(slots=True)
-class _GcpProjectDiscoveryFlight:
-    event: threading.Event
-    projects: list[GcpProject] | None = None
-    error: BaseException | None = None
-
-
-class _GcpProjectDiscoveryCache:
-    """Single-flight cache for GCP project discovery only."""
-
-    def __init__(self) -> None:
-        self._values: dict[object, list[GcpProject]] = {}
-        self._flights: dict[object, _GcpProjectDiscoveryFlight] = {}
-        self._lock = threading.Lock()
-
-    def get_or_discover(
-        self, *, key: object, discover: Callable[[], list[GcpProject]]
-    ) -> list[GcpProject]:
-        with self._lock:
-            cached = self._values.get(key)
-            if cached is not None:
-                return list(cached)
-
-            flight = self._flights.get(key)
-            if flight is None:
-                flight = _GcpProjectDiscoveryFlight(event=threading.Event())
-                self._flights[key] = flight
-                owns_discovery = True
-            else:
-                owns_discovery = False
-
-        if owns_discovery:
-            try:
-                projects = list(discover())
-            except BaseException as error:
-                with self._lock:
-                    flight.error = error
-                    self._flights.pop(key, None)
-                    flight.event.set()
-                raise
-
-            with self._lock:
-                cached = self._values.get(key)
-                stored = list(cached) if cached is not None else projects
-                self._values[key] = list(stored)
-                flight.projects = list(stored)
-                self._flights.pop(key, None)
-                flight.event.set()
-
-            return list(stored)
-
-        flight.event.wait()
-        if flight.error is not None:
-            raise flight.error
-        if flight.projects is None:
-            raise RuntimeError("GCP project discovery completed empty")
-        return list(flight.projects)
-
-
-_GCP_PROJECT_DISCOVERY_CACHE = _GcpProjectDiscoveryCache()
+_GCP_PROJECT_DISCOVERY_CACHE = SingleFlightCache[object, tuple[GcpProject, ...]]()
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,7 +65,7 @@ class GcpSession:
 
     project_id: str
     location: str
-    credentials: object
+    credentials: Credentials
     quota_project_id: str | None = None
 
 
@@ -133,7 +77,7 @@ class GcpSessionFactory:
         *,
         credentials_path: str | None = None,
         quota_project_id: str | None = None,
-    ) -> object:
+    ) -> Credentials:
         try:
             import google.auth
         except ImportError as error:
@@ -521,12 +465,18 @@ class GcpProvider:
         discovery_key = self._project_discovery_cache_key(
             credentials_path=credentials_path, quota_project_id=quota_project_id
         )
-        return _GCP_PROJECT_DISCOVERY_CACHE.get_or_discover(
-            key=discovery_key,
-            discover=lambda: self._session_factory.list_projects(
-                credentials_path=credentials_path, quota_project_id=quota_project_id
-            ),
+        projects, _cache_hit, _cache_waited = (
+            _GCP_PROJECT_DISCOVERY_CACHE.get_or_create(
+                key=discovery_key,
+                create=lambda: tuple(
+                    self._session_factory.list_projects(
+                        credentials_path=credentials_path,
+                        quota_project_id=quota_project_id,
+                    )
+                ),
+            )
         )
+        return list(projects)
 
     def _project_discovery_cache_key(
         self, *, credentials_path: str | None, quota_project_id: str | None

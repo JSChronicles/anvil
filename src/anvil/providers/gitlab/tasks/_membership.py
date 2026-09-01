@@ -30,7 +30,9 @@ def member_manager(resource: object) -> object:
     return getattr(resource, "members_all", None) or getattr(resource, "members", None)
 
 
-def list_members(*, resource: object, metadata: dict[str, object]) -> list[object]:
+def list_members(
+    *, task_name: str, resource: object, metadata: dict[str, object]
+) -> list[object]:
     """List bounded GitLab group or project membership records."""
 
     manager = member_manager(resource)
@@ -39,5 +41,7 @@ def list_members(*, resource: object, metadata: dict[str, object]) -> list[objec
         raise RuntimeError("GitLab resource does not expose a member list operation")
     return bounded(
         operation(iterator=True),
-        max_results=metadata_int(metadata=metadata, key="max_results"),
+        max_results=metadata_int(
+            task_name=task_name, metadata=metadata, key="max_results"
+        ),
     )

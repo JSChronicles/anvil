@@ -155,7 +155,7 @@ class AwsProvider:
         display_name="AWS",
         description="Amazon Web Services provider",
         default_regions=DEFAULT_REGIONS,
-        supported_task_scopes=frozenset({"configured_target", "region"}),
+        supported_task_scopes=frozenset({"configured_target", "target", "region"}),
     )
 
     def __init__(self, *, region_service: AwsRegionService | None = None) -> None:

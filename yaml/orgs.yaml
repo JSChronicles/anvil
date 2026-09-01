@@ -15,7 +15,7 @@ targets:
     dry_run: true
     max_workers: 5
     metadata:
-      user_name: migration
+      users: [migration]
   - name: org2
     provider:
       name: aws
@@ -29,4 +29,4 @@ targets:
     dry_run: true
     max_workers: 5
     metadata:
-      user_name: migration
+      users: [migration]

@@ -92,7 +92,7 @@ Runtime facts:
   `TASK_SCOPE = "configured_target"` to run once for the configured YAML target.
 - Providers declare which task scopes they support. Read
   `ProviderMetadata.supported_task_scopes` instead of maintaining a provider
-  allowlist. Stock AWS currently supports `configured_target` and `region`;
+  allowlist. Stock AWS currently supports `configured_target`, `target`, and `region`;
   the other stock providers currently support `region` and `target`.
 - A target-scoped task receives the first resolved concrete provider location
   as `region`, and its session uses that location. No synthetic target-scope or

@@ -36,13 +36,17 @@ def project_for_task(
 
 
 def list_manager(
-    *, manager: object, metadata: dict[str, object], **parameters: object
+    *,
+    task_name: str,
+    manager: object,
+    metadata: dict[str, object],
+    **parameters: object,
 ) -> list[object]:
     """List a bounded python-gitlab manager collection."""
     operation = getattr(manager, "list", None)
     if not callable(operation):
         raise RuntimeError("python-gitlab manager does not expose list()")
-    maximum = metadata_int(metadata=metadata, key="max_results")
+    maximum = metadata_int(task_name=task_name, metadata=metadata, key="max_results")
     return bounded(operation(iterator=True, **parameters), max_results=maximum)
 
 
@@ -74,6 +78,7 @@ def list_vulnerability_alerts(
                 )
             parameters[key] = value.strip()
     return list_manager(
+        task_name=task_name,
         manager=getattr(project, "vulnerabilities", None),
         metadata=metadata,
         **parameters,

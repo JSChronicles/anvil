@@ -9,10 +9,16 @@ from collections.abc import Iterable, Mapping
 from typing import Protocol, cast
 
 from anvil.actions import ActionRecorder
+from anvil.providers.tasks._task_helpers import (
+    metadata_bool,
+    metadata_int,
+    metadata_string,
+)
 
 __LOGGER__ = logging.getLogger(__name__)
 
 DEFAULT_MAX_RESULTS = 100
+TASK_NAME = "search_code"
 
 
 class _SearchClient(Protocol):
@@ -21,35 +27,6 @@ class _SearchClient(Protocol):
     def search_code(
         self, query: str, *, highlight: bool = False
     ) -> Iterable[object]: ...
-
-
-def _metadata_string(
-    *, metadata: dict[str, object], key: str, required: bool = False
-) -> str | None:
-    value = metadata.get(key)
-    if value is None:
-        if required:
-            raise RuntimeError(f"search_code requires metadata.{key} to be a string")
-        return None
-    if not isinstance(value, str) or not value.strip():
-        raise RuntimeError(f"search_code metadata.{key} must be a non-empty string")
-    return value.strip()
-
-
-def _metadata_max_results(*, metadata: dict[str, object]) -> int:
-    value = metadata.get("max_results", DEFAULT_MAX_RESULTS)
-    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
-        raise RuntimeError(
-            "search_code metadata.max_results must be a positive integer"
-        )
-    return value
-
-
-def _metadata_highlight(*, metadata: dict[str, object]) -> bool:
-    value = metadata.get("highlight", False)
-    if not isinstance(value, bool):
-        raise RuntimeError("search_code metadata.highlight must be a boolean")
-    return value
 
 
 def _quote_qualifier_value(value: str) -> str:
@@ -61,7 +38,9 @@ def _quote_qualifier_value(value: str) -> str:
 def _query(
     *, metadata: dict[str, object], execution_target_id: str, execution_target_type: str
 ) -> str:
-    query = _metadata_string(metadata=metadata, key="query", required=True)
+    query = metadata_string(
+        task_name=TASK_NAME, metadata=metadata, key="query", required=True
+    )
     qualifiers: list[str] = []
 
     if execution_target_type == "organization":
@@ -79,11 +58,11 @@ def _query(
         ("extension", "extension"),
         ("filename", "filename"),
     ):
-        value = _metadata_string(metadata=metadata, key=key)
+        value = metadata_string(task_name=TASK_NAME, metadata=metadata, key=key)
         if value is not None:
             qualifiers.append(f"{qualifier}:{_quote_qualifier_value(value)}")
 
-    return " ".join([query or "", *qualifiers])
+    return " ".join([query, *qualifiers])
 
 
 def _get_value(item: object, key: str) -> object:
@@ -247,8 +226,15 @@ def run(
         execution_target_id=execution_target_id,
         execution_target_type=execution_target_type,
     )
-    max_results = _metadata_max_results(metadata=metadata)
-    highlight = _metadata_highlight(metadata=metadata)
+    max_results = metadata_int(
+        task_name=TASK_NAME,
+        metadata=metadata,
+        key="max_results",
+        default=DEFAULT_MAX_RESULTS,
+    )
+    highlight = metadata_bool(
+        task_name=TASK_NAME, metadata=metadata, key="highlight", default=False
+    )
 
     try:
         search_results = _search_client(session).search_code(query, highlight=highlight)

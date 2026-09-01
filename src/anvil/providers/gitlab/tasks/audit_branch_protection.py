@@ -37,7 +37,9 @@ def run(
         session=session,
     )
     rules = list_manager(
-        manager=getattr(project, "protectedbranches", None), metadata=metadata
+        task_name="audit_branch_protection",
+        manager=getattr(project, "protectedbranches", None),
+        metadata=metadata,
     )
     __LOGGER__.info(
         f"Audited {len(rules)} GitLab protected branch rule(s) for {execution_target_name}"
