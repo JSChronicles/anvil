@@ -1,9 +1,9 @@
 ---
 name: anvil-task-builder
-description: Builds and maintains Anvil task modules, workflows, schemas, runner behavior, SARIF-compatible detect_ tasks, and plugin templates. Use when user asks to "create an Anvil task", "edit this task", "add dry-run behavior", "record actions", "return task results", "create a SARIF task", "create a detect task", "update Anvil YAML", "modify schemas", "change account execution", "update plugin templates", "add concurrency for the payer account", or "build a management-account-only task".
+description: Builds and maintains Anvil task modules, workflows, schemas, runner behavior, SARIF-compatible detect_ tasks, and plugin templates. Use when user asks to create or edit an Anvil task, choose or change task scope, fix repeated regional execution, add dry-run behavior, record actions, return task results, update Anvil YAML or schemas, change account execution, update plugin templates, add payer-account concurrency, or build a management-account-only task.
 metadata:
   author: JSChronicles
-  version: "0.10"
+  version: "0.12"
 ---
 
 # Anvil Task Builder
@@ -13,13 +13,14 @@ Use this skill to create Anvil tasks that satisfy the runtime contract, behave s
 ## Workflow
 
 1. Decide whether the task is a stock task or plugin task.
-2. Create or edit the task module.
-3. Implement the Anvil `run()` contract.
-4. Add useful Google-style docstrings, especially on `run()`, so `anvil list --tasks <task_name> --detail` explains the task.
-5. Follow Anvil task conventions for dry-run behavior, logging, actions, and returned data.
-6. Apply normal Python and provider-specific implementation hygiene.
-7. Add or update YAML examples that reference the task when useful.
-8. Run `uv run anvil validate --tasks`.
+2. Determine the provider resource ownership boundary and choose the task scope.
+3. Create or edit the task module.
+4. Implement the Anvil `run()` contract.
+5. Add useful Google-style docstrings, especially on `run()`, so `anvil list --tasks <task_name> --detail` explains the task.
+6. Follow Anvil task conventions for dry-run behavior, logging, actions, and returned data.
+7. Apply normal Python and provider-specific implementation hygiene.
+8. Add or update YAML examples that reference the task when useful.
+9. Run `uv run anvil validate --tasks`.
 
 ## Core Rules
 
@@ -50,6 +51,16 @@ Use this skill to create Anvil tasks that satisfy the runtime contract, behave s
   per provider with `create_provider_instance()`. Do not use legacy generic
   plugin or per-component entry points.
 - Every task module must define a callable keyword-only `run()` function.
+- Choose scope from the provider resource ownership boundary, not as a
+  performance setting. Omit `TASK_SCOPE` only when one invocation per resolved
+  target and location is correct; otherwise declare a provider-supported scope.
+- Use `target` for resources independently owned by each resolved execution
+  target and `configured_target` only when work belongs to the original
+  configured target or its shared control plane. Split a module that combines
+  resources requiring different scopes.
+- Treat scope as a safety decision for destructive tasks. An account-wide or
+  provider-global mutation left at default region scope can execute repeatedly
+  for the same target.
 - Every task `run()` function must have a useful Google-style docstring. Include a short summary plus `Args:`, `Returns:`, and `Raises:` sections when applicable; document required `metadata` keys explicitly.
 - The provided `session` is already scoped to the provider target and region.
 - Check `dry_run` before every mutating API call.
@@ -67,6 +78,7 @@ Use this skill to create Anvil tasks that satisfy the runtime contract, behave s
 Load only the reference files needed for the current task:
 
 - For stock task, plugin task, entry-point, and `run()` signature rules, read `references/runtime-contract.md`.
+- For choosing, changing, documenting, or reviewing task scope, read `references/task-scopes.md`.
 - For dry-run behavior, action recording, logging, and result shape, read `references/dry-run-and-actions.md`.
 - For task granularity, inventory task boundaries, performance, and region concurrency, read `references/task-granularity.md`.
 - For concurrency guidance specific to workflows that target only the payer/management account, read `references/payer-management-account-tasks.md`.
@@ -77,6 +89,11 @@ Load only the reference files needed for the current task:
 
 ## Review Behavior
 
-When reviewing Anvil tasks, prioritize runtime contract violations, missing or weak `run()` docstrings for `--detail`, missing dry-run guards, unsafe provider mutation behavior, invalid metadata handling, missing task discovery wiring, and validation gaps.
+When reviewing Anvil tasks, prioritize incorrect scope or repeated global work,
+runtime contract violations, missing or weak `run()` docstrings for `--detail`,
+missing dry-run guards, unsafe provider mutation behavior, invalid metadata
+handling, missing task discovery wiring, and validation gaps. Verify scope
+against the API's ownership boundary even when the declared scope passes
+validation; Anvil cannot infer that semantic choice.
 
 If no issues are found, say so directly and mention any commands that were not run.

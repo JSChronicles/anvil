@@ -23,12 +23,12 @@ from anvil.results import AuthResult, ExecutionStatus
 from anvil.runner import (
     AuthCheckCache,
     PreparedTarget,
-    _SingleFlightCache,
     _execute_provider_execution_target,
     _execute_provider_targets,
     prepare_target,
     run_prepared_target,
 )
+from anvil.singleflight import SingleFlightCache
 from anvil.task_loader import ResolvedTask, TaskScope, discover_tasks
 
 
@@ -149,7 +149,7 @@ def test_aws_ambiguous_configured_target_stops_before_auth_and_preflight(
         cli_dry_run=None,
         cli_include=None,
         cli_exclude=None,
-        preparation_cache=_SingleFlightCache(),
+        preparation_cache=SingleFlightCache(),
         auth_cache=AuthCheckCache(),
     )
 
@@ -225,7 +225,7 @@ def test_configured_target_ambiguity_is_rejected_before_authentication(
         cli_dry_run=None,
         cli_include=None,
         cli_exclude=None,
-        preparation_cache=_SingleFlightCache(),
+        preparation_cache=SingleFlightCache(),
         auth_cache=AuthCheckCache(),
     )
 
@@ -264,7 +264,7 @@ def test_unsupported_scope_resolution_fails_before_authentication(
         cli_dry_run=None,
         cli_include=None,
         cli_exclude=None,
-        preparation_cache=_SingleFlightCache(),
+        preparation_cache=SingleFlightCache(),
         auth_cache=AuthCheckCache(),
     )
 
@@ -304,7 +304,7 @@ def test_ordinary_configuration_does_not_call_configured_validation_hook(
         cli_dry_run=None,
         cli_include=None,
         cli_exclude=None,
-        preparation_cache=_SingleFlightCache(),
+        preparation_cache=SingleFlightCache(),
         auth_cache=AuthCheckCache(),
     )
 

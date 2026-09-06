@@ -6,6 +6,11 @@ several targets in a broader multi-account run. If the same workflow also
 targets other accounts, treat the payer account like any other target and
 follow the general guidance in `task-granularity.md` instead.
 
+Choose task scope before applying this concurrency guidance. Payer-only target
+selection does not itself imply `configured_target`. Use that scope only when
+the operation belongs to the original configured target or its shared control
+plane, following `task-scopes.md`.
+
 ## Why This Case Is Different
 
 `task-granularity.md` frames concurrency pressure as:

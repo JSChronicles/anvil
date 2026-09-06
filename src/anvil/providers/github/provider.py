@@ -34,6 +34,7 @@ from anvil.providers.base import (
 )
 from anvil.provider_profiles import ProviderProfileConfig
 from anvil.results import ExecutionStatus
+from anvil.singleflight import SingleFlightCache
 
 __LOGGER__ = logging.getLogger(__name__)
 MODE_ORGANIZATIONS = "organizations"
@@ -101,66 +102,9 @@ class GithubRepository:
     owner: str | None = None
 
 
-@dataclass(slots=True)
-class _GithubRepositoryDiscoveryFlight:
-    event: threading.Event
-    repositories: list[GithubRepository] | None = None
-    error: BaseException | None = None
-
-
-class _GithubRepositoryDiscoveryCache:
-    """Single-flight cache for GitHub repository discovery."""
-
-    def __init__(self) -> None:
-        self._values: dict[object, list[GithubRepository]] = {}
-        self._flights: dict[object, _GithubRepositoryDiscoveryFlight] = {}
-        self._lock = threading.Lock()
-
-    def get_or_discover(
-        self, *, key: object, discover: Callable[[], list[GithubRepository]]
-    ) -> list[GithubRepository]:
-        with self._lock:
-            cached = self._values.get(key)
-            if cached is not None:
-                return list(cached)
-
-            flight = self._flights.get(key)
-            if flight is None:
-                flight = _GithubRepositoryDiscoveryFlight(event=threading.Event())
-                self._flights[key] = flight
-                owns_discovery = True
-            else:
-                owns_discovery = False
-
-        if owns_discovery:
-            try:
-                repositories = list(discover())
-            except BaseException as error:
-                with self._lock:
-                    flight.error = error
-                    self._flights.pop(key, None)
-                    flight.event.set()
-                raise
-
-            with self._lock:
-                cached = self._values.get(key)
-                stored = list(cached) if cached is not None else repositories
-                self._values[key] = list(stored)
-                flight.repositories = list(stored)
-                self._flights.pop(key, None)
-                flight.event.set()
-
-            return list(stored)
-
-        flight.event.wait()
-        if flight.error is not None:
-            raise flight.error
-        if flight.repositories is None:
-            raise RuntimeError("GitHub repository discovery completed empty")
-        return list(flight.repositories)
-
-
-_GITHUB_REPOSITORY_DISCOVERY_CACHE = _GithubRepositoryDiscoveryCache()
+_GITHUB_REPOSITORY_DISCOVERY_CACHE = SingleFlightCache[
+    object, tuple[GithubRepository, ...]
+]()
 
 
 @dataclass(slots=True)
@@ -1344,12 +1288,17 @@ class GithubProvider:
         discovery_key = self._repository_discovery_cache_key(
             owner_logins=owner_logins, provider_options=provider_options
         )
-        return _GITHUB_REPOSITORY_DISCOVERY_CACHE.get_or_discover(
-            key=discovery_key,
-            discover=lambda: self._session_factory.list_owner_repositories(
-                owner_logins=owner_logins, provider_options=provider_options
-            ),
+        repositories, _cache_hit, _cache_waited = (
+            _GITHUB_REPOSITORY_DISCOVERY_CACHE.get_or_create(
+                key=discovery_key,
+                create=lambda: tuple(
+                    self._session_factory.list_owner_repositories(
+                        owner_logins=owner_logins, provider_options=provider_options
+                    )
+                ),
+            )
         )
+        return list(repositories)
 
     def _repository_discovery_cache_key(
         self, *, owner_logins: list[str], provider_options: dict[str, object]
