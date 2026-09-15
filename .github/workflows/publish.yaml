@@ -37,9 +37,20 @@ jobs:
       - name: Build
         run: uv build
 
-      # Check that basic features work and we didn't miss to include crucial files
-      # - name: Smoke test (wheel)
-      #   run: uv run --isolated --no-project --with dist/*.whl tests/smoke_test.py
+      - name: Smoke test wheel
+        shell: bash
+        run: |
+          shopt -s nullglob
+          wheels=(dist/*.whl)
+          if (( ${#wheels[@]} != 1 )); then
+            echo "::error::expected exactly one wheel in dist, found ${#wheels[@]}"
+            exit 1
+          fi
+
+          uv run --isolated --no-project --python 3.14 --with "${wheels[0]}" \
+            anvil --version
+          uv run --isolated --no-project --python 3.14 --with "${wheels[0]}" \
+            anvil validate --quiet --config-file yaml/noop.yaml
 
       # - name: Smoke test (source distribution)
       #   run: uv run --isolated --no-project --with dist/*.tar.gz tests/smoke_test.py
