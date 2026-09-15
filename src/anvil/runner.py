@@ -1436,9 +1436,17 @@ def _execute_provider_task_graph(
             if isinstance(benchmark, dict):
                 runtime_benchmarks[runtime_key] = benchmark
     finally:
+        cleanup_errors: list[Exception] = []
         for runtime_key, runtime in list(created_runtimes.items()):
             try:
                 runtime.close()
+            except Exception as error:
+                is_configured, execution_target_id = runtime_key
+                runtime_type = "configured-target" if is_configured else "target"
+                error.add_note(
+                    f"Failed to close {runtime_type} runtime '{execution_target_id}'"
+                )
+                cleanup_errors.append(error)
             finally:
                 runtime_ended_at[runtime_key] = datetime.datetime.now(
                     datetime.UTC
@@ -1446,6 +1454,10 @@ def _execute_provider_task_graph(
                 runtime_duration_seconds[runtime_key] = (
                     time.perf_counter() - runtime_started_perf[runtime_key]
                 )
+        if cleanup_errors:
+            raise ExceptionGroup(
+                "Provider execution runtime cleanup failed", cleanup_errors
+            )
 
     task_results_by_execution_target: dict[str, list[ScheduledTaskResult]] = {}
     configured_results: list[TaskResult] = []

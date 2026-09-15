@@ -1053,6 +1053,72 @@ def test_mixed_graph_surfaces_outcome_hook_errors_and_closes_runtimes() -> None:
     assert ("close", "") in calls
 
 
+def test_mixed_graph_attempts_every_runtime_close_after_cleanup_failure() -> None:
+    calls: list[tuple[str, str]] = []
+
+    class CloseTrackingRuntime(_LifecycleRuntime):
+        def close(self) -> None:
+            self.calls.append(("close", self.target_id))
+            self.closed = True
+            if self.target_id == "entity-a":
+                raise RuntimeError("close failed for entity-a")
+
+    class CloseTrackingProvider(_LifecycleProvider):
+        def prepare_execution_runtime(self, **kwargs) -> _LifecycleRuntime:
+            execution_target = kwargs["execution_target"]
+            self.calls.append(("runtime", execution_target.id))
+            return CloseTrackingRuntime(self.calls, execution_target.id)
+
+    tasks = [
+        _contract_task(task_id="regional", name="regional", run=lambda **kwargs: {}),
+        _contract_task(
+            task_id="configured",
+            name="configured",
+            run=lambda **kwargs: {},
+            depends_on=["regional"],
+            scope="configured_target",
+        ),
+    ]
+
+    with pytest.raises(ExceptionGroup, match="runtime cleanup failed") as exc_info:
+        _execute_provider_targets(
+            provider=CloseTrackingProvider(calls),
+            target=_target([], max_workers=1),
+            context=_context(tasks, max_parallel_regions=1),
+            execution_targets=[
+                ExecutionTarget(
+                    id="entity-a",
+                    name="Entity A",
+                    type="account",
+                    provider="fake",
+                    regions=["region-a"],
+                ),
+                ExecutionTarget(
+                    id="entity-b",
+                    name="Entity B",
+                    type="account",
+                    provider="fake",
+                    regions=["region-a"],
+                ),
+            ],
+            configured_execution_target=ExecutionTarget(
+                id="configured-owner",
+                name="Configured Owner",
+                type="configured_target",
+                provider="fake",
+                regions=["region-a"],
+            ),
+            benchmark_data=None,
+        )
+
+    assert calls.count(("close", "entity-a")) == 1
+    assert calls.count(("close", "entity-b")) == 1
+    assert len(exc_info.value.exceptions) == 1
+    cleanup_error = exc_info.value.exceptions[0]
+    assert str(cleanup_error) == "close failed for entity-a"
+    assert cleanup_error.__notes__ == ["Failed to close target runtime 'entity-a'"]
+
+
 def test_mixed_target_only_benchmark_does_not_report_regional_execution() -> None:
     tasks = [
         _contract_task(
