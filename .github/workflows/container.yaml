@@ -158,6 +158,7 @@ jobs:
         run: |
           platform_pair="${PLATFORM//\//-}"
           echo "artifact=container-digest-${platform_pair}" >> "$GITHUB_OUTPUT"
+          echo "cache_scope=anvil-container-${platform_pair}" >> "$GITHUB_OUTPUT"
           echo "local_tag=anvil-container-smoke:${platform_pair}" >> "$GITHUB_OUTPUT"
 
       - name: Build platform image
@@ -170,6 +171,8 @@ jobs:
             VERSION=${{ needs.prepare.outputs.version }}
             REVISION=${{ needs.prepare.outputs.revision }}
             CREATED=${{ needs.prepare.outputs.created }}
+          cache-from: type=gha,scope=${{ steps.platform.outputs.cache_scope }}
+          cache-to: type=gha,scope=${{ steps.platform.outputs.cache_scope }},mode=max
           load: ${{ !inputs.push }}
           tags: ${{ !inputs.push && steps.platform.outputs.local_tag || '' }}
           outputs: ${{ inputs.push && format('type=image,name={0},push-by-digest=true,name-canonical=true,push=true', needs.prepare.outputs.image) || '' }}
