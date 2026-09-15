@@ -4,6 +4,108 @@ All notable changes to this project will be documented in this file.
 
 <!-- version list -->
 
+## v0.33.3 (2026-09-15)
+
+### Bug Fixes
+
+- Correct AWS task scopes and inventory behavior
+  ([#95](https://github.com/JSChronicles/anvil/pull/95),
+  [`b97028d`](https://github.com/JSChronicles/anvil/commit/b97028df228b6b27eaec95f22840f4c8d021b9da))
+
+- Correct AWS task scopes and inventory behavior
+  ([#84](https://github.com/JSChronicles/anvil/pull/84),
+  [`afe3009`](https://github.com/JSChronicles/anvil/commit/afe3009cde3608ad85d0e01f4a24172fce0b8102))
+
+- Correct AWS task scopes and inventory behavior
+  ([`12a6f10`](https://github.com/JSChronicles/anvil/commit/12a6f104688a9dec3f627418b75fa1b9083564f2))
+
+- **deps**: Update minimum dependency versions
+  ([#96](https://github.com/JSChronicles/anvil/pull/96),
+  [`bc19659`](https://github.com/JSChronicles/anvil/commit/bc19659c0c4867dc352655504fc8e9872914f913))
+
+- **release**: Restore semantic release workflow
+  ([#97](https://github.com/JSChronicles/anvil/pull/97),
+  [`ecd7523`](https://github.com/JSChronicles/anvil/commit/ecd752391b4554089177b155fbced12450eea455))
+
+- **runner**: Continue closing runtimes after cleanup failures
+  ([#95](https://github.com/JSChronicles/anvil/pull/95),
+  [`b97028d`](https://github.com/JSChronicles/anvil/commit/b97028df228b6b27eaec95f22840f4c8d021b9da))
+
+### Chores
+
+- **docker**: Bump astral-sh/uv from 0.12.5 to 0.12.9
+  ([#86](https://github.com/JSChronicles/anvil/pull/86),
+  [`058954f`](https://github.com/JSChronicles/anvil/commit/058954fd83583933ca6b3fcbfcefaa7580c94544))
+
+- **docker**: Bump astral-sh/uv from 0.12.9 to 0.12.11
+  ([#91](https://github.com/JSChronicles/anvil/pull/91),
+  [`60fe524`](https://github.com/JSChronicles/anvil/commit/60fe5247c51c030666187b2292fca9045e06ca5c))
+
+- **docker**: Bump python from `ce40764` to `cad9a2c`
+  ([#85](https://github.com/JSChronicles/anvil/pull/85),
+  [`3d8159d`](https://github.com/JSChronicles/anvil/commit/3d8159d33ff02265c6d4da2483f104aedab6ebb0))
+
+- **github-actions**: Bump docker/setup-qemu-action
+  ([#93](https://github.com/JSChronicles/anvil/pull/93),
+  [`33d97d7`](https://github.com/JSChronicles/anvil/commit/33d97d7ee3e8bd4f3ec18592799303669d79a358))
+
+- **github-actions**: Bump the github-actions group with 2 updates
+  ([#88](https://github.com/JSChronicles/anvil/pull/88),
+  [`adeb470`](https://github.com/JSChronicles/anvil/commit/adeb470680b2ca5230b47854a40b4dfae90ad6f8))
+
+- **pre-commit**: Bump the pre-commit group with 2 updates
+  ([#94](https://github.com/JSChronicles/anvil/pull/94),
+  [`96cd911`](https://github.com/JSChronicles/anvil/commit/96cd9118740c624b02e8687436d7e512bc4b548d))
+
+- **pre-commit**: Bump the pre-commit group with 2 updates
+  ([#89](https://github.com/JSChronicles/anvil/pull/89),
+  [`28576ac`](https://github.com/JSChronicles/anvil/commit/28576acdb25bcb316da0a0eedac2abd61e94fa82))
+
+- **uv**: Bump httpx2 from 2.10.0 to 2.12.0 ([#90](https://github.com/JSChronicles/anvil/pull/90),
+  [`b772327`](https://github.com/JSChronicles/anvil/commit/b7723271aef504f73fb85dcd86a2e3c978578201))
+
+- **uv**: Bump the uv-dependencies group across 1 directory with 10 updates
+  ([#87](https://github.com/JSChronicles/anvil/pull/87),
+  [`4725d22`](https://github.com/JSChronicles/anvil/commit/4725d222e47c8943b2b92d4c0ec25a77fa58dbdd))
+
+- **uv**: Bump the uv-dependencies group with 4 updates
+  ([#92](https://github.com/JSChronicles/anvil/pull/92),
+  [`71487ab`](https://github.com/JSChronicles/anvil/commit/71487abdeb0289f25de1c4cc6cb992a17990d99a))
+
+### Continuous Integration
+
+- **publish**: Smoke test built wheel before publishing
+  ([#95](https://github.com/JSChronicles/anvil/pull/95),
+  [`b97028d`](https://github.com/JSChronicles/anvil/commit/b97028df228b6b27eaec95f22840f4c8d021b9da))
+
+### Documentation
+
+- **skill**: Improve Anvil task scope guidance
+  ([#84](https://github.com/JSChronicles/anvil/pull/84),
+  [`afe3009`](https://github.com/JSChronicles/anvil/commit/afe3009cde3608ad85d0e01f4a24172fce0b8102))
+
+### Performance Improvements
+
+- **container**: Add BuildKit caching for platform builds
+  ([`608461e`](https://github.com/JSChronicles/anvil/commit/608461ec7da3bcbfec6f3304be3b1e7a9cf93b17))
+
+### Refactoring
+
+- Centralize filename and task metadata validation
+  ([#95](https://github.com/JSChronicles/anvil/pull/95),
+  [`b97028d`](https://github.com/JSChronicles/anvil/commit/b97028df228b6b27eaec95f22840f4c8d021b9da))
+
+- Centralize filename and task metadata validation
+  ([#84](https://github.com/JSChronicles/anvil/pull/84),
+  [`afe3009`](https://github.com/JSChronicles/anvil/commit/afe3009cde3608ad85d0e01f4a24172fce0b8102))
+
+- Centralize filename and task metadata validation
+  ([`eb87996`](https://github.com/JSChronicles/anvil/commit/eb87996ef0c34bb35d30bb5aff36e0ce820af6bf))
+
+- Consolidate single-flight caching ([#84](https://github.com/JSChronicles/anvil/pull/84),
+  [`afe3009`](https://github.com/JSChronicles/anvil/commit/afe3009cde3608ad85d0e01f4a24172fce0b8102))
+
+
 ## v0.33.2 (2026-08-25)
 
 ### Performance Improvements
