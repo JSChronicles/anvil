@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 <!-- version list -->
 
+## v0.33.4 (2026-09-15)
+
+### Bug Fixes
+
+- **build**: Exempt uv-build from package cutoff
+  ([#98](https://github.com/JSChronicles/anvil/pull/98),
+  [`c89868a`](https://github.com/JSChronicles/anvil/commit/c89868aba5de0ae3d42453f0951a36ebeb0134e8))
+
+
 ## v0.33.3 (2026-09-15)
 
 ### Bug Fixes
