@@ -176,3 +176,4 @@ invalid-assignment = "ignore"
 
 [tool.uv]
 exclude-newer = "1 week"
+exclude-newer-package = { uv-build = false }
