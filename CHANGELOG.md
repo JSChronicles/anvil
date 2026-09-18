@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 <!-- version list -->
 
+## v0.34.0 (2026-09-18)
+
+### Continuous Integration
+
+- Use downstream bot for promotion ([#103](https://github.com/JSChronicles/anvil/pull/103),
+  [`1a11ed7`](https://github.com/JSChronicles/anvil/commit/1a11ed7c4dfabea7e18802f6f80b3009fadcf8a0))
+
+### Features
+
+- **ci**: Promote releases to downstream repos
+  ([#103](https://github.com/JSChronicles/anvil/pull/103),
+  [`1a11ed7`](https://github.com/JSChronicles/anvil/commit/1a11ed7c4dfabea7e18802f6f80b3009fadcf8a0))
+
+
 ## v0.33.4 (2026-09-15)
 
 ### Bug Fixes
