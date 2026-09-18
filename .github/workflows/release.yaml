@@ -64,6 +64,7 @@ jobs:
           if [ -n "$tag" ]; then
             echo "released=true" >> "$GITHUB_OUTPUT"
             echo "tag=$tag" >> "$GITHUB_OUTPUT"
+            echo "sha=$(git rev-list -n 1 "$tag")" >> "$GITHUB_OUTPUT"
           else
             echo "released=false" >> "$GITHUB_OUTPUT"
           fi
@@ -77,6 +78,7 @@ jobs:
           fi
     outputs:
       released: ${{ steps.release.outputs.released || 'false' }}
+      sha: ${{ steps.release.outputs.sha }}
       tag: ${{ steps.release.outputs.tag }}
 
   publish:
@@ -100,3 +102,22 @@ jobs:
       tag: ${{ needs.tag-release.outputs.tag }}
       push: true
       platforms: linux/amd64,linux/arm64
+
+  update-downstreams:
+    needs:
+      - tag-release
+      - publish
+      - publish-container
+    if: >-
+      always() &&
+      needs.tag-release.outputs.released == 'true' &&
+      needs.publish.result == 'success' &&
+      needs.publish-container.result == 'success'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/update-downstreams.yaml
+    with:
+      image_digest: ${{ needs.publish-container.outputs.digest }}
+      release_sha: ${{ needs.tag-release.outputs.sha }}
+      tag: ${{ needs.tag-release.outputs.tag }}
+    secrets: inherit

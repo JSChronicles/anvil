@@ -1,0 +1,79 @@
+name: Update downstream repositories
+
+on:
+  workflow_call:
+    inputs:
+      image_digest:
+        description: Published multi-platform GHCR image digest
+        required: true
+        type: string
+      release_sha:
+        description: Commit SHA for the published Anvil release
+        required: true
+        type: string
+      tag:
+        description: Published Anvil tag, such as v0.34.0
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  dispatch-setup-anvil:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create downstream token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ secrets.PYTHON_RELEASE_BOT_CLIENT_ID }}
+          private-key: ${{ secrets.PYTHON_RELEASE_BOT_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: setup-anvil
+          permission-contents: write
+
+      - name: Request setup-anvil update
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          IMAGE_DIGEST: ${{ inputs.image_digest }}
+          OWNER: ${{ github.repository_owner }}
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          TAG: ${{ inputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="${TAG#v}"
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::release tag '$TAG' is not a stable semantic version"
+            exit 1
+          fi
+          if ! [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::release SHA is not a full commit SHA"
+            exit 1
+          fi
+          if ! [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::image digest is not a sha256 digest"
+            exit 1
+          fi
+
+          jq --null-input \
+            --arg digest "$IMAGE_DIGEST" \
+            --arg sha "$RELEASE_SHA" \
+            --arg tag "$TAG" \
+            --arg version "$version" \
+            '{
+              event_type: "anvil_released",
+              client_payload: {
+                image_digest: $digest,
+                release_sha: $sha,
+                tag: $tag,
+                version: $version
+              }
+            }' > "$RUNNER_TEMP/anvil-release.json"
+
+          gh api \
+            --method POST \
+            "repos/${OWNER}/setup-anvil/dispatches" \
+            --input "$RUNNER_TEMP/anvil-release.json"
