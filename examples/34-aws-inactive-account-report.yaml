@@ -1,0 +1,72 @@
+schema_version: 2
+max_parallel_targets: 4
+
+targets:
+  - name: inactive-account-review
+    provider:
+      name: aws
+      mode: organization
+      options:
+        profile: management-account
+        role_name: OrganizationAccountAccessRole
+    regions:
+      - all
+    max_workers: 4
+    max_parallel_regions: 1
+    dry_run: true
+    metadata:
+      athena:
+        database: cloudtrail
+        table: organization_cloudtrail
+        output_location: s3://example-athena-results/inactive-account-report/
+        workgroup: primary
+      owner_tag_keys:
+        - Owner
+        - TechnicalOwner
+        - BusinessOwner
+        - Application
+        - CostCenter
+    tasks:
+      - name: inactive_account_context
+
+      - name: inactive_account_cost_signal
+        depends_on:
+          - inactive_account_context
+        dependency_data:
+          accounts:
+            task_id: inactive_account_context
+            path: result.accounts
+
+      - name: inactive_account_cloudtrail_signal
+        depends_on:
+          - inactive_account_context
+        dependency_data:
+          accounts:
+            task_id: inactive_account_context
+            path: result.accounts
+
+      - name: inactive_account_resource_signal
+
+      - name: inactive_account_report
+        depends_on:
+          - inactive_account_context
+          - inactive_account_cost_signal
+          - inactive_account_cloudtrail_signal
+          - inactive_account_resource_signal
+        dependency_data:
+          accounts:
+            task_id: inactive_account_context
+            path: result.accounts
+          costs:
+            task_id: inactive_account_cost_signal
+            path: result.signals_by_account
+          activity:
+            task_id: inactive_account_cloudtrail_signal
+            path: result.signals_by_account
+          regional_resources:
+            task_id: inactive_account_resource_signal
+            path: result
+
+    post_run:
+      - processor: html_report
+        output: inactive-account-report.html
