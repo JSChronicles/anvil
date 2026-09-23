@@ -4,6 +4,60 @@ All notable changes to this project will be documented in this file.
 
 <!-- version list -->
 
+## v0.35.0 (2026-09-23)
+
+### Chores
+
+- **docker**: Bump astral-sh/uv from 0.12.11 to 0.12.15
+  ([#99](https://github.com/JSChronicles/anvil/pull/99),
+  [`2c6bdde`](https://github.com/JSChronicles/anvil/commit/2c6bdde9328fbd60ee2f3a21b20c025f3727756d))
+
+- **docker**: Bump astral-sh/uv from 0.12.15 to 0.12.18
+  ([#107](https://github.com/JSChronicles/anvil/pull/107),
+  [`d6f06f5`](https://github.com/JSChronicles/anvil/commit/d6f06f5a451b49ca98a277d0b34370087dd3c7da))
+
+- **docker**: Bump python from `cad9a2c` to `caaf356`
+  ([#106](https://github.com/JSChronicles/anvil/pull/106),
+  [`6836a1d`](https://github.com/JSChronicles/anvil/commit/6836a1d704d1345dc7660cacbb37b98feb287878))
+
+- **github-actions**: Bump the github-actions group across 1 directory with 3 updates
+  ([#105](https://github.com/JSChronicles/anvil/pull/105),
+  [`3d545b4`](https://github.com/JSChronicles/anvil/commit/3d545b4ff0283883dea6591e5504bb818e713ff1))
+
+- **github-actions**: Bump the github-actions group with 2 updates
+  ([#101](https://github.com/JSChronicles/anvil/pull/101),
+  [`ef3c8d0`](https://github.com/JSChronicles/anvil/commit/ef3c8d0aadd247c410418637c9ed6b2cbc150e43))
+
+- **github-actions**: Bump the github-actions group with 3 updates
+  ([#109](https://github.com/JSChronicles/anvil/pull/109),
+  [`23ee7d8`](https://github.com/JSChronicles/anvil/commit/23ee7d8a57c9b83c2d6acc3f2c7f04c98f6d68f8))
+
+- **pre-commit**: Bump the pre-commit group with 2 updates
+  ([#110](https://github.com/JSChronicles/anvil/pull/110),
+  [`7405168`](https://github.com/JSChronicles/anvil/commit/740516814b50ad7d28ae51d344cee8dac55b7816))
+
+- **pre-commit**: Bump the pre-commit group with 2 updates
+  ([#102](https://github.com/JSChronicles/anvil/pull/102),
+  [`3b5c728`](https://github.com/JSChronicles/anvil/commit/3b5c728c15287e3fc8e9fc3b748e78183d6aa257))
+
+- **uv**: Bump the uv-dependencies group across 1 directory with 4 updates
+  ([#104](https://github.com/JSChronicles/anvil/pull/104),
+  [`87561d9`](https://github.com/JSChronicles/anvil/commit/87561d9f411b47a13269be2d201b70e424329ba0))
+
+- **uv**: Bump the uv-dependencies group with 11 updates
+  ([#100](https://github.com/JSChronicles/anvil/pull/100),
+  [`1c5d5c0`](https://github.com/JSChronicles/anvil/commit/1c5d5c0f56f389a59c018949b5977232e786e142))
+
+- **uv**: Bump the uv-dependencies group with 4 updates
+  ([#108](https://github.com/JSChronicles/anvil/pull/108),
+  [`ffc6dc6`](https://github.com/JSChronicles/anvil/commit/ffc6dc670bda97dbd119dec26264b54ea363b22f))
+
+### Features
+
+- **aws**: Add iam role task
+  ([`d7dc6eb`](https://github.com/JSChronicles/anvil/commit/d7dc6eb42b97519aaf53dbcf9ac01702f14e0ca6))
+
+
 ## v0.34.0 (2026-09-18)
 
 ### Continuous Integration
