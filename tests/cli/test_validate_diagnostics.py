@@ -128,6 +128,11 @@ def test_diagnostic_dependency_checks_report_importable_and_missing(monkeypatch)
     assert by_label["gcp"].status == "WARN"
     assert by_label["gitlab"].status == "WARN"
     assert by_label["pagerduty"].status == "WARN"
+    assert by_label["aws"].detail == "boto3 importable"
+    assert by_label["github"].detail == "PyGithub importable"
+    assert by_label["azure"].detail is not None
+    assert 'uv pip install "anvil[azure]"' in by_label["azure"].detail
+    assert "uv sync --extra azure" in by_label["azure"].detail
 
 
 def test_module_available_treats_missing_parent_package_as_unavailable(monkeypatch):

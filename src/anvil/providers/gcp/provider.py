@@ -83,8 +83,9 @@ class GcpSessionFactory:
         except ImportError as error:
             raise RuntimeError(
                 "GCP provider requires optional dependency 'google-auth' "
-                "when building a GCP runtime session. Install with "
-                "'anvil[gcp]'."
+                "when building a GCP runtime session. Install GCP dependencies "
+                "with 'uv sync --extra gcp' for a source checkout or "
+                "'uv pip install \"anvil[gcp]\"' for an installed package."
             ) from error
 
         try:
@@ -140,7 +141,9 @@ class GcpSessionFactory:
         except ImportError as error:
             raise RuntimeError(
                 "GCP project discovery requires optional dependency "
-                "'google-cloud-resource-manager'. Install with 'anvil[gcp]'."
+                "'google-cloud-resource-manager'. Install GCP dependencies with "
+                "'uv sync --extra gcp' for a source checkout or "
+                "'uv pip install \"anvil[gcp]\"' for an installed package."
             ) from error
 
         try:
@@ -183,7 +186,9 @@ class GcpSessionFactory:
         except ImportError as error:
             raise RuntimeError(
                 "GCP region discovery requires optional dependency "
-                "'google-cloud-compute'. Install with 'anvil[gcp]'."
+                "'google-cloud-compute'. Install GCP dependencies with "
+                "'uv sync --extra gcp' for a source checkout or "
+                "'uv pip install \"anvil[gcp]\"' for an installed package."
             ) from error
 
         try:
