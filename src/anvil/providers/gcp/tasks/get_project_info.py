@@ -118,7 +118,9 @@ def run(
     except ImportError as error:
         raise RuntimeError(
             "get_project_info requires optional dependency "
-            "'google-cloud-resource-manager'. Install with 'anvil[gcp]'."
+            "'google-cloud-resource-manager'. Install GCP dependencies with "
+            "'uv sync --extra gcp' for a source checkout or "
+            "'uv pip install \"anvil[gcp]\"' for an installed package."
         ) from error
 
     normalized_project_id = project_id.strip()

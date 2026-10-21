@@ -39,7 +39,7 @@ AZURE_AVAILABLE_LOCATION_STATUS = "available"
 AZURE_AVAILABLE_LOCATION_STATUSES = {AZURE_AVAILABLE_LOCATION_STATUS}
 AZURE_EXTRA_REMEDIATION = (
     "Install Azure dependencies with 'uv sync --extra azure' for a source checkout "
-    "or 'pip install \"anvil[azure]\"' for an installed package."
+    "or 'uv pip install \"anvil[azure]\"' for an installed package."
 )
 
 

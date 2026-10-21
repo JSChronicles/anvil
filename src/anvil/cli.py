@@ -727,18 +727,18 @@ def _module_available(module_name: str) -> bool:
 
 def _diagnostic_dependency_checks() -> list[DiagnosticCheck]:
     dependencies = [
-        ("aws", "boto3", "boto3"),
-        ("azure", "azure.identity", "azure-identity"),
-        ("cloudflare", "cloudflare", "cloudflare"),
-        ("datadog", "datadog_api_client", "datadog-api-client"),
-        ("gcp", "google.auth", "google-auth"),
-        ("github", "github", "PyGithub"),
-        ("gitlab", "gitlab", "python-gitlab"),
-        ("pagerduty", "pagerduty", "pagerduty"),
+        ("aws", "boto3", "boto3", None),
+        ("azure", "azure.identity", "azure-identity", "azure"),
+        ("cloudflare", "cloudflare", "cloudflare", "cloudflare"),
+        ("datadog", "datadog_api_client", "datadog-api-client", "datadog"),
+        ("gcp", "google.auth", "google-auth", "gcp"),
+        ("github", "github", "PyGithub", "github"),
+        ("gitlab", "gitlab", "python-gitlab", "gitlab"),
+        ("pagerduty", "pagerduty", "pagerduty", "pagerduty"),
     ]
 
     checks: list[DiagnosticCheck] = []
-    for provider_name, module_name, package_name in dependencies:
+    for provider_name, module_name, package_name, extra_name in dependencies:
         if _module_available(module_name):
             checks.append(
                 DiagnosticCheck(
@@ -754,7 +754,13 @@ def _diagnostic_dependency_checks() -> list[DiagnosticCheck]:
                     section="Optional Dependencies",
                     status="WARN",
                     label=provider_name,
-                    detail=f"{package_name} not importable",
+                    detail=(
+                        f"{package_name} not importable; install with "
+                        f"'uv pip install \"anvil[{extra_name}]\"' or, for a "
+                        f"source checkout, 'uv sync --extra {extra_name}'"
+                        if extra_name is not None
+                        else f"{package_name} not importable; reinstall anvil"
+                    ),
                 )
             )
 
