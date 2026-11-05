@@ -12,6 +12,7 @@ from anvil.providers.base import (
     ProviderMetadata,
     ProviderPreparation,
 )
+from anvil.progress import ProgressEvent, ProgressPhase
 from anvil.results import EntityResult, EngineState, ExecutionStatus
 from anvil.runner import (
     AuthCheckCache,
@@ -130,6 +131,7 @@ def _patch_provider(monkeypatch, provider: _Provider) -> None:
 def test_auth_failure_short_circuits_target_execution(monkeypatch):
     provider = _Provider(auth_status=ExecutionStatus.ERROR)
     _patch_provider(monkeypatch, provider)
+    events: list[ProgressEvent] = []
 
     result = run_multiple_targets(
         targets=[_target()],
@@ -137,11 +139,16 @@ def test_auth_failure_short_circuits_target_execution(monkeypatch):
         cli_dry_run=None,
         cli_include=None,
         cli_exclude=None,
+        progress_callback=events.append,
     )
 
     assert result.state is EngineState.AUTH_FAILED
     assert result.target_results == []
     assert result.auth_results[0].message == "auth failed"
+    assert [event.phase for event in events] == [
+        ProgressPhase.PREPARING,
+        ProgressPhase.FAILED,
+    ]
 
 
 def test_provider_dispatch_executes_resolved_target_without_aws_paths(monkeypatch):
@@ -159,6 +166,71 @@ def test_provider_dispatch_executes_resolved_target_without_aws_paths(monkeypatc
     assert result.state is EngineState.COMPLETED_SUCCESS
     assert [entity.id for entity in result.target_results[0].entities] == ["entity-a"]
     assert provider.seen_preparation is provider.preparation
+
+
+def test_run_multiple_targets_emits_target_progress_events(monkeypatch):
+    provider = _Provider()
+    _patch_provider(monkeypatch, provider)
+    events: list[ProgressEvent] = []
+
+    run_multiple_targets(
+        targets=[_target()],
+        max_parallel_targets=1,
+        cli_dry_run=None,
+        cli_include=None,
+        cli_exclude=None,
+        progress_callback=events.append,
+    )
+
+    assert [event.phase for event in events] == [
+        ProgressPhase.PREPARING,
+        ProgressPhase.RESOLVING,
+        ProgressPhase.EXECUTING,
+        ProgressPhase.EXECUTING,
+        ProgressPhase.COMPLETED,
+    ]
+    assert events[2].completed == 0
+    assert events[2].total == 1
+    assert events[3].completed == 1
+    assert events[3].total == 1
+    assert events[-1].target.provider_display_name == "Test"
+
+
+def test_task_graph_reports_entity_progress_when_last_instance_settles(monkeypatch):
+    provider = _Provider()
+    _patch_provider(monkeypatch, provider)
+    events: list[ProgressEvent] = []
+
+    def task(**kwargs):
+        return {"target": kwargs["execution_target_id"]}
+
+    monkeypatch.setattr(
+        "anvil.runner.resolve_tasks",
+        lambda **kwargs: ResolvedExecution(
+            ordered=[
+                ResolvedTask("first", task, depends_on=[]),
+                ResolvedTask("second", task, depends_on=["first"]),
+            ],
+            adjacency={"first": ["second"], "second": []},
+        ),
+    )
+
+    run_multiple_targets(
+        targets=[_target(tasks=[{"name": "first"}, {"name": "second"}])],
+        max_parallel_targets=1,
+        cli_dry_run=None,
+        cli_include=None,
+        cli_exclude=None,
+        progress_callback=events.append,
+    )
+
+    executing_events = [
+        event for event in events if event.phase is ProgressPhase.EXECUTING
+    ]
+    assert [(event.completed, event.total) for event in executing_events] == [
+        (0, 1),
+        (1, 1),
+    ]
 
 
 def test_provider_session_failure_becomes_entity_error(monkeypatch):
