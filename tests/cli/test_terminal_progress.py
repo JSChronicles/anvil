@@ -78,6 +78,17 @@ def test_terminal_progress_renders_headers_bar_and_completion():
     assert "✓ complete · 8.2s" in rendered
 
 
+def test_terminal_progress_renders_queued_target():
+    output = StringIO()
+    console = Console(file=output, color_system=None, width=100)
+    progress = TerminalProgress(console=console)
+
+    progress.handle(ProgressEvent(target=_target(), phase=ProgressPhase.QUEUED))
+    console.print(progress._render())
+
+    assert "○ queued" in output.getvalue()
+
+
 def test_terminal_progress_coordinates_logging_with_live_display():
     output = StringIO()
     console = Console(file=output, color_system=None, force_terminal=True, width=100)

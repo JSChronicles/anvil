@@ -120,6 +120,8 @@ def _progress_bar(*, completed: int, total: int, width: int = 12) -> Text:
 def _status_cell(state: _TargetProgressState) -> ConsoleRenderable:
     """Render the progress cell for one configured target."""
 
+    if state.phase is ProgressPhase.QUEUED:
+        return Text("○ queued", style="dim")
     if state.phase is ProgressPhase.PREPARING:
         return Columns(
             [Spinner("dots", style="cyan"), Text("preparing…", style="cyan")],
