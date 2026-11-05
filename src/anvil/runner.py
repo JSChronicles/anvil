@@ -2041,6 +2041,19 @@ def _run_target_pipeline(
 
     if targets:
         worker_limit = max(1, min(max_parallel_targets, len(targets)))
+        scheduled_targets = list(enumerate(targets))
+        if progress_callback is not None:
+            for index, target in scheduled_targets:
+                ProgressReporter(
+                    target=ProgressTarget(
+                        index=index,
+                        name=target.name,
+                        provider=target.provider,
+                        provider_display_name=target.provider,
+                        mode=target.mode,
+                    ),
+                    callback=progress_callback,
+                ).emit(ProgressPhase.QUEUED)
 
         with (
             ThreadPoolExecutor(max_workers=worker_limit) as prepare_executor,
@@ -2061,7 +2074,7 @@ def _run_target_pipeline(
                     benchmark_enabled=benchmark_enabled,
                     progress_callback=progress_callback,
                 ): index
-                for index, target in enumerate(targets)
+                for index, target in scheduled_targets
             }
             execution_futures: dict[
                 Future[PreparedTarget | TargetExecutionOutcome], PreparedTarget
@@ -2111,6 +2124,13 @@ def _run_target_pipeline(
                         del preflight_futures[future]
 
                         if prepared_target.runnable:
+                            if (
+                                prepared_target.context is not None
+                                and prepared_target.context.progress is not None
+                            ):
+                                prepared_target.context.progress.emit(
+                                    ProgressPhase.QUEUED
+                                )
                             ready_targets.append(prepared_target)
                         continue
 

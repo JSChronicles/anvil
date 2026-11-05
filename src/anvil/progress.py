@@ -10,6 +10,7 @@ from enum import StrEnum
 class ProgressPhase(StrEnum):
     """Lifecycle phases displayed for one configured target."""
 
+    QUEUED = "queued"
     PREPARING = "preparing"
     RESOLVING = "resolving"
     EXECUTING = "executing"
