@@ -8,8 +8,8 @@ updates:
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
-      interval: "weekly"
-      time: "07:55"
+      interval: "monthly"
+      time: "08:00"
       timezone: "America/Chicago"
     commit-message:
       prefix: "chore(docker)"
@@ -20,8 +20,8 @@ updates:
   - package-ecosystem: "uv"
     directory: "/"
     schedule:
-      interval: "weekly"
-      time: "08:00"
+      interval: "monthly"
+      time: "08:10"
       timezone: "America/Chicago"
     cooldown:
       default-days: 7
@@ -40,8 +40,8 @@ updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
-      time: "08:05"
+      interval: "monthly"
+      time: "08:20"
       timezone: "America/Chicago"
     cooldown:
       default-days: 7
@@ -60,8 +60,8 @@ updates:
   - package-ecosystem: "pre-commit"
     directory: "/"
     schedule:
-      interval: "weekly"
-      time: "08:10"
+      interval: "monthly"
+      time: "08:30"
       timezone: "America/Chicago"
     cooldown:
       default-days: 7

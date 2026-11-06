@@ -22,6 +22,12 @@ from anvil.descriptors import TargetDescriptor
 from anvil.execution_context import ExecutionContext
 from anvil.provider_lifecycle import CoordinateLifecycleState
 from anvil.provider_loader import load_provider
+from anvil.progress import (
+    ProgressCallback,
+    ProgressPhase,
+    ProgressReporter,
+    ProgressTarget,
+)
 from anvil.providers.base import (
     ConfiguredTargetProvider,
     ExecutionTarget,
@@ -304,7 +310,11 @@ def _auth_result_from_config_error(
 
 
 def _build_execution_context(
-    *, target: TargetDescriptor, tasks: list[ResolvedTask], benchmark_enabled: bool
+    *,
+    target: TargetDescriptor,
+    tasks: list[ResolvedTask],
+    benchmark_enabled: bool,
+    progress: ProgressReporter | None = None,
 ) -> ExecutionContext:
     if target.regions is None:
         raise ValueError("execution context requires resolved regions")
@@ -316,6 +326,7 @@ def _build_execution_context(
         fail_fast=target.fail_fast,
         max_parallel_regions=target.max_parallel_regions,
         benchmark_enabled=benchmark_enabled,
+        progress=progress,
     )
 
 
@@ -329,10 +340,28 @@ def prepare_target(
     preparation_cache: SingleFlightCache[object, object],
     auth_cache: AuthCheckCache,
     benchmark_enabled: bool = False,
+    progress_callback: ProgressCallback | None = None,
 ) -> PreparedTarget:
+    started_perf = time.perf_counter()
     recorder = BenchmarkRecorder(enabled=benchmark_enabled)
     with recorder.phase("prepare_target_seconds"):
         provider = _load_provider(target.provider)
+        progress = (
+            ProgressReporter(
+                target=ProgressTarget(
+                    index=index,
+                    name=target.name,
+                    provider=target.provider,
+                    provider_display_name=provider.metadata.display_name,
+                    mode=target.mode,
+                ),
+                callback=progress_callback,
+            )
+            if progress_callback is not None
+            else None
+        )
+        if progress is not None:
+            progress.emit(ProgressPhase.PREPARING)
 
         try:
             effective_target: TargetDescriptor = _build_effective_target(
@@ -366,6 +395,11 @@ def prepare_target(
                     task_scopes={task.id: task.scope.value for task in tasks},
                 )
         except (TaskConfigError, TypeError, ValueError) as error:
+            if progress is not None:
+                progress.emit(
+                    ProgressPhase.FAILED,
+                    duration_seconds=time.perf_counter() - started_perf,
+                )
             return PreparedTarget(
                 index=index,
                 provider=provider,
@@ -385,6 +419,11 @@ def prepare_target(
         )
 
         if auth_result.is_error:
+            if progress is not None:
+                progress.emit(
+                    ProgressPhase.FAILED,
+                    duration_seconds=time.perf_counter() - started_perf,
+                )
             return PreparedTarget(
                 index=index,
                 provider=provider,
@@ -397,7 +436,10 @@ def prepare_target(
             )
 
         context: ExecutionContext = _build_execution_context(
-            target=effective_target, tasks=tasks, benchmark_enabled=benchmark_enabled
+            target=effective_target,
+            tasks=tasks,
+            benchmark_enabled=benchmark_enabled,
+            progress=progress,
         )
 
         provider_preflight: object | None = None
@@ -1303,6 +1345,8 @@ def _execute_provider_task_graph(
     runtime_duration_seconds: dict[tuple[bool, str], float] = {}
     lifecycle_lock = threading.Lock()
     lifecycle_states: dict[tuple[bool, str, str], CoordinateLifecycleState] = {}
+    remaining_progress_instances: dict[str, int] = {}
+    completed_progress_targets: set[str] = set()
 
     def lifecycle_key(instance: TaskInstance) -> tuple[bool, str, str]:
         return (
@@ -1316,6 +1360,11 @@ def _execute_provider_task_graph(
         lifecycle_states.setdefault(
             key, CoordinateLifecycleState()
         ).remaining_instances += 1
+        if planned_instance.task.scope is not TaskScope.CONFIGURED_TARGET:
+            execution_target_id = planned_instance.execution_target.id
+            remaining_progress_instances[execution_target_id] = (
+                remaining_progress_instances.get(execution_target_id, 0) + 1
+            )
 
     def runtime_for_instance(instance: TaskInstance) -> ProviderExecutionRuntime:
         is_configured = instance.task.scope is TaskScope.CONFIGURED_TARGET
@@ -1389,6 +1438,10 @@ def _execute_provider_task_graph(
 
     def record_settled_instance(instance: TaskInstance, result: TaskResult) -> None:
         key = lifecycle_key(instance)
+        runtime_outcome: (
+            tuple[ProviderExecutionRuntime, str, float, bool, bool] | None
+        ) = None
+        completed_target_count: int | None = None
         with lifecycle_lock:
             lifecycle_state = lifecycle_states[key]
             settled = lifecycle_state.record_settlement(
@@ -1396,22 +1449,42 @@ def _execute_provider_task_graph(
                 region_scoped=instance.task.scope is TaskScope.REGION,
                 ended_perf=time.perf_counter(),
             )
-            if not settled or key not in created_sessions:
-                return
-            is_configured, execution_target_id, region = key
-            runtime = created_runtimes[(is_configured, execution_target_id)]
-            started_perf = lifecycle_state.started_perf
-            failed = lifecycle_state.failed
-            interrupted = lifecycle_state.interrupted
-            if started_perf is None:
-                raise RuntimeError("Created session has no lifecycle start time")
-        ended_perf = time.perf_counter()
-        runtime.record_region_outcome(
-            region=region,
-            duration_seconds=ended_perf - started_perf,
-            failed=failed,
-            interrupted=interrupted,
-        )
+            if settled and key in created_sessions:
+                is_configured, execution_target_id, region = key
+                runtime = created_runtimes[(is_configured, execution_target_id)]
+                started_perf = lifecycle_state.started_perf
+                if started_perf is None:
+                    raise RuntimeError("Created session has no lifecycle start time")
+                runtime_outcome = (
+                    runtime,
+                    region,
+                    started_perf,
+                    lifecycle_state.failed,
+                    lifecycle_state.interrupted,
+                )
+
+            if instance.task.scope is not TaskScope.CONFIGURED_TARGET:
+                execution_target_id = instance.execution_target.id
+                remaining = remaining_progress_instances[execution_target_id] - 1
+                remaining_progress_instances[execution_target_id] = remaining
+                if remaining == 0:
+                    completed_progress_targets.add(execution_target_id)
+                    completed_target_count = len(completed_progress_targets)
+
+        if runtime_outcome is not None:
+            runtime, region, started_perf, failed, interrupted = runtime_outcome
+            runtime.record_region_outcome(
+                region=region,
+                duration_seconds=time.perf_counter() - started_perf,
+                failed=failed,
+                interrupted=interrupted,
+            )
+        if completed_target_count is not None and context.progress is not None:
+            context.progress.emit(
+                ProgressPhase.EXECUTING,
+                completed=completed_target_count,
+                total=len(execution_targets),
+            )
 
     recorder = BenchmarkRecorder(data=benchmark_data)
     try:
@@ -1697,6 +1770,12 @@ def _execute_provider_targets(
                             continue
 
                         entity_results.append(entity_result)
+                        if context.progress is not None:
+                            context.progress.emit(
+                                ProgressPhase.EXECUTING,
+                                completed=len(entity_results),
+                                total=len(execution_targets),
+                            )
                         if context.fail_fast and entity_result.status.is_unsuccessful:
                             context.fail_fast_event.set()
                             pending_targets.clear()
@@ -1790,9 +1869,15 @@ def run_prepared_target(*, prepared_target: PreparedTarget) -> TargetExecutionOu
     if prepared_target.context is None:
         raise ValueError("Prepared target is not runnable.")
 
+    started_perf = time.perf_counter()
     target: TargetDescriptor = prepared_target.effective_target
     context: ExecutionContext = prepared_target.context
     if prepared_target.preflight_error is not None:
+        if context.progress is not None:
+            context.progress.emit(
+                ProgressPhase.FAILED,
+                duration_seconds=time.perf_counter() - started_perf,
+            )
         return TargetExecutionOutcome(
             index=prepared_target.index,
             target_result=TargetResult.create(
@@ -1814,6 +1899,8 @@ def run_prepared_target(*, prepared_target: PreparedTarget) -> TargetExecutionOu
 
     provider = prepared_target.provider
     try:
+        if context.progress is not None:
+            context.progress.emit(ProgressPhase.RESOLVING)
         with sink.phase("resolve_execution_targets_seconds"):
             execution_plan = provider.resolve_execution_targets(
                 target=target,
@@ -1831,6 +1918,10 @@ def run_prepared_target(*, prepared_target: PreparedTarget) -> TargetExecutionOu
                 "max_parallel_regions": context.max_parallel_regions,
             }
         )
+        if context.progress is not None:
+            context.progress.emit(
+                ProgressPhase.EXECUTING, total=len(execution_plan.execution_targets)
+            )
         target_result = _execute_provider_targets(
             provider=provider,
             target=target,
@@ -1848,10 +1939,24 @@ def run_prepared_target(*, prepared_target: PreparedTarget) -> TargetExecutionOu
             error=str(error),
         )
 
+    cancelled = context.cancel_event.is_set()
+    if context.progress is not None:
+        duration_seconds = time.perf_counter() - started_perf
+        if target_result.has_failures:
+            phase = ProgressPhase.FAILED
+        elif cancelled:
+            phase = ProgressPhase.CANCELLED
+        else:
+            phase = ProgressPhase.COMPLETED
+        context.progress.emit(
+            phase,
+            completed=target_result.total_entities,
+            total=target_result.total_entities,
+            duration_seconds=duration_seconds,
+        )
+
     return TargetExecutionOutcome(
-        index=prepared_target.index,
-        target_result=target_result,
-        cancelled=context.cancel_event.is_set(),
+        index=prepared_target.index, target_result=target_result, cancelled=cancelled
     )
 
 
@@ -1918,6 +2023,7 @@ def _run_target_pipeline(
     cli_include: list[str] | None,
     cli_exclude: list[str] | None,
     benchmark_enabled: bool = False,
+    progress_callback: ProgressCallback | None = None,
 ) -> tuple[list[AuthResult], list[TargetResult], EngineState]:
 
     # Preparation and execution complete out of order, but final EngineResult
@@ -1935,6 +2041,19 @@ def _run_target_pipeline(
 
     if targets:
         worker_limit = max(1, min(max_parallel_targets, len(targets)))
+        scheduled_targets = list(enumerate(targets))
+        if progress_callback is not None:
+            for index, target in scheduled_targets:
+                ProgressReporter(
+                    target=ProgressTarget(
+                        index=index,
+                        name=target.name,
+                        provider=target.provider,
+                        provider_display_name=target.provider,
+                        mode=target.mode,
+                    ),
+                    callback=progress_callback,
+                ).emit(ProgressPhase.QUEUED)
 
         with (
             ThreadPoolExecutor(max_workers=worker_limit) as prepare_executor,
@@ -1943,21 +2062,19 @@ def _run_target_pipeline(
             preflight_futures: dict[
                 Future[PreparedTarget | TargetExecutionOutcome], int
             ] = {
-                cast(
-                    Future[PreparedTarget | TargetExecutionOutcome],
-                    prepare_executor.submit(
-                        prepare_target,
-                        index=index,
-                        target=target,
-                        cli_dry_run=cli_dry_run,
-                        cli_include=cli_include,
-                        cli_exclude=cli_exclude,
-                        preparation_cache=preparation_cache,
-                        auth_cache=auth_cache,
-                        benchmark_enabled=benchmark_enabled,
-                    ),
+                prepare_executor.submit(
+                    prepare_target,
+                    index=index,
+                    target=target,
+                    cli_dry_run=cli_dry_run,
+                    cli_include=cli_include,
+                    cli_exclude=cli_exclude,
+                    preparation_cache=preparation_cache,
+                    auth_cache=auth_cache,
+                    benchmark_enabled=benchmark_enabled,
+                    progress_callback=progress_callback,
                 ): index
-                for index, target in enumerate(targets)
+                for index, target in scheduled_targets
             }
             execution_futures: dict[
                 Future[PreparedTarget | TargetExecutionOutcome], PreparedTarget
@@ -2007,6 +2124,13 @@ def _run_target_pipeline(
                         del preflight_futures[future]
 
                         if prepared_target.runnable:
+                            if (
+                                prepared_target.context is not None
+                                and prepared_target.context.progress is not None
+                            ):
+                                prepared_target.context.progress.emit(
+                                    ProgressPhase.QUEUED
+                                )
                             ready_targets.append(prepared_target)
                         continue
 
@@ -2054,7 +2178,23 @@ def run_multiple_targets(
     cli_include: list[str] | None,
     cli_exclude: list[str] | None,
     benchmark_enabled: bool = False,
+    progress_callback: ProgressCallback | None = None,
 ) -> EngineResult:
+    """Prepare and execute configured targets.
+
+    Args:
+        targets: Configured provider targets in input order.
+        max_parallel_targets: Maximum targets prepared and executed concurrently.
+        cli_dry_run: Optional CLI dry-run override.
+        cli_include: Optional CLI include override.
+        cli_exclude: Optional CLI exclude override.
+        benchmark_enabled: Whether to record diagnostic benchmark data.
+        progress_callback: Optional observer for provider-neutral progress events.
+
+    Returns:
+        Aggregated authentication and target execution results.
+    """
+
     recorder = BenchmarkRecorder(enabled=benchmark_enabled)
     with recorder.phase("run_multiple_targets_seconds"):
         auth_results, target_results, engine_state = _run_target_pipeline(
@@ -2064,6 +2204,7 @@ def run_multiple_targets(
             cli_include=cli_include,
             cli_exclude=cli_exclude,
             benchmark_enabled=benchmark_enabled,
+            progress_callback=progress_callback,
         )
     recorder.update(
         {"max_parallel_targets": max_parallel_targets, "target_count": len(targets)}
