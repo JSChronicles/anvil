@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 <!-- version list -->
 
+## v0.36.1 (2026-11-06)
+
+### Bug Fixes
+
+- **deps**: Update Rich ([#148](https://github.com/JSChronicles/anvil/pull/148),
+  [`13e0111`](https://github.com/JSChronicles/anvil/commit/13e0111bfd8f9681f8d2aa4708670c943895b676))
+
+
 ## v0.36.0 (2026-11-06)
 
 ### Chores
