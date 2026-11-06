@@ -18,9 +18,9 @@ jobs:
         shell: bash
     steps:
       - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7.0.1
 
       - name: Run Labeler
-        uses: actions/labeler@bf12e9b00b37c5c0ca2b87b79b2daf7891dbda13 # v7.0.0
+        uses: actions/labeler@v7.0.0
         with:
           sync-labels: false # Whether or not to remove labels when matching files are reverted or no longer changed by the PR

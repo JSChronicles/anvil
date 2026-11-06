@@ -158,6 +158,11 @@ This executes the configured targets and tasks, then writes structured results u
 anvil run --config-file ./yaml/orgs.yaml
 ```
 
+Interactive terminals show a live provider-target table while work is running.
+Logs remain visible above the table. Progress is disabled automatically for CI
+and redirected output, which retain normal line-oriented logging. Use
+`--progress bar` to force the live display or `--progress off` to disable it.
+
 ```yaml
 # orgs.yaml example
 schema_version: 2
