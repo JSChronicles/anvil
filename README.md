@@ -162,6 +162,7 @@ Interactive terminals show a live provider-target table while work is running.
 Logs remain visible above the table. Progress is disabled automatically for CI
 and redirected output, which retain normal line-oriented logging. Use
 `--progress bar` to force the live display or `--progress off` to disable it.
+The table shows each target's effective dry-run setting as `true` or `false`.
 
 ```yaml
 # orgs.yaml example

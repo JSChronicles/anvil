@@ -354,6 +354,9 @@ def prepare_target(
                     provider=target.provider,
                     provider_display_name=provider.metadata.display_name,
                     mode=target.mode,
+                    dry_run=(
+                        cli_dry_run if cli_dry_run is not None else target.dry_run
+                    ),
                 ),
                 callback=progress_callback,
             )
@@ -2051,6 +2054,9 @@ def _run_target_pipeline(
                         provider=target.provider,
                         provider_display_name=target.provider,
                         mode=target.mode,
+                        dry_run=(
+                            cli_dry_run if cli_dry_run is not None else target.dry_run
+                        ),
                     ),
                     callback=progress_callback,
                 ).emit(ProgressPhase.QUEUED)

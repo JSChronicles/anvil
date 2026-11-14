@@ -221,6 +221,7 @@ class TerminalProgress:
         table.add_column(
             "MODE", min_width=16, style="bright_blue", overflow="ellipsis", no_wrap=True
         )
+        table.add_column("DRY RUN", min_width=7, justify="center", no_wrap=True)
         table.add_column("PROGRESS", min_width=24, no_wrap=True)
 
         for target_index in sorted(self._states):
@@ -229,6 +230,10 @@ class TerminalProgress:
                 state.target.provider_display_name,
                 state.target.name,
                 state.target.mode,
+                Text(
+                    str(state.target.dry_run).lower(),
+                    style="bold yellow" if state.target.dry_run else "dim",
+                ),
                 _status_cell(state),
             )
         return Padding(table, (1, 0, 0, 0))

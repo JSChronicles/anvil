@@ -201,6 +201,24 @@ def test_run_multiple_targets_emits_target_progress_events(monkeypatch):
     assert events[-1].target.provider_display_name == "Test"
 
 
+def test_progress_events_report_effective_cli_dry_run(monkeypatch):
+    provider = _Provider()
+    _patch_provider(monkeypatch, provider)
+    events: list[ProgressEvent] = []
+
+    run_multiple_targets(
+        targets=[_target(dry_run=False)],
+        max_parallel_targets=1,
+        cli_dry_run=True,
+        cli_include=None,
+        cli_exclude=None,
+        progress_callback=events.append,
+    )
+
+    assert events
+    assert all(event.target.dry_run for event in events)
+
+
 def test_multiple_targets_are_queued_in_configured_order(monkeypatch):
     provider = _Provider()
     events: list[ProgressEvent] = []
