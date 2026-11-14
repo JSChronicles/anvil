@@ -28,6 +28,7 @@ class ProgressTarget:
     provider: str
     provider_display_name: str
     mode: str
+    dry_run: bool = False
 
 
 @dataclass(frozen=True, slots=True)

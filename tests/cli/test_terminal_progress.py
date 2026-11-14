@@ -33,13 +33,14 @@ def test_interactive_progress_selection(
     )
 
 
-def _target() -> ProgressTarget:
+def _target(*, dry_run: bool = False) -> ProgressTarget:
     return ProgressTarget(
         index=0,
         name="production",
         provider="aws",
         provider_display_name="AWS",
         mode="organization",
+        dry_run=dry_run,
     )
 
 
@@ -70,10 +71,12 @@ def test_terminal_progress_renders_headers_bar_and_completion():
     assert "PROVIDER" in rendered
     assert "TARGET" in rendered
     assert "MODE" in rendered
+    assert "DRY RUN" in rendered
     assert "PROGRESS" in rendered
     assert "AWS" in rendered
     assert "production" in rendered
     assert "organization" in rendered
+    assert "false" in rendered
     assert "61/100" in rendered
     assert "✓ complete · 8.2s" in rendered
 
@@ -87,6 +90,23 @@ def test_terminal_progress_renders_queued_target():
     console.print(progress._render())
 
     assert "○ queued" in output.getvalue()
+
+
+def test_terminal_progress_marks_dry_run_targets():
+    output = StringIO()
+    console = Console(file=output, color_system=None, width=100)
+    progress = TerminalProgress(console=console)
+
+    progress.handle(
+        ProgressEvent(
+            target=_target(dry_run=True), phase=ProgressPhase.EXECUTING, total=1
+        )
+    )
+    console.print(progress._render())
+
+    rendered = output.getvalue()
+    assert "DRY RUN" in rendered
+    assert "true" in rendered
 
 
 def test_terminal_progress_coordinates_logging_with_live_display():
