@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 <!-- version list -->
 
+## v0.37.0 (2026-11-14)
+
+### Chores
+
+- Update versions ([#149](https://github.com/JSChronicles/anvil/pull/149),
+  [`5356866`](https://github.com/JSChronicles/anvil/commit/5356866ba5745d8983bf2e4bcd9d945754240daf))
+
+### Features
+
+- **cli**: Show dry-run state in progress table
+  ([#149](https://github.com/JSChronicles/anvil/pull/149),
+  [`5356866`](https://github.com/JSChronicles/anvil/commit/5356866ba5745d8983bf2e4bcd9d945754240daf))
+
+
 ## v0.36.1 (2026-11-06)
 
 ### Bug Fixes
