@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 <!-- version list -->
 
+## v0.38.0 (2026-11-16)
+
+### Features
+
+- **packaging**: Make AWS dependencies optional
+  ([#153](https://github.com/JSChronicles/anvil/pull/153),
+  [`0846ea6`](https://github.com/JSChronicles/anvil/commit/0846ea612b1881b27970a8f505f0a3f87e5e6e46))
+
 
 ## v0.37.0 (2026-11-14)
 
