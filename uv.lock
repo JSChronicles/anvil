@@ -23,7 +23,6 @@ name = "anvil"
 version = "0.37.0"
 source = { editable = "." }
 dependencies = [
-    { name = "boto3" },
     { name = "jsonschema" },
     { name = "pyyaml" },
     { name = "rich" },
@@ -43,6 +42,7 @@ all = [
     { name = "azure-mgmt-resourcegraph" },
     { name = "azure-mgmt-storage" },
     { name = "azure-mgmt-subscription" },
+    { name = "boto3" },
     { name = "cloudflare" },
     { name = "datadog-api-client" },
     { name = "google-auth" },
@@ -57,6 +57,9 @@ all = [
     { name = "pagerduty" },
     { name = "pygithub" },
     { name = "python-gitlab" },
+]
+aws = [
+    { name = "boto3" },
 ]
 azure = [
     { name = "azure-identity" },
@@ -111,6 +114,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "anvil", extras = ["aws"], marker = "extra == 'all'" },
     { name = "anvil", extras = ["azure"], marker = "extra == 'all'" },
     { name = "anvil", extras = ["cloudflare"], marker = "extra == 'all'" },
     { name = "anvil", extras = ["datadog"], marker = "extra == 'all'" },
@@ -130,7 +134,7 @@ requires-dist = [
     { name = "azure-mgmt-resourcegraph", marker = "extra == 'azure'" },
     { name = "azure-mgmt-storage", marker = "extra == 'azure'" },
     { name = "azure-mgmt-subscription", marker = "extra == 'azure'" },
-    { name = "boto3", specifier = ">=1.43.89,<1.50.0" },
+    { name = "boto3", marker = "extra == 'aws'", specifier = ">=1.43.89,<1.50.0" },
     { name = "cloudflare", marker = "extra == 'cloudflare'", specifier = ">=5.6.0,<6.0.0" },
     { name = "datadog-api-client", marker = "extra == 'datadog'", specifier = ">=2.58.0,<3.0.0" },
     { name = "google-auth", marker = "extra == 'gcp'" },
@@ -149,7 +153,7 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0.3,<7.0.0" },
     { name = "rich", specifier = ">=15.0.0,<16.0.0" },
 ]
-provides-extras = ["all", "azure", "cloudflare", "datadog", "gcp", "github", "gitlab", "pagerduty"]
+provides-extras = ["all", "aws", "azure", "cloudflare", "datadog", "gcp", "github", "gitlab", "pagerduty"]
 
 [package.metadata.requires-dev]
 dev = [

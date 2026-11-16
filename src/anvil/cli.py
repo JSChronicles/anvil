@@ -775,7 +775,7 @@ def _module_available(module_name: str) -> bool:
 
 def _diagnostic_dependency_checks() -> list[DiagnosticCheck]:
     dependencies = [
-        ("aws", "boto3", "boto3", None),
+        ("aws", "boto3", "boto3", "aws"),
         ("azure", "azure.identity", "azure-identity", "azure"),
         ("cloudflare", "cloudflare", "cloudflare", "cloudflare"),
         ("datadog", "datadog_api_client", "datadog-api-client", "datadog"),
