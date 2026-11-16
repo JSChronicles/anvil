@@ -10,7 +10,7 @@ from anvil.actions import ActionRecorder
 __LOGGER__ = logging.getLogger(__name__)
 AZURE_EXTRA_REMEDIATION = (
     "Install Azure dependencies with 'uv sync --extra azure' for a source checkout "
-    "or 'pip install \"anvil[azure]\"' for an installed package."
+    "or 'uv pip install \"anvil[azure]\"' for an installed package."
 )
 
 MAX_LISTED_RESOURCE_GROUPS = 100

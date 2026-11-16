@@ -11,7 +11,7 @@ from anvil.providers.cloudflare.auth import CloudflareAuthSettings
 
 CLOUDFLARE_EXTRA_REMEDIATION = (
     "Install Cloudflare dependencies with 'uv sync --extra cloudflare' for a "
-    "source checkout or 'pip install \"anvil[cloudflare]\"' for an installed "
+    "source checkout or 'uv pip install \"anvil[cloudflare]\"' for an installed "
     "package."
 )
 

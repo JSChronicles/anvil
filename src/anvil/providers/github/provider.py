@@ -1048,7 +1048,9 @@ class GitHubSessionFactory:
         except ImportError as error:
             raise RuntimeError(
                 "GitHub provider requires optional dependency 'PyGithub' when "
-                "building a GitHub runtime session. Install with 'anvil[github]'."
+                "building a GitHub runtime session. Install GitHub dependencies "
+                "with 'uv sync --extra github' for a source checkout or "
+                "'uv pip install \"anvil[github]\"' for an installed package."
             ) from error
 
         return github

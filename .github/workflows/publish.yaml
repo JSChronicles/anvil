@@ -26,13 +26,13 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
           ref: ${{ inputs.tag || github.ref }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        uses: astral-sh/setup-uv@v10.3.3
 
       - name: Build
         run: uv build
@@ -50,6 +50,8 @@ jobs:
           uv run --isolated --no-project --python 3.14 --with "${wheels[0]}" \
             anvil --version
           uv run --isolated --no-project --python 3.14 --with "${wheels[0]}" \
+            anvil validate --quiet
+          uv run --isolated --no-project --python 3.14 --with "${wheels[0]}[aws]" \
             anvil validate --quiet --config-file yaml/noop.yaml
 
       # - name: Smoke test (source distribution)

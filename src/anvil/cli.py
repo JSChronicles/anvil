@@ -22,10 +22,12 @@ from pathlib import Path
 from typing import Protocol
 
 import yaml
+from rich.console import Console
+from rich.logging import RichHandler
 
 from anvil._components import DiscoveryIssue as DiscoveryIssue
 from anvil.benchmark import BenchmarkRecorder
-from anvil.descriptors import LoadedConfig
+from anvil.descriptors import LoadedConfig, TargetDescriptor
 from anvil.filename_utils import safe_filename_component
 from anvil.processor_loader import (
     ProcessorDescriptor,
@@ -63,6 +65,7 @@ from anvil.results import EngineResult, EngineState
 from anvil.runner import run_auth_checks, run_multiple_targets
 from anvil.task_loader import TaskDescriptor, discover_tasks, list_tasks
 from anvil.task_validation import task_catalog_ambiguity_errors, task_validation_errors
+from anvil.terminal import ProgressMode, TerminalProgress, interactive_progress_enabled
 from anvil.validators import load_config_descriptors, validate_config_schema
 
 __LOGGER__ = logging.getLogger(__name__)
@@ -314,17 +317,62 @@ def _print_failure_followups(*, results_file: Path) -> None:
     print(f"  anvil results --status failed --results-file {results_path} --rerun")
 
 
+def _execute_targets(
+    *,
+    targets: list[TargetDescriptor],
+    max_parallel_targets: int,
+    args: argparse.Namespace,
+    cli_include: list[str] | None,
+    cli_exclude: list[str] | None,
+) -> EngineResult:
+    """Execute targets with the configured terminal progress renderer.
+
+    Args:
+        targets: Provider targets to execute.
+        max_parallel_targets: Maximum targets executed concurrently.
+        args: Parsed CLI arguments containing execution controls.
+        cli_include: Optional CLI include override.
+        cli_exclude: Optional CLI exclude override.
+
+    Returns:
+        Aggregated engine results for the configured targets.
+    """
+
+    terminal_progress: TerminalProgress | None = getattr(
+        args, "terminal_progress", None
+    )
+    if terminal_progress is None:
+        return run_multiple_targets(
+            targets=targets,
+            max_parallel_targets=max_parallel_targets,
+            cli_dry_run=args.dry_run,
+            cli_include=cli_include,
+            cli_exclude=cli_exclude,
+            benchmark_enabled=getattr(args, "benchmark", False),
+        )
+
+    with terminal_progress:
+        return run_multiple_targets(
+            targets=targets,
+            max_parallel_targets=max_parallel_targets,
+            cli_dry_run=args.dry_run,
+            cli_include=cli_include,
+            cli_exclude=cli_exclude,
+            benchmark_enabled=getattr(args, "benchmark", False),
+            progress_callback=terminal_progress.handle,
+        )
+
+
 def _run_single_config_file(*, config_file: Path, args: argparse.Namespace) -> int:
     loaded_config: LoadedConfig = _load_targets_from_config_file(config_file)
     _validate_cli_overrides(loaded_config=loaded_config, args=args)
 
-    engine_result: EngineResult = run_multiple_targets(
+    engine_result = _execute_targets(
         targets=loaded_config.targets,
         max_parallel_targets=loaded_config.max_parallel_targets,
-        cli_dry_run=args.dry_run,
+        args=args,
         cli_include=args.include,
         cli_exclude=args.exclude,
-        benchmark_enabled=getattr(args, "benchmark", False),
     )
     written_results = _write_run_results(
         config_file=config_file, engine_result=engine_result
@@ -727,18 +775,18 @@ def _module_available(module_name: str) -> bool:
 
 def _diagnostic_dependency_checks() -> list[DiagnosticCheck]:
     dependencies = [
-        ("aws", "boto3", "boto3"),
-        ("azure", "azure.identity", "azure-identity"),
-        ("cloudflare", "cloudflare", "cloudflare"),
-        ("datadog", "datadog_api_client", "datadog-api-client"),
-        ("gcp", "google.auth", "google-auth"),
-        ("github", "github", "PyGithub"),
-        ("gitlab", "gitlab", "python-gitlab"),
-        ("pagerduty", "pagerduty", "pagerduty"),
+        ("aws", "boto3", "boto3", "aws"),
+        ("azure", "azure.identity", "azure-identity", "azure"),
+        ("cloudflare", "cloudflare", "cloudflare", "cloudflare"),
+        ("datadog", "datadog_api_client", "datadog-api-client", "datadog"),
+        ("gcp", "google.auth", "google-auth", "gcp"),
+        ("github", "github", "PyGithub", "github"),
+        ("gitlab", "gitlab", "python-gitlab", "gitlab"),
+        ("pagerduty", "pagerduty", "pagerduty", "pagerduty"),
     ]
 
     checks: list[DiagnosticCheck] = []
-    for provider_name, module_name, package_name in dependencies:
+    for provider_name, module_name, package_name, extra_name in dependencies:
         if _module_available(module_name):
             checks.append(
                 DiagnosticCheck(
@@ -754,7 +802,13 @@ def _diagnostic_dependency_checks() -> list[DiagnosticCheck]:
                     section="Optional Dependencies",
                     status="WARN",
                     label=provider_name,
-                    detail=f"{package_name} not importable",
+                    detail=(
+                        f"{package_name} not importable; install with "
+                        f"'uv pip install \"anvil[{extra_name}]\"' or, for a "
+                        f"source checkout, 'uv sync --extra {extra_name}'"
+                        if extra_name is not None
+                        else f"{package_name} not importable; reinstall anvil"
+                    ),
                 )
             )
 
@@ -1154,13 +1208,12 @@ def _cmd_results_rerun(args: argparse.Namespace) -> int:
             print(f"No configured targets matched failures for {config_file}.")
             continue
 
-        engine_result: EngineResult = run_multiple_targets(
+        engine_result = _execute_targets(
             targets=rerun_targets,
             max_parallel_targets=loaded_config.max_parallel_targets,
-            cli_dry_run=args.dry_run,
+            args=args,
             cli_include=None,
             cli_exclude=None,
-            benchmark_enabled=getattr(args, "benchmark", False),
         )
         written_results = _write_run_results(
             config_file=config_file, engine_result=engine_result
@@ -1204,7 +1257,7 @@ def _add_results_query_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--target", help="Filter by target name")
     parser.add_argument("--entity", help="Filter by entity ID or entity name")
-    parser.add_argument("--region", help="Filter by AWS region")
+    parser.add_argument("--region", help="Filter by provider region/location")
     parser.add_argument("--task", help="Filter by task name")
     parser.add_argument(
         "--fields", help="Comma-separated result fields to include in output"
@@ -1229,6 +1282,70 @@ def _add_log_level_arg(parser: argparse.ArgumentParser) -> None:
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
         help="Logging verbosity",
     )
+
+
+def _add_progress_arg(
+    parser: argparse.ArgumentParser, *, rerun_only: bool = False
+) -> None:
+    """Add the standard interactive progress option to a parser.
+
+    Args:
+        parser: Parser receiving the option.
+        rerun_only: Whether progress applies only to results reruns.
+    """
+
+    qualifier = "When rerunning, " if rerun_only else ""
+    parser.add_argument(
+        "--progress",
+        choices=[mode.value for mode in ProgressMode],
+        default=ProgressMode.AUTO.value,
+        help=(
+            f"{qualifier}show target progress automatically, force the live bar, "
+            "or disable it"
+        ),
+    )
+
+
+def _configure_cli_logging(
+    *, log_level: str, progress_mode: ProgressMode
+) -> TerminalProgress | None:
+    """Configure standard or Rich-coordinated CLI logging.
+
+    Args:
+        log_level: Requested Python logging level name.
+        progress_mode: Requested progress presentation mode.
+
+    Returns:
+        An interactive progress renderer when enabled, otherwise None.
+    """
+
+    if interactive_progress_enabled(mode=progress_mode):
+        console = Console(
+            stderr=True,
+            force_terminal=True if progress_mode is ProgressMode.BAR else None,
+        )
+        logging.basicConfig(
+            level=getattr(logging, log_level),
+            format="%(message)s",
+            handlers=[
+                RichHandler(
+                    console=console,
+                    markup=False,
+                    show_time=False,
+                    show_path=True,
+                    rich_tracebacks=True,
+                )
+            ],
+            force=True,
+        )
+        return TerminalProgress(console=console)
+
+    logging.basicConfig(
+        level=getattr(logging, log_level),
+        format=("%(levelname)-8s [%(filename)s:%(funcName)s:%(lineno)d] %(message)s"),
+        force=True,
+    )
+    return None
 
 
 def _validate_list_args(
@@ -1293,6 +1410,7 @@ def main() -> None:
     )
     _add_common_config_args(run_parser)
     _add_log_level_arg(run_parser)
+    _add_progress_arg(run_parser)
     run_parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -1411,6 +1529,7 @@ def main() -> None:
         "results", help="Query flattened run results"
     )
     _add_log_level_arg(results_parser)
+    _add_progress_arg(results_parser, rerun_only=True)
     _add_results_query_args(results_parser)
     results_parser.add_argument(
         "--rerun",
@@ -1470,9 +1589,16 @@ def main() -> None:
         if args.command == "validate" and getattr(args, "quiet", False)
         else args.log_level
     )
-    logging.basicConfig(
-        level=getattr(logging, log_level),
-        format=("%(levelname)-8s [%(filename)s:%(funcName)s:%(lineno)d] %(message)s"),
+    progress_supported = args.command == "run" or (
+        args.command == "results" and getattr(args, "rerun", False)
+    )
+    progress_mode = ProgressMode(
+        getattr(args, "progress", ProgressMode.OFF.value)
+        if progress_supported
+        else ProgressMode.OFF.value
+    )
+    args.terminal_progress = _configure_cli_logging(
+        log_level=log_level, progress_mode=progress_mode
     )
     # Suppress repeated botocore SSO cache reads at INFO while keeping Anvil INFO logs.
     logging.getLogger("botocore.tokens").setLevel(logging.WARNING)

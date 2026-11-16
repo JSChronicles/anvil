@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 from dataclasses import dataclass, field
 
+from anvil.progress import ProgressReporter
 from anvil.task_loader import ResolvedTask
 
 
@@ -21,5 +22,6 @@ class ExecutionContext:
     max_parallel_regions: int = 1
     benchmark_enabled: bool = False
     log_level: str | int | None = None
+    progress: ProgressReporter | None = None
     cancel_event: threading.Event = field(default_factory=threading.Event)
     fail_fast_event: threading.Event = field(default_factory=threading.Event)

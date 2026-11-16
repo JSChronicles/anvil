@@ -73,7 +73,7 @@ jobs:
           enable-cache: true
 
       - name: Install Anvil
-        run: uv sync --frozen --all-groups
+        run: uv sync --frozen --all-groups --extra aws
 
       - name: Configure production AWS profile
         uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0

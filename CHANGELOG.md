@@ -4,6 +4,242 @@ All notable changes to this project will be documented in this file.
 
 <!-- version list -->
 
+## v0.37.1 (2026-11-16)
+
+### Bug Fixes
+
+- **cli**: Use provider-neutral region help ([#151](https://github.com/JSChronicles/anvil/pull/151),
+  [`030866a`](https://github.com/JSChronicles/anvil/commit/030866aa664073ea8d2f3c20a4fe1e7a01d427b8))
+
+### Chores
+
+- **uv**: Bump oauthlib from 4.0.0 to 4.0.1 ([#150](https://github.com/JSChronicles/anvil/pull/150),
+  [`71b40b9`](https://github.com/JSChronicles/anvil/commit/71b40b9a9b12a4536ec616c305d98b37e712e0d0))
+
+
+## v0.37.0 (2026-11-14)
+
+### Chores
+
+- Update versions ([#149](https://github.com/JSChronicles/anvil/pull/149),
+  [`5356866`](https://github.com/JSChronicles/anvil/commit/5356866ba5745d8983bf2e4bcd9d945754240daf))
+
+### Features
+
+- **cli**: Show dry-run state in progress table
+  ([#149](https://github.com/JSChronicles/anvil/pull/149),
+  [`5356866`](https://github.com/JSChronicles/anvil/commit/5356866ba5745d8983bf2e4bcd9d945754240daf))
+
+
+## v0.36.1 (2026-11-06)
+
+### Bug Fixes
+
+- **deps**: Update Rich ([#148](https://github.com/JSChronicles/anvil/pull/148),
+  [`13e0111`](https://github.com/JSChronicles/anvil/commit/13e0111bfd8f9681f8d2aa4708670c943895b676))
+
+
+## v0.36.0 (2026-11-06)
+
+### Chores
+
+- **actions**: Lock workflow dependencies ([#145](https://github.com/JSChronicles/anvil/pull/145),
+  [`7b93d58`](https://github.com/JSChronicles/anvil/commit/7b93d584f340d2568a61ca56e9c1def04fcf65d1))
+
+- **ci**: Pin Python job containers by digest
+  ([#145](https://github.com/JSChronicles/anvil/pull/145),
+  [`7b93d58`](https://github.com/JSChronicles/anvil/commit/7b93d584f340d2568a61ca56e9c1def04fcf65d1))
+
+- **dependabot**: Run dependency updates monthly
+  ([#145](https://github.com/JSChronicles/anvil/pull/145),
+  [`7b93d58`](https://github.com/JSChronicles/anvil/commit/7b93d584f340d2568a61ca56e9c1def04fcf65d1))
+
+- **docker**: Bump astral-sh/uv from 0.13.4 to 0.13.7
+  ([#141](https://github.com/JSChronicles/anvil/pull/141),
+  [`f4b4f05`](https://github.com/JSChronicles/anvil/commit/f4b4f053a17e0aef0086f60b9087e2307c59f2fe))
+
+- **github-actions**: Bump the github-actions group across 1 directory with 4 updates
+  ([#143](https://github.com/JSChronicles/anvil/pull/143),
+  [`e02dd13`](https://github.com/JSChronicles/anvil/commit/e02dd13b16b8d60adae60dac3132dbbe00b5cd56))
+
+- **pre-commit**: Bump the pre-commit group across 1 directory with 2 updates
+  ([#137](https://github.com/JSChronicles/anvil/pull/137),
+  [`7785d2d`](https://github.com/JSChronicles/anvil/commit/7785d2d252ab2b3cc0a05875d45cd02befbe8d62))
+
+- **uv**: Bump certifi from 2026.10.18 to 2026.10.23
+  ([#139](https://github.com/JSChronicles/anvil/pull/139),
+  [`a1cf5c9`](https://github.com/JSChronicles/anvil/commit/a1cf5c937ca6d060443a1829994d4c8a4f4988ed))
+
+- **uv**: Bump certifi from 2026.2.25 to 2026.10.18
+  ([#138](https://github.com/JSChronicles/anvil/pull/138),
+  [`61b237b`](https://github.com/JSChronicles/anvil/commit/61b237b2a1b13112c17f076e9346f9c5da8cd729))
+
+- **uv**: Bump opentelemetry-api from 1.42.1 to 1.45.1
+  ([#133](https://github.com/JSChronicles/anvil/pull/133),
+  [`8c0c073`](https://github.com/JSChronicles/anvil/commit/8c0c0739926ba2e239ddbdec8cb4aca3caf64b4f))
+
+- **uv**: Bump pyasn1 from 0.6.4 to 0.6.5 ([#144](https://github.com/JSChronicles/anvil/pull/144),
+  [`3669012`](https://github.com/JSChronicles/anvil/commit/366901280846172a88c48a21065ae957168835d8))
+
+- **uv**: Bump the uv-dependencies group across 1 directory with 12 updates
+  ([#142](https://github.com/JSChronicles/anvil/pull/142),
+  [`08bddd7`](https://github.com/JSChronicles/anvil/commit/08bddd7a3d5a817097f219bc8fcc9b3d8f8321d1))
+
+### Documentation
+
+- **cli**: Document interactive progress controls
+  ([#145](https://github.com/JSChronicles/anvil/pull/145),
+  [`7b93d58`](https://github.com/JSChronicles/anvil/commit/7b93d584f340d2568a61ca56e9c1def04fcf65d1))
+
+### Features
+
+- **cli**: Render live provider progress table
+  ([#145](https://github.com/JSChronicles/anvil/pull/145),
+  [`7b93d58`](https://github.com/JSChronicles/anvil/commit/7b93d584f340d2568a61ca56e9c1def04fcf65d1))
+
+- **cli**: Render queued progress state ([#145](https://github.com/JSChronicles/anvil/pull/145),
+  [`7b93d58`](https://github.com/JSChronicles/anvil/commit/7b93d584f340d2568a61ca56e9c1def04fcf65d1))
+
+- **runner**: Emit provider target progress events
+  ([#145](https://github.com/JSChronicles/anvil/pull/145),
+  [`7b93d58`](https://github.com/JSChronicles/anvil/commit/7b93d584f340d2568a61ca56e9c1def04fcf65d1))
+
+- **runner**: Report queued provider targets
+  ([#145](https://github.com/JSChronicles/anvil/pull/145),
+  [`7b93d58`](https://github.com/JSChronicles/anvil/commit/7b93d584f340d2568a61ca56e9c1def04fcf65d1))
+
+
+## v0.35.1 (2026-10-21)
+
+### Bug Fixes
+
+- Update uv_build ([#132](https://github.com/JSChronicles/anvil/pull/132),
+  [`75ef76c`](https://github.com/JSChronicles/anvil/commit/75ef76cc1188c308fac05a80ef9de0b770768ccf))
+
+### Chores
+
+- **docker**: Bump astral-sh/uv from 0.12.18 to 0.12.23
+  ([#120](https://github.com/JSChronicles/anvil/pull/120),
+  [`fdc8e0d`](https://github.com/JSChronicles/anvil/commit/fdc8e0dfb361d4a4b7ae78c7581458fd52639ed6))
+
+- **docker**: Bump astral-sh/uv from 0.12.23 to 0.13.4
+  ([#128](https://github.com/JSChronicles/anvil/pull/128),
+  [`fa71947`](https://github.com/JSChronicles/anvil/commit/fa719478313dd6427d69bb11467847dd2ff25cfe))
+
+- **docker**: Bump python from `51dafde` to `a2b82f3`
+  ([#123](https://github.com/JSChronicles/anvil/pull/123),
+  [`e8b75b3`](https://github.com/JSChronicles/anvil/commit/e8b75b3e7c49160817e6baff5c11c7bd775d0711))
+
+- **docker**: Bump python from `caaf356` to `51dafde`
+  ([#112](https://github.com/JSChronicles/anvil/pull/112),
+  [`d266b22`](https://github.com/JSChronicles/anvil/commit/d266b22bc4e29967af7b6e660aaf1489567fa8c1))
+
+- **github-actions**: Bump the github-actions group across 1 directory with 3 updates
+  ([#115](https://github.com/JSChronicles/anvil/pull/115),
+  [`eee054e`](https://github.com/JSChronicles/anvil/commit/eee054e44182a72219b04ef9af67236240d92de6))
+
+- **github-actions**: Bump the github-actions group across 1 directory with 6 updates
+  ([#129](https://github.com/JSChronicles/anvil/pull/129),
+  [`053bda8`](https://github.com/JSChronicles/anvil/commit/053bda897db4cb65545ebd7fdf056add8fb811d3))
+
+- **pre-commit**: Bump the pre-commit group across 1 directory with 2 updates
+  ([#116](https://github.com/JSChronicles/anvil/pull/116),
+  [`30d3dc3`](https://github.com/JSChronicles/anvil/commit/30d3dc32b64a72c128477839e08e19caeed6fa77))
+
+- **pre-commit**: Bump the pre-commit group with 2 updates
+  ([#124](https://github.com/JSChronicles/anvil/pull/124),
+  [`1d059fb`](https://github.com/JSChronicles/anvil/commit/1d059fb7bf26c55b4ffbe0f46ce41bd78dba8246))
+
+- **uv**: Bump oauthlib from 3.3.1 to 4.0.0 ([#122](https://github.com/JSChronicles/anvil/pull/122),
+  [`5e612a3`](https://github.com/JSChronicles/anvil/commit/5e612a33983971899d503ff82b9748a3196b4b48))
+
+- **uv**: Bump pyjwt from 2.13.0 to 2.15.0 ([#118](https://github.com/JSChronicles/anvil/pull/118),
+  [`5361b8f`](https://github.com/JSChronicles/anvil/commit/5361b8f1857c380196001b4b3f055239ea51471a))
+
+- **uv**: Bump the uv-dependencies group across 1 directory with 19 updates
+  ([#130](https://github.com/JSChronicles/anvil/pull/130),
+  [`5f5f39f`](https://github.com/JSChronicles/anvil/commit/5f5f39f230316736e4020d08d4e8e9ee951c39c8))
+
+- **uv**: Bump the uv-dependencies group across 1 directory with 7 updates
+  ([#119](https://github.com/JSChronicles/anvil/pull/119),
+  [`a111eaf`](https://github.com/JSChronicles/anvil/commit/a111eafd784aaa0b80fa77a59b356ad494537cdd))
+
+- **uv**: Bump the uv-dependencies group with 9 updates
+  ([#121](https://github.com/JSChronicles/anvil/pull/121),
+  [`5d8e9a6`](https://github.com/JSChronicles/anvil/commit/5d8e9a6d688b856aeeb84ed52fcd0ee11d4b5bf6))
+
+- **uv**: Bump urllib3 from 2.7.0 to 2.8.0 ([#117](https://github.com/JSChronicles/anvil/pull/117),
+  [`0551758`](https://github.com/JSChronicles/anvil/commit/05517587a5b4afb32dbe80bf9cdae3804773e208))
+
+
+## v0.35.0 (2026-09-23)
+
+### Chores
+
+- **docker**: Bump astral-sh/uv from 0.12.11 to 0.12.15
+  ([#99](https://github.com/JSChronicles/anvil/pull/99),
+  [`2c6bdde`](https://github.com/JSChronicles/anvil/commit/2c6bdde9328fbd60ee2f3a21b20c025f3727756d))
+
+- **docker**: Bump astral-sh/uv from 0.12.15 to 0.12.18
+  ([#107](https://github.com/JSChronicles/anvil/pull/107),
+  [`d6f06f5`](https://github.com/JSChronicles/anvil/commit/d6f06f5a451b49ca98a277d0b34370087dd3c7da))
+
+- **docker**: Bump python from `cad9a2c` to `caaf356`
+  ([#106](https://github.com/JSChronicles/anvil/pull/106),
+  [`6836a1d`](https://github.com/JSChronicles/anvil/commit/6836a1d704d1345dc7660cacbb37b98feb287878))
+
+- **github-actions**: Bump the github-actions group across 1 directory with 3 updates
+  ([#105](https://github.com/JSChronicles/anvil/pull/105),
+  [`3d545b4`](https://github.com/JSChronicles/anvil/commit/3d545b4ff0283883dea6591e5504bb818e713ff1))
+
+- **github-actions**: Bump the github-actions group with 2 updates
+  ([#101](https://github.com/JSChronicles/anvil/pull/101),
+  [`ef3c8d0`](https://github.com/JSChronicles/anvil/commit/ef3c8d0aadd247c410418637c9ed6b2cbc150e43))
+
+- **github-actions**: Bump the github-actions group with 3 updates
+  ([#109](https://github.com/JSChronicles/anvil/pull/109),
+  [`23ee7d8`](https://github.com/JSChronicles/anvil/commit/23ee7d8a57c9b83c2d6acc3f2c7f04c98f6d68f8))
+
+- **pre-commit**: Bump the pre-commit group with 2 updates
+  ([#110](https://github.com/JSChronicles/anvil/pull/110),
+  [`7405168`](https://github.com/JSChronicles/anvil/commit/740516814b50ad7d28ae51d344cee8dac55b7816))
+
+- **pre-commit**: Bump the pre-commit group with 2 updates
+  ([#102](https://github.com/JSChronicles/anvil/pull/102),
+  [`3b5c728`](https://github.com/JSChronicles/anvil/commit/3b5c728c15287e3fc8e9fc3b748e78183d6aa257))
+
+- **uv**: Bump the uv-dependencies group across 1 directory with 4 updates
+  ([#104](https://github.com/JSChronicles/anvil/pull/104),
+  [`87561d9`](https://github.com/JSChronicles/anvil/commit/87561d9f411b47a13269be2d201b70e424329ba0))
+
+- **uv**: Bump the uv-dependencies group with 11 updates
+  ([#100](https://github.com/JSChronicles/anvil/pull/100),
+  [`1c5d5c0`](https://github.com/JSChronicles/anvil/commit/1c5d5c0f56f389a59c018949b5977232e786e142))
+
+- **uv**: Bump the uv-dependencies group with 4 updates
+  ([#108](https://github.com/JSChronicles/anvil/pull/108),
+  [`ffc6dc6`](https://github.com/JSChronicles/anvil/commit/ffc6dc670bda97dbd119dec26264b54ea363b22f))
+
+### Features
+
+- **aws**: Add iam role task
+  ([`d7dc6eb`](https://github.com/JSChronicles/anvil/commit/d7dc6eb42b97519aaf53dbcf9ac01702f14e0ca6))
+
+
+## v0.34.0 (2026-09-18)
+
+### Continuous Integration
+
+- Use downstream bot for promotion ([#103](https://github.com/JSChronicles/anvil/pull/103),
+  [`1a11ed7`](https://github.com/JSChronicles/anvil/commit/1a11ed7c4dfabea7e18802f6f80b3009fadcf8a0))
+
+### Features
+
+- **ci**: Promote releases to downstream repos
+  ([#103](https://github.com/JSChronicles/anvil/pull/103),
+  [`1a11ed7`](https://github.com/JSChronicles/anvil/commit/1a11ed7c4dfabea7e18802f6f80b3009fadcf8a0))
+
+
 ## v0.33.4 (2026-09-15)
 
 ### Bug Fixes

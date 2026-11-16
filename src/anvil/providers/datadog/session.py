@@ -8,7 +8,7 @@ from anvil.providers.datadog.config import DatadogTargetSettings
 
 DATADOG_EXTRA_REMEDIATION = (
     "Install Datadog dependencies with 'uv sync --extra datadog' for a source "
-    "checkout or 'pip install \"anvil[datadog]\"' for an installed package."
+    "checkout or 'uv pip install \"anvil[datadog]\"' for an installed package."
 )
 
 

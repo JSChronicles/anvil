@@ -23,7 +23,7 @@ SUPPORTED_OPTIONS = GITLAB_PROFILE_OPTIONS | {"profile"}
 
 GITLAB_EXTRA_REMEDIATION = (
     "Install GitLab dependencies with 'uv sync --extra gitlab' for a source "
-    "checkout or 'pip install \"anvil[gitlab]\"' for an installed package."
+    "checkout or 'uv pip install \"anvil[gitlab]\"' for an installed package."
 )
 GITLAB_AUTH_REMEDIATION = (
     "Verify provider.options.url, auth_type, token_env, and GitLab resource "

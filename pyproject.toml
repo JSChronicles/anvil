@@ -1,10 +1,10 @@
 [build-system]
-requires = ["uv_build>=0.12.15,<0.14"]
+requires = ["uv_build>=0.13.4,<0.14"]
 build-backend = "uv_build"
 
 [project]
 name = "anvil"
-version = "0.33.4"
+version = "0.37.1"
 description = "Provider-aware cloud task runner for schema v2 multi-cloud targets"
 readme = "README.md"
 requires-python = ">=3.14,<3.15"
@@ -25,13 +25,14 @@ classifiers = [
   "Topic :: Utilities",
 ]
 dependencies = [
-  "boto3>=1.43.89,<1.50.0",
   "PyYAML>=6.0.3,<7.0.0",
-  "jsonschema>=4.26.0,<4.30.0"
+  "jsonschema>=4.26.0,<4.30.0",
+  "rich>=15.0.0,<16.0.0"
 ]
 
 [project.optional-dependencies]
 all = [
+  "anvil[aws]",
   "anvil[azure]",
   "anvil[cloudflare]",
   "anvil[datadog]",
@@ -39,6 +40,9 @@ all = [
   "anvil[github]",
   "anvil[gitlab]",
   "anvil[pagerduty]",
+]
+aws = [
+  "boto3>=1.43.89,<1.50.0",
 ]
 azure = [
   "azure-identity",
@@ -94,10 +98,10 @@ anvil = "anvil.cli:main"
 dev = [
   "pytest-cov>=7.1.0,<8.0.0",
   "pytest>=9.1.1,<10.0.0",
-  "prek>=0.4.12,<0.6.0",
-  "check-jsonschema>=0.37.3,<0.40.0",
-  "ruff>=0.16.0,<0.20.0",
-  "ty>=0.0.60,<0.20.0",
+  "prek>=0.5.10,<0.6.0",
+  "check-jsonschema>=0.39.0,<0.40.0",
+  "ruff>=0.17.4,<0.20.0",
+  "ty>=0.0.99,<0.20.0",
 ]
 
 [tool.pytest.ini_options]

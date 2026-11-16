@@ -86,15 +86,14 @@ Anvil is built for teams that need repeatable cloud workflows, such as inventory
 
 
 1. Install Anvil with the provider SDKs you need:
-   1. Installed package users can choose provider extras with pip. Base installs
-      include AWS support and the default CLI behavior:
+   1. The base install includes the Anvil CLI without optional provider SDKs:
       `uv pip install anvil`
-   1. All other providers require users to install via extras:
-      `uv pip install "anvil[xxxx]"`, so like `uv pip install "anvil[azure]"`
+   1. Install the provider extras you need, such as:
+      `uv pip install "anvil[aws]"` or `uv pip install "anvil[azure]"`
    1. Install every optional provider dependency with:
       `uv pip install "anvil[all]"`
-   1. Source checkout users should sync the matching uv extra instead:
-      `uv sync --extra <provider>`, or use `uv sync --extra all` for every provider
+   1. Source checkout users should sync the matching uv extra instead, such as
+      `uv sync --extra aws`, or use `uv sync --extra all` for every provider
 1. When using the uv tool, there are several ways to run and install dependencies. Here are only a couple examples:
 1. uv sync:
    1. Sync the project's dependencies with the environment: uv sync
@@ -157,6 +156,12 @@ This executes the configured targets and tasks, then writes structured results u
 ```console
 anvil run --config-file ./yaml/orgs.yaml
 ```
+
+Interactive terminals show a live provider-target table while work is running.
+Logs remain visible above the table. Progress is disabled automatically for CI
+and redirected output, which retain normal line-oriented logging. Use
+`--progress bar` to force the live display or `--progress off` to disable it.
+The table shows each target's effective dry-run setting as `true` or `false`.
 
 ```yaml
 # orgs.yaml example

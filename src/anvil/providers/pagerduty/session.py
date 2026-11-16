@@ -11,7 +11,7 @@ from anvil.providers.pagerduty.errors import (
 
 PAGERDUTY_EXTRA_REMEDIATION = (
     "Install PagerDuty support with 'uv sync --extra pagerduty' for a source "
-    "checkout or 'pip install \"anvil[pagerduty]\"' for an installed package."
+    "checkout or 'uv pip install \"anvil[pagerduty]\"' for an installed package."
 )
 PAGERDUTY_RATE_LIMIT_RETRIES = 3
 PAGERDUTY_MAX_HTTP_ATTEMPTS = 4
