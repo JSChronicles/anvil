@@ -2,9 +2,6 @@ from __future__ import annotations
 
 import logging
 
-import boto3
-from botocore.exceptions import ClientError
-
 from anvil.actions import ActionRecorder
 
 __LOGGER__ = logging.getLogger(__name__)
@@ -34,7 +31,7 @@ def run(
     execution_target_name: str,
     execution_target_type: str,
     region: str,
-    session: boto3.Session,
+    session,
     dry_run: bool,
     metadata: dict[str, object],
     dependency_data: dict[str, object],
@@ -68,6 +65,8 @@ def run(
         ValueError: If required metadata is missing or invalid.
         botocore.exceptions.ClientError: If AWS API calls fail.
     """
+
+    from botocore.exceptions import ClientError
 
     raw_clusters = metadata.get("clusters")
     if raw_clusters is None:

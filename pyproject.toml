@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "anvil"
-version = "0.37.1"
+version = "0.38.1"
 description = "Provider-aware cloud task runner for schema v2 multi-cloud targets"
 readme = "README.md"
 requires-python = ">=3.14,<3.15"
@@ -156,6 +156,8 @@ skip-magic-trailing-comma = true
 # by the optional benchmark chart generator.
 allowed-unresolved-imports = [
   "azure.**",
+  "boto3.**",
+  "botocore.**",
   "cloudflare",
   "datadog_api_client.**",
   "github",

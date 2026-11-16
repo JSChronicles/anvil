@@ -4,17 +4,28 @@ All notable changes to this project will be documented in this file.
 
 <!-- version list -->
 
-## v0.37.1 (2026-11-16)
+## v0.38.1 (2026-11-16)
 
 ### Bug Fixes
 
-- **cli**: Use provider-neutral region help ([#151](https://github.com/JSChronicles/anvil/pull/151),
-  [`030866a`](https://github.com/JSChronicles/anvil/commit/030866aa664073ea8d2f3c20a4fe1e7a01d427b8))
+- **tasks**: Keep AWS task validation SDK-independent
+  ([#154](https://github.com/JSChronicles/anvil/pull/154),
+  [`8531361`](https://github.com/JSChronicles/anvil/commit/853136110146e808a3c47111baf5d6e969de9980))
 
-### Chores
+### Documentation
 
-- **uv**: Bump oauthlib from 4.0.0 to 4.0.1 ([#150](https://github.com/JSChronicles/anvil/pull/150),
-  [`71b40b9`](https://github.com/JSChronicles/anvil/commit/71b40b9a9b12a4536ec616c305d98b37e712e0d0))
+- **skill**: Document optional SDK import safety
+  ([#154](https://github.com/JSChronicles/anvil/pull/154),
+  [`8531361`](https://github.com/JSChronicles/anvil/commit/853136110146e808a3c47111baf5d6e969de9980))
+
+
+## v0.38.0 (2026-11-16)
+
+### Features
+
+- **packaging**: Make AWS dependencies optional
+  ([#153](https://github.com/JSChronicles/anvil/pull/153),
+  [`0846ea6`](https://github.com/JSChronicles/anvil/commit/0846ea612b1881b27970a8f505f0a3f87e5e6e46))
 
 
 ## v0.37.0 (2026-11-14)

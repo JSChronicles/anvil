@@ -3,8 +3,6 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from botocore.exceptions import ClientError
-
 from anvil.actions import ActionRecorder
 from anvil.providers.tasks._task_helpers import metadata_string_array
 from anvil.task_errors import TaskExecutionError
@@ -17,6 +15,7 @@ def _list_paginated_role_resources(
     iam_client, *, operation_name: str, result_key: str, role_name: str
 ) -> list[Any]:
     """Return every page of one IAM role resource collection."""
+    from botocore.exceptions import ClientError
 
     try:
         paginator = iam_client.get_paginator(operation_name)
@@ -38,6 +37,7 @@ def cleanup_role_resources(
     Returns:
         The number of attached resources discovered for removal.
     """
+    from botocore.exceptions import ClientError
 
     resource_count = 0
 
@@ -138,6 +138,7 @@ def _selected_roles(metadata: dict[str, object]) -> list[str]:
 
 def _role_exists(iam_client, role_name: str) -> bool:
     """Return whether an IAM role currently exists."""
+    from botocore.exceptions import ClientError
 
     try:
         iam_client.get_role(RoleName=role_name)
@@ -192,6 +193,8 @@ def run(
         botocore.exceptions.ClientError: If an unexpected AWS API error occurs.
         TaskExecutionError: If one or more selected roles fail to be removed.
     """
+    from botocore.exceptions import ClientError
+
     role_names = _selected_roles(metadata)
     iam_client = session.client("iam")
     planned: list[dict[str, object]] = []

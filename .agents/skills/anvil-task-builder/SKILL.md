@@ -3,7 +3,7 @@ name: anvil-task-builder
 description: Builds and maintains Anvil task modules, workflows, schemas, runner behavior, SARIF-compatible detect_ tasks, and plugin templates. Use when user asks to create or edit an Anvil task, choose or change task scope, fix repeated regional execution, add dry-run behavior, record actions, return task results, update Anvil YAML or schemas, change account execution, update plugin templates, add payer-account concurrency, or build a management-account-only task.
 metadata:
   author: JSChronicles
-  version: "0.12"
+  version: "0.13"
 ---
 
 # Anvil Task Builder
@@ -69,7 +69,10 @@ Use this skill to create Anvil tasks that satisfy the runtime contract, behave s
 - Use `actions.record(...)` for concise audit-level planned or completed actions.
 - Return task-specific JSON-serializable data only.
 - Do not duplicate execution context already included by the engine unless the task needs a transformed value.
-- Keep task modules import-safe. Do not make provider SDK calls at import time.
+- Keep task modules import-safe. Do not import optional provider SDKs or make
+  provider SDK calls at module scope. Import runtime SDK objects inside
+  `run()` or the helper that uses them; put type-only SDK imports behind
+  `TYPE_CHECKING` when postponed annotations are enabled.
 - Validate required `metadata` values before use and raise clear `RuntimeError` messages.
 - Prefer provider SDK pagination helpers for list and describe APIs that can paginate.
 
