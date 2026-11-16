@@ -4,18 +4,6 @@ All notable changes to this project will be documented in this file.
 
 <!-- version list -->
 
-## v0.37.1 (2026-11-16)
-
-### Bug Fixes
-
-- **cli**: Use provider-neutral region help ([#151](https://github.com/JSChronicles/anvil/pull/151),
-  [`030866a`](https://github.com/JSChronicles/anvil/commit/030866aa664073ea8d2f3c20a4fe1e7a01d427b8))
-
-### Chores
-
-- **uv**: Bump oauthlib from 4.0.0 to 4.0.1 ([#150](https://github.com/JSChronicles/anvil/pull/150),
-  [`71b40b9`](https://github.com/JSChronicles/anvil/commit/71b40b9a9b12a4536ec616c305d98b37e712e0d0))
-
 
 ## v0.37.0 (2026-11-14)
 
