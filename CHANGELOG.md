@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 <!-- version list -->
 
+## v0.38.1 (2026-11-16)
+
+### Bug Fixes
+
+- **tasks**: Keep AWS task validation SDK-independent
+  ([#154](https://github.com/JSChronicles/anvil/pull/154),
+  [`8531361`](https://github.com/JSChronicles/anvil/commit/853136110146e808a3c47111baf5d6e969de9980))
+
+### Documentation
+
+- **skill**: Document optional SDK import safety
+  ([#154](https://github.com/JSChronicles/anvil/pull/154),
+  [`8531361`](https://github.com/JSChronicles/anvil/commit/853136110146e808a3c47111baf5d6e969de9980))
+
+
 ## v0.38.0 (2026-11-16)
 
 ### Features
