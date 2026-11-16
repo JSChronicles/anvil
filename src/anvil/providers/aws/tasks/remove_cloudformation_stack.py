@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import logging
 
-from botocore.exceptions import ClientError, WaiterError
-
 from anvil.actions import ActionRecorder
 from anvil.providers.tasks._task_helpers import metadata_bool
 from anvil.task_errors import TaskExecutionError
@@ -80,6 +78,7 @@ def _describe_stack(cfn_client, stack_id: str) -> dict[str, object] | None:
     record ages out. A stack already in ``DELETE_COMPLETE`` is treated the
     same as one that raised "does not exist": there's nothing left to do.
     """
+    from botocore.exceptions import ClientError
 
     try:
         stacks = cfn_client.describe_stacks(StackName=stack_id)["Stacks"]
@@ -158,6 +157,8 @@ def run(
         botocore.exceptions.ClientError: If an unexpected AWS API error occurs.
         TaskExecutionError: If one or more selected stacks fail to be removed.
     """
+    from botocore.exceptions import ClientError, WaiterError
+
     stack_ids = _selected_stack_ids(metadata, execution_target_id=execution_target_id)
     force_retain = _force_retain_stuck_resources(metadata)
     cfn_client = session.client("cloudformation")

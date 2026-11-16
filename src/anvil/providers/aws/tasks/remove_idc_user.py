@@ -3,10 +3,6 @@ from __future__ import annotations
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-import boto3
-from botocore.config import Config
-from botocore.exceptions import BotoCoreError, ClientError
-
 from anvil.actions import ActionRecorder
 from anvil.providers.tasks._task_helpers import metadata_string_array
 from anvil.task_errors import TaskExecutionError
@@ -14,7 +10,7 @@ from anvil.task_errors import TaskExecutionError
 __LOGGER__ = logging.getLogger(__name__)
 TASK_SCOPE = "configured_target"
 
-BOTO_CONFIG = Config(max_pool_connections=40)
+MAX_POOL_CONNECTIONS = 40
 
 # DeleteUser has no batch API, so removals happen one call per user.
 MAX_DELETE_WORKERS = 3
@@ -105,7 +101,7 @@ def run(
     execution_target_name: str,
     execution_target_type: str,
     region: str,
-    session: boto3.Session,
+    session,
     dry_run: bool,
     metadata: dict[str, object],
     dependency_data: dict[str, object],
@@ -163,6 +159,8 @@ def run(
             `partial_result` carries the same payload described above,
             including which users succeeded and which failed.
     """
+    from botocore.config import Config
+    from botocore.exceptions import BotoCoreError, ClientError
 
     raw_region = metadata.get("identity_center_region")
     account_id = execution_target_id
@@ -185,11 +183,12 @@ def run(
 
     __LOGGER__.info(f"Using Identity Center region '{identity_center_region}'")
 
+    boto_config = Config(max_pool_connections=MAX_POOL_CONNECTIONS)
     sso_admin_client = session.client(
-        "sso-admin", region_name=identity_center_region, config=BOTO_CONFIG
+        "sso-admin", region_name=identity_center_region, config=boto_config
     )
     identitystore_client = session.client(
-        "identitystore", region_name=identity_center_region, config=BOTO_CONFIG
+        "identitystore", region_name=identity_center_region, config=boto_config
     )
 
     _, identity_store_id, owner_account_id = _get_active_sso_instance(sso_admin_client)

@@ -3,16 +3,12 @@ from __future__ import annotations
 import json
 from concurrent.futures import ThreadPoolExecutor
 
-import boto3
-from botocore.config import Config
-from botocore.exceptions import ClientError
-
 from anvil.actions import ActionRecorder
 from anvil.task_errors import TaskExecutionError
 
 TASK_SCOPE = "configured_target"
 MAX_IDENTITY_CENTER_WORKERS = 5
-BOTO_CONFIG = Config(max_pool_connections=20)
+MAX_POOL_CONNECTIONS = 20
 
 
 def _identity_center_region(metadata: dict[str, object], default: str) -> str:
@@ -46,7 +42,7 @@ def run(
     execution_target_name: str,
     execution_target_type: str,
     region: str,
-    session: boto3.Session,
+    session,
     dry_run: bool,
     metadata: dict[str, object],
     dependency_data: dict[str, object],
@@ -79,9 +75,14 @@ def run(
             all successfully collected policies.
     """
 
+    from botocore.config import Config
+    from botocore.exceptions import ClientError
+
     endpoint_region = _identity_center_region(metadata, region)
     client = session.client(
-        "sso-admin", region_name=endpoint_region, config=BOTO_CONFIG
+        "sso-admin",
+        region_name=endpoint_region,
+        config=Config(max_pool_connections=MAX_POOL_CONNECTIONS),
     )
     instances = client.list_instances().get("Instances", [])
     work: list[tuple[str, str]] = []
