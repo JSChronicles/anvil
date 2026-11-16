@@ -50,6 +50,8 @@ jobs:
           uv run --isolated --no-project --python 3.14 --with "${wheels[0]}" \
             anvil --version
           uv run --isolated --no-project --python 3.14 --with "${wheels[0]}" \
+            anvil validate --quiet
+          uv run --isolated --no-project --python 3.14 --with "${wheels[0]}[aws]" \
             anvil validate --quiet --config-file yaml/noop.yaml
 
       # - name: Smoke test (source distribution)

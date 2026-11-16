@@ -25,7 +25,6 @@ classifiers = [
   "Topic :: Utilities",
 ]
 dependencies = [
-  "boto3>=1.43.89,<1.50.0",
   "PyYAML>=6.0.3,<7.0.0",
   "jsonschema>=4.26.0,<4.30.0",
   "rich>=15.0.0,<16.0.0"
@@ -33,6 +32,7 @@ dependencies = [
 
 [project.optional-dependencies]
 all = [
+  "anvil[aws]",
   "anvil[azure]",
   "anvil[cloudflare]",
   "anvil[datadog]",
@@ -40,6 +40,9 @@ all = [
   "anvil[github]",
   "anvil[gitlab]",
   "anvil[pagerduty]",
+]
+aws = [
+  "boto3>=1.43.89,<1.50.0",
 ]
 azure = [
   "azure-identity",

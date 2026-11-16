@@ -775,7 +775,7 @@ def _module_available(module_name: str) -> bool:
 
 def _diagnostic_dependency_checks() -> list[DiagnosticCheck]:
     dependencies = [
-        ("aws", "boto3", "boto3", None),
+        ("aws", "boto3", "boto3", "aws"),
         ("azure", "azure.identity", "azure-identity", "azure"),
         ("cloudflare", "cloudflare", "cloudflare", "cloudflare"),
         ("datadog", "datadog_api_client", "datadog-api-client", "datadog"),
@@ -1257,7 +1257,7 @@ def _add_results_query_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--target", help="Filter by target name")
     parser.add_argument("--entity", help="Filter by entity ID or entity name")
-    parser.add_argument("--region", help="Filter by AWS region")
+    parser.add_argument("--region", help="Filter by provider region/location")
     parser.add_argument("--task", help="Filter by task name")
     parser.add_argument(
         "--fields", help="Comma-separated result fields to include in output"

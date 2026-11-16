@@ -114,13 +114,13 @@ def test_diagnostic_dependency_checks_report_importable_and_missing(monkeypatch)
     cli = _import_cli_or_skip()
 
     monkeypatch.setattr(
-        cli, "_module_available", lambda module_name: module_name in {"boto3", "github"}
+        cli, "_module_available", lambda module_name: module_name == "github"
     )
 
     checks = cli._diagnostic_dependency_checks()
     by_label = {check.label: check for check in checks}
 
-    assert by_label["aws"].status == "OK"
+    assert by_label["aws"].status == "WARN"
     assert by_label["github"].status == "OK"
     assert by_label["azure"].status == "WARN"
     assert by_label["cloudflare"].status == "WARN"
@@ -128,7 +128,9 @@ def test_diagnostic_dependency_checks_report_importable_and_missing(monkeypatch)
     assert by_label["gcp"].status == "WARN"
     assert by_label["gitlab"].status == "WARN"
     assert by_label["pagerduty"].status == "WARN"
-    assert by_label["aws"].detail == "boto3 importable"
+    assert by_label["aws"].detail is not None
+    assert 'uv pip install "anvil[aws]"' in by_label["aws"].detail
+    assert "uv sync --extra aws" in by_label["aws"].detail
     assert by_label["github"].detail == "PyGithub importable"
     assert by_label["azure"].detail is not None
     assert 'uv pip install "anvil[azure]"' in by_label["azure"].detail
