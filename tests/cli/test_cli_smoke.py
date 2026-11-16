@@ -33,6 +33,17 @@ def test_cli_version_prints_installed_package_version(monkeypatch, capsys):
     assert capsys.readouterr().out == "anvil 1.2.3\n"
 
 
+def test_results_help_describes_provider_neutral_region(monkeypatch, capsys):
+    cli = _import_cli_or_skip()
+    monkeypatch.setattr("sys.argv", ["anvil", "results", "--help"])
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+
+    assert exc_info.value.code == 0
+    assert "Filter by provider region/location" in capsys.readouterr().out
+
+
 def test_cmd_run_processes_multiple_config_files_in_order(monkeypatch):
     from pathlib import Path
     from types import SimpleNamespace

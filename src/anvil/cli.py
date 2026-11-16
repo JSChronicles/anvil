@@ -1257,7 +1257,7 @@ def _add_results_query_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--target", help="Filter by target name")
     parser.add_argument("--entity", help="Filter by entity ID or entity name")
-    parser.add_argument("--region", help="Filter by AWS region")
+    parser.add_argument("--region", help="Filter by provider region/location")
     parser.add_argument("--task", help="Filter by task name")
     parser.add_argument(
         "--fields", help="Comma-separated result fields to include in output"
