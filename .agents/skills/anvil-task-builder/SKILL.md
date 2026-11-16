@@ -69,7 +69,10 @@ Use this skill to create Anvil tasks that satisfy the runtime contract, behave s
 - Use `actions.record(...)` for concise audit-level planned or completed actions.
 - Return task-specific JSON-serializable data only.
 - Do not duplicate execution context already included by the engine unless the task needs a transformed value.
-- Keep task modules import-safe. Do not make provider SDK calls at import time.
+- Keep task modules import-safe. Do not import optional provider SDKs or make
+  provider SDK calls at module scope. Import runtime SDK objects inside
+  `run()` or the helper that uses them; put type-only SDK imports behind
+  `TYPE_CHECKING` when postponed annotations are enabled.
 - Validate required `metadata` values before use and raise clear `RuntimeError` messages.
 - Prefer provider SDK pagination helpers for list and describe APIs that can paginate.
 

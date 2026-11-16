@@ -4,17 +4,13 @@ import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-import boto3
-from botocore.config import Config
-from botocore.exceptions import BotoCoreError, ClientError
-
 from anvil.actions import ActionRecorder
 from anvil.task_errors import TaskExecutionError
 
 __LOGGER__ = logging.getLogger(__name__)
 TASK_SCOPE = "configured_target"
 
-BOTO_CONFIG = Config(max_pool_connections=40)
+MAX_POOL_CONNECTIONS = 40
 MAX_MANAGEMENT_WORKERS = 5
 DELETION_POLL_INTERVAL_SECONDS = 1.0
 DELETION_MAX_ATTEMPTS = 60
@@ -56,6 +52,8 @@ def _get_account_cache(org_client) -> dict[str, dict[str, str]]:
 def _get_permission_set_name_cache(
     sso_admin_client, instance_arn: str
 ) -> dict[str, str]:
+    from botocore.exceptions import ClientError
+
     permission_set_cache: dict[str, str] = {}
 
     paginator = sso_admin_client.get_paginator("list_permission_sets")
@@ -223,7 +221,7 @@ def run(
     execution_target_name: str,
     execution_target_type: str,
     region: str,
-    session: boto3.Session,
+    session,
     dry_run: bool,
     metadata: dict[str, object],
     dependency_data: dict[str, object],
@@ -262,6 +260,8 @@ def run(
         ValueError: If metadata.identity_center_region is not a string.
         RuntimeError: If no active IAM Identity Center instance exists.
     """
+    from botocore.config import Config
+    from botocore.exceptions import BotoCoreError
 
     raw_region = metadata.get("identity_center_region")
     account_id = execution_target_id
@@ -277,15 +277,16 @@ def run(
 
     __LOGGER__.info(f"Using Identity Center region '{identity_center_region}'")
 
+    boto_config = Config(max_pool_connections=MAX_POOL_CONNECTIONS)
     sso_admin_client = session.client(
-        "sso-admin", region_name=identity_center_region, config=BOTO_CONFIG
+        "sso-admin", region_name=identity_center_region, config=boto_config
     )
 
     identitystore_client = session.client(
-        "identitystore", region_name=identity_center_region, config=BOTO_CONFIG
+        "identitystore", region_name=identity_center_region, config=boto_config
     )
 
-    org_client = session.client("organizations", config=BOTO_CONFIG)
+    org_client = session.client("organizations", config=boto_config)
 
     try:
         instance_arn, identity_store_id, owner_account_id = _get_active_sso_instance(

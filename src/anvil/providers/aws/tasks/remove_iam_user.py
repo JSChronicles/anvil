@@ -3,8 +3,6 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from botocore.exceptions import ClientError
-
 from anvil.actions import ActionRecorder
 from anvil.providers.tasks._task_helpers import metadata_string_array
 from anvil.task_errors import TaskExecutionError
@@ -17,6 +15,7 @@ def _list_paginated_user_resources(
     iam_client, *, operation_name: str, result_key: str, user_name: str
 ) -> list[Any]:
     """Return every page of one IAM user resource collection."""
+    from botocore.exceptions import ClientError
 
     try:
         paginator = iam_client.get_paginator(operation_name)
@@ -38,6 +37,7 @@ def cleanup_user_resources(
     Returns:
         The number of attached resources discovered for removal.
     """
+    from botocore.exceptions import ClientError
 
     resource_count = 0
     # Groups
@@ -218,6 +218,7 @@ def _selected_users(metadata: dict[str, object]) -> list[str]:
 
 def _user_exists(iam_client, user_name: str) -> bool:
     """Return whether an IAM user currently exists."""
+    from botocore.exceptions import ClientError
 
     try:
         iam_client.get_user(UserName=user_name)
@@ -273,6 +274,8 @@ def run(
         botocore.exceptions.ClientError: If an unexpected AWS API error occurs.
         TaskExecutionError: If one or more selected users fail to be removed.
     """
+    from botocore.exceptions import ClientError
+
     user_names = _selected_users(metadata)
     iam_client = session.client("iam")
     planned: list[dict[str, object]] = []

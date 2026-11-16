@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import boto3
-from botocore.client import BaseClient
-from botocore.exceptions import ClientError
+if TYPE_CHECKING:
+    from botocore.client import BaseClient
 
 from anvil.actions import ActionRecorder
 
@@ -138,6 +137,8 @@ def _enrich_account(
 def _list_enabled_controls_for_ou(
     control_tower_client: BaseClient, ou_arn: str
 ) -> list[str]:
+    from botocore.exceptions import ClientError
+
     try:
         paginator = control_tower_client.get_paginator("list_enabled_controls")
         enabled_controls: list[dict[str, Any]] = []
@@ -171,7 +172,7 @@ def run(
     execution_target_name: str,
     execution_target_type: str,
     region: str,
-    session: boto3.Session,
+    session,
     dry_run: bool,
     metadata: dict[str, object],
     dependency_data: dict[str, object],

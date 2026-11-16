@@ -1,5 +1,35 @@
 # AWS Task Patterns
 
+## Optional Dependency Import Safety
+
+AWS tasks must remain importable without the `anvil[aws]` extra so offline
+discovery and `anvil validate --tasks` can inspect every task. Do not import
+`boto3` or `botocore` at module scope. Import runtime SDK objects inside
+`run()` or the smallest helper that uses them. Type-only imports may be guarded
+by `TYPE_CHECKING` because task modules enable postponed annotations.
+
+```python
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from botocore.client import BaseClient
+
+
+def collect(client: BaseClient) -> list[dict[str, object]]:
+    from botocore.exceptions import ClientError
+
+    try:
+        return client.list_resources().get("Resources", [])
+    except ClientError:
+        raise
+```
+
+Keep imports local to each independently callable helper that needs an SDK
+exception or runtime class. This preserves helper-level tests and avoids
+relying on `run()` to initialize module globals.
+
 ## Read-Only Inventory Tasks
 
 - Use the scoped session to build clients.

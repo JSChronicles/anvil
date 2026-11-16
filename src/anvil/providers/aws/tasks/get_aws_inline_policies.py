@@ -3,10 +3,10 @@ from __future__ import annotations
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-import boto3
-from botocore.client import BaseClient
-from botocore.exceptions import ClientError
+if TYPE_CHECKING:
+    from botocore.client import BaseClient
 
 from anvil.actions import ActionRecorder
 from anvil.task_errors import TaskExecutionError
@@ -67,6 +67,8 @@ def _collect_resource_policies(
     iam_client: BaseClient, spec: _IamPolicyResource
 ) -> tuple[list[dict[str, object]], list[dict[str, str]]]:
     """Collect one IAM resource kind while retaining per-entity failures."""
+
+    from botocore.exceptions import ClientError
 
     names: list[str] = []
     paginator = iam_client.get_paginator(spec.list_operation)
@@ -174,7 +176,7 @@ def run(
     execution_target_name: str,
     execution_target_type: str,
     region: str,
-    session: boto3.Session,
+    session,
     dry_run: bool,
     metadata: dict[str, object],
     dependency_data: dict[str, object],
@@ -207,6 +209,8 @@ def run(
         TaskExecutionError: If collection is partial; partial_result retains
             all successfully collected policies.
     """
+
+    from botocore.exceptions import ClientError
 
     iam_client: BaseClient = session.client("iam")
     policies: dict[str, list[dict[str, object]]] = {}
