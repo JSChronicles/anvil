@@ -94,11 +94,6 @@ Anvil is built for teams that need repeatable cloud workflows, such as inventory
       `uv pip install "anvil[all]"`
    1. Source checkout users should sync the matching uv extra instead, such as
       `uv sync --extra aws`, or use `uv sync --extra all` for every provider
-
-> [!IMPORTANT]
-> Existing AWS users upgrading from a release that bundled boto3 must install
-> `anvil[aws]`. The base `anvil` package no longer installs provider SDKs.
-
 1. When using the uv tool, there are several ways to run and install dependencies. Here are only a couple examples:
 1. uv sync:
    1. Sync the project's dependencies with the environment: uv sync
