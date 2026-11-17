@@ -1444,6 +1444,7 @@ def _execute_provider_task_graph(
         runtime_outcome: (
             tuple[ProviderExecutionRuntime, str, float, bool, bool] | None
         ) = None
+        settled_session: object | None = None
         completed_target_count: int | None = None
         with lifecycle_lock:
             lifecycle_state = lifecycle_states[key]
@@ -1465,6 +1466,8 @@ def _execute_provider_task_graph(
                     lifecycle_state.failed,
                     lifecycle_state.interrupted,
                 )
+                settled_session = session_cache.pop(key)
+                created_sessions.remove(key)
 
             if instance.task.scope is not TaskScope.CONFIGURED_TARGET:
                 execution_target_id = instance.execution_target.id
@@ -1474,14 +1477,20 @@ def _execute_provider_task_graph(
                     completed_progress_targets.add(execution_target_id)
                     completed_target_count = len(completed_progress_targets)
 
-        if runtime_outcome is not None:
-            runtime, region, started_perf, failed, interrupted = runtime_outcome
-            runtime.record_region_outcome(
-                region=region,
-                duration_seconds=time.perf_counter() - started_perf,
-                failed=failed,
-                interrupted=interrupted,
-            )
+        try:
+            if runtime_outcome is not None:
+                runtime, region, started_perf, failed, interrupted = runtime_outcome
+                runtime.record_region_outcome(
+                    region=region,
+                    duration_seconds=time.perf_counter() - started_perf,
+                    failed=failed,
+                    interrupted=interrupted,
+                )
+        finally:
+            if settled_session is not None:
+                close = getattr(settled_session, "close", None)
+                if callable(close):
+                    close()
         if completed_target_count is not None and context.progress is not None:
             context.progress.emit(
                 ProgressPhase.EXECUTING,
@@ -1513,6 +1522,22 @@ def _execute_provider_task_graph(
                 runtime_benchmarks[runtime_key] = benchmark
     finally:
         cleanup_errors: list[Exception] = []
+        for session_key in list(created_sessions):
+            try:
+                session = session_cache.pop(session_key)
+                close = getattr(session, "close", None)
+                if callable(close):
+                    close()
+            except Exception as error:
+                is_configured, execution_target_id, region = session_key
+                session_type = "configured-target" if is_configured else "target"
+                error.add_note(
+                    f"Failed to close {session_type} session "
+                    f"'{execution_target_id}' in region '{region}'"
+                )
+                cleanup_errors.append(error)
+            finally:
+                created_sessions.discard(session_key)
         for runtime_key, runtime in list(created_runtimes.items()):
             try:
                 runtime.close()

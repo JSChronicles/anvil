@@ -1003,6 +1003,72 @@ def test_dependent_configured_task_waits_for_upstream_runtime_outcome() -> None:
     assert configured_saw_completed_outcome == [True]
 
 
+def test_graph_closes_coordinate_session_before_admitting_fan_in_task() -> None:
+    calls: list[tuple[str, str]] = []
+    ordinary_session_closed: list[bool] = []
+
+    class ClosableSession(dict[str, str]):
+        def close(self) -> None:
+            calls.append(("session_close", f"{self['target_id']}:{self['region']}"))
+
+    class SessionClosingRuntime(_LifecycleRuntime):
+        def build_session(self, *, region: str) -> object:
+            self.calls.append(("session", region))
+            return ClosableSession(target_id=self.target_id, region=region)
+
+    class SessionClosingProvider(_LifecycleProvider):
+        def prepare_execution_runtime(self, **kwargs) -> _LifecycleRuntime:
+            execution_target = kwargs["execution_target"]
+            self.calls.append(("runtime", execution_target.id))
+            return SessionClosingRuntime(self.calls, execution_target.id)
+
+        def prepare_configured_target_runtime(self, **kwargs) -> _LifecycleRuntime:
+            execution_target = kwargs["execution_target"]
+            self.calls.append(("configured_runtime", execution_target.id))
+            return SessionClosingRuntime(self.calls, execution_target.id)
+
+    tasks = [
+        _contract_task(
+            task_id="regional",
+            name="regional",
+            run=lambda **kwargs: {"region": kwargs["region"]},
+        ),
+        _contract_task(
+            task_id="configured",
+            name="configured",
+            run=lambda **kwargs: ordinary_session_closed.append(
+                (
+                    "session_close",
+                    f"entity-a:{kwargs['dependency_data']['regional']['region']}",
+                )
+                in calls
+            ),
+            depends_on=["regional"],
+            dependency_data={"regional": {"task_id": "regional", "path": "result"}},
+            scope="configured_target",
+        ),
+    ]
+
+    _execute_provider_targets(
+        provider=SessionClosingProvider(calls),
+        target=_target([], max_workers=1),
+        context=_context(tasks, max_parallel_regions=1),
+        execution_targets=[_execution_target(["region-a"])],
+        configured_execution_target=ExecutionTarget(
+            id="configured-owner",
+            name="Configured Owner",
+            type="configured_target",
+            provider="fake",
+            regions=["region-a"],
+        ),
+        benchmark_data=None,
+    )
+
+    assert ordinary_session_closed == [True]
+    assert calls.count(("session_close", "entity-a:region-a")) == 1
+    assert calls.count(("session_close", "configured-owner:region-a")) == 1
+
+
 def test_mixed_graph_surfaces_outcome_hook_errors_and_closes_runtimes() -> None:
     calls: list[tuple[str, str]] = []
 
