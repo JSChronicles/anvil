@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
-from botocore.client import BaseClient
-from botocore.exceptions import BotoCoreError, ClientError
 
 from anvil.actions import ActionRecorder
 from anvil.providers.aws.tasks.inactive_account_context import _owner_tag_keys
+
+if TYPE_CHECKING:
+    from botocore.client import BaseClient
 
 __LOGGER__ = logging.getLogger(__name__)
 NEUTRAL_SCORE = 50
@@ -27,6 +29,7 @@ RESOURCE_TYPE_FILTERS = (
 
 def _count(label: str, collect: Callable[[], int], warnings: list[str]) -> int:
     """Run one resource counter and return zero with a visible warning on failure."""
+    from botocore.exceptions import BotoCoreError, ClientError
     try:
         return collect()
     except (BotoCoreError, ClientError) as error:
@@ -232,6 +235,7 @@ def run(
     Raises:
         RuntimeError: If ``metadata.owner_tag_keys`` is invalid.
     """
+    from botocore.exceptions import BotoCoreError, ClientError
     count_warnings: list[str] = []
     counts = _resource_counts(session, count_warnings)
     total = sum(counts.values())

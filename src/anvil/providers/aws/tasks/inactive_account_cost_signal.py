@@ -5,11 +5,13 @@ from __future__ import annotations
 import logging
 from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
+from typing import TYPE_CHECKING
 
-from botocore.client import BaseClient
-from botocore.exceptions import BotoCoreError, ClientError
 
 from anvil.actions import ActionRecorder
+
+if TYPE_CHECKING:
+    from botocore.client import BaseClient
 
 __LOGGER__ = logging.getLogger(__name__)
 TASK_SCOPE = "configured_target"
@@ -211,6 +213,7 @@ def run(
     Returns:
         A mapping of account IDs to cost signals.
     """
+    from botocore.exceptions import BotoCoreError, ClientError
     accounts = _accounts(dependency_data.get("accounts"))
     try:
         signals = collect_cost_signals(session.client("ce"), accounts)

@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
-from botocore.client import BaseClient
-from botocore.exceptions import BotoCoreError, ClientError
 
 from anvil.actions import ActionRecorder
+
+if TYPE_CHECKING:
+    from botocore.client import BaseClient
 
 __LOGGER__ = logging.getLogger(__name__)
 TASK_SCOPE = "configured_target"
@@ -63,6 +65,7 @@ def _operations_contact(
     Raises:
         BotoCoreError, ClientError: For any failure other than "no contact set".
     """
+    from botocore.exceptions import ClientError
     request: dict[str, str] = {"AlternateContactType": OPERATIONS_CONTACT_TYPE}
     if account_id != management_account_id:
         request["AccountId"] = account_id
@@ -101,6 +104,7 @@ def collect_accounts(
     When ``account_client`` is provided, each account's Operations alternate
     contact is collected as ``operations_contact``; otherwise it is ``None``.
     """
+    from botocore.exceptions import BotoCoreError, ClientError
     accounts: list[dict[str, object]] = []
     paginator = org_client.get_paginator("list_accounts")
     for page in paginator.paginate():

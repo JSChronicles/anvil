@@ -7,11 +7,13 @@ import logging
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
-from botocore.client import BaseClient
-from botocore.exceptions import BotoCoreError, ClientError
 
 from anvil.actions import ActionRecorder
+
+if TYPE_CHECKING:
+    from botocore.client import BaseClient
 
 __LOGGER__ = logging.getLogger(__name__)
 TASK_SCOPE = "configured_target"
@@ -415,6 +417,7 @@ def run(
     Raises:
         RuntimeError: If metadata or dependency data is invalid.
     """
+    from botocore.exceptions import BotoCoreError, ClientError
     account_ids = _account_ids(dependency_data.get("accounts"))
     if not account_ids:
         return {"signals_by_account": {}}
