@@ -4,6 +4,36 @@ All notable changes to this project will be documented in this file.
 
 <!-- version list -->
 
+## v0.39.0 (2026-11-23)
+
+### Bug Fixes
+
+- **runner**: Evict settled provider sessions
+  ([#155](https://github.com/JSChronicles/anvil/pull/155),
+  [`28a8251`](https://github.com/JSChronicles/anvil/commit/28a8251940ca20be71d8224e2c023a7ff88cb9f2))
+
+### Documentation
+
+- **providers**: Clarify session lifecycle ownership
+  ([#155](https://github.com/JSChronicles/anvil/pull/155),
+  [`28a8251`](https://github.com/JSChronicles/anvil/commit/28a8251940ca20be71d8224e2c023a7ff88cb9f2))
+
+### Features
+
+- **aws**: Use Operations alternate contact for inactive account owner
+  ([#155](https://github.com/JSChronicles/anvil/pull/155),
+  [`28a8251`](https://github.com/JSChronicles/anvil/commit/28a8251940ca20be71d8224e2c023a7ff88cb9f2))
+
+- **processors**: Add inactive account report
+  ([#155](https://github.com/JSChronicles/anvil/pull/155),
+  [`28a8251`](https://github.com/JSChronicles/anvil/commit/28a8251940ca20be71d8224e2c023a7ff88cb9f2))
+
+### Refactoring
+
+- **processors**: Template html_report ([#155](https://github.com/JSChronicles/anvil/pull/155),
+  [`28a8251`](https://github.com/JSChronicles/anvil/commit/28a8251940ca20be71d8224e2c023a7ff88cb9f2))
+
+
 ## v0.38.1 (2026-11-16)
 
 ### Bug Fixes
