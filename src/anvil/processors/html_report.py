@@ -199,413 +199,309 @@ def _build_html(
     *, title: str, records: list[dict[str, object]], summary: dict[str, object]
 ) -> str:
     payload = {"records": records, "summary": summary, "cards": _summary_cards(records)}
-    escaped_title = html.escape(title)
-    data_json = _json_for_script(payload)
+    return _HTML_TEMPLATE.replace("__TITLE__", html.escape(title)).replace(
+        "__DATA__", _json_for_script(payload)
+    )
 
-    return f"""<!doctype html>
+
+_HTML_TEMPLATE = """<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{escaped_title}</title>
-  <style>
-    :root {{
-      color-scheme: light;
-      --bg: #f6f7f9;
-      --panel: #ffffff;
-      --text: #1d232b;
-      --muted: #667085;
-      --border: #d8dde5;
-      --success: #13795b;
-      --success-bg: #e8f5ef;
-      --success-border: #b6dfcc;
-      --error: #b42318;
-      --error-bg: #fdeceb;
-      --error-border: #f3b9b5;
-      --interrupted: #915c00;
-      --interrupted-bg: #fff4df;
-      --interrupted-border: #f3ce8d;
-      --accent: #255e9c;
-      --accent-bg: #eaf2fb;
-    }}
-    * {{ box-sizing: border-box; }}
-    body {{
-      margin: 0;
-      background: var(--bg);
-      color: var(--text);
-      font-family: Arial, Helvetica, sans-serif;
-      font-size: 14px;
-      line-height: 1.45;
-    }}
-    header {{
-      background: #202a37;
-      color: #ffffff;
-      padding: 24px 28px;
-    }}
-    h1 {{
-      margin: 0 0 8px;
-      font-size: 26px;
-      font-weight: 700;
-      letter-spacing: 0;
-    }}
-    .subtitle {{ color: #d3dae5; margin: 0; }}
-    main {{ padding: 24px 28px 36px; }}
-    .cards {{
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-      gap: 14px;
-      margin-bottom: 22px;
-    }}
-    .card {{
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-left: 5px solid var(--accent);
-      border-radius: 6px;
-      box-shadow: 0 10px 24px rgba(32, 42, 55, 0.08);
-      padding: 16px;
-      min-height: 112px;
-      position: relative;
-      display: grid;
-      grid-template-columns: 1fr auto;
-      grid-template-areas:
-        "value mark"
-        "label mark";
-      gap: 6px 12px;
-      align-items: center;
-    }}
-    .card.success {{ border-left-color: var(--success); background: linear-gradient(135deg, #ffffff 0%, var(--success-bg) 100%); }}
-    .card.error {{ border-left-color: var(--error); background: linear-gradient(135deg, #ffffff 0%, var(--error-bg) 100%); }}
-    .card.interrupted {{ border-left-color: var(--interrupted); background: linear-gradient(135deg, #ffffff 0%, var(--interrupted-bg) 100%); }}
-    .card-label {{
-      color: var(--muted);
-      font-size: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0;
-      grid-area: label;
-      align-self: start;
-    }}
-    .card-value {{
-      font-size: 36px;
-      font-weight: 700;
-      line-height: 1;
-      grid-area: value;
-      align-self: end;
-    }}
-    .card.success .card-value {{ color: var(--success); }}
-    .card.error .card-value {{ color: var(--error); }}
-    .card.interrupted .card-value {{ color: var(--interrupted); }}
-    .card-mark {{
-      grid-area: mark;
-      align-self: start;
-      justify-self: end;
-      min-width: 42px;
-      min-height: 28px;
-      border-radius: 999px;
-      border: 1px solid var(--border);
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      padding: 3px 9px;
-      color: var(--accent);
-      background: var(--accent-bg);
-      font-size: 12px;
-      font-weight: 700;
-    }}
-    .card.success .card-mark {{
-      border-color: var(--success-border);
-      color: var(--success);
-      background: var(--success-bg);
-    }}
-    .card.error .card-mark {{
-      border-color: var(--error-border);
-      color: var(--error);
-      background: var(--error-bg);
-    }}
-    .card.interrupted .card-mark {{
-      border-color: var(--interrupted-border);
-      color: var(--interrupted);
-      background: var(--interrupted-bg);
-    }}
-    .filters {{
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-      gap: 12px;
-      margin-bottom: 18px;
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 14px;
-    }}
-    label {{ display: grid; gap: 5px; color: var(--muted); font-size: 12px; }}
-    select, input {{
-      width: 100%;
-      min-height: 36px;
-      border: 1px solid var(--border);
-      border-radius: 4px;
-      padding: 6px 8px;
-      background: #ffffff;
-      color: var(--text);
-      font: inherit;
-    }}
-    .table-wrap {{
-      overflow-x: auto;
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 6px;
-    }}
-    table {{ width: 100%; border-collapse: collapse; min-width: 1040px; }}
-    th, td {{
-      border-bottom: 1px solid var(--border);
-      padding: 9px 10px;
-      text-align: left;
-      vertical-align: top;
-    }}
-    th {{
-      background: #eef1f5;
-      color: #344054;
-      font-size: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0;
-      position: sticky;
-      top: 0;
-      z-index: 1;
-    }}
-    tr:last-child td {{ border-bottom: 0; }}
-    .pill {{
-      display: inline-flex;
-      align-items: center;
-      min-height: 24px;
-      border-radius: 999px;
-      padding: 2px 8px;
-      font-size: 12px;
-      font-weight: 700;
-      border: 1px solid transparent;
-      white-space: nowrap;
-    }}
-    .pill.success {{
-      background: var(--success-bg);
-      border-color: var(--success-border);
-      color: var(--success);
-    }}
-    .pill.error {{
-      background: var(--error-bg);
-      border-color: var(--error-border);
-      color: var(--error);
-    }}
-    .pill.interrupted {{
-      background: var(--interrupted-bg);
-      border-color: var(--interrupted-border);
-      color: var(--interrupted);
-    }}
-    .pill.unknown {{
-      background: #eef1f5;
-      border-color: var(--border);
-      color: var(--muted);
-    }}
-    details {{ max-width: 420px; }}
-    summary {{ color: var(--accent); cursor: pointer; }}
-    pre {{
-      max-height: 260px;
-      overflow: auto;
-      white-space: pre-wrap;
-      word-break: break-word;
-      background: #f3f5f8;
-      border: 1px solid var(--border);
-      border-radius: 4px;
-      padding: 8px;
-    }}
-    .empty {{ padding: 24px; color: var(--muted); }}
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__TITLE__</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --bg: #f6f7f9; --panel: #ffffff; --text: #1d232b; --muted: #667085;
+  --border: #d8dde5; --accent: #255e9c; --accent-bg: #eaf2fb; --code-bg: #f3f5f8;
+  --success: #13795b; --success-bg: #e8f5ef;
+  --error: #b42318; --error-bg: #fdeceb;
+  --interrupted: #915c00; --interrupted-bg: #fff4df;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #12161c; --panel: #1b212a; --text: #e6e9ee; --muted: #98a2b3;
+    --border: #2c3541; --accent: #6ea8e6; --accent-bg: #1c2b3d; --code-bg: #141a21;
+    --success: #4cc9a0; --success-bg: #16322a;
+    --error: #ff8a80; --error-bg: #3a1a18;
+    --interrupted: #f0b44c; --interrupted-bg: #37290f;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.45 Arial, Helvetica, sans-serif; }
+header { background: #202a37; color: #fff; padding: 22px 28px; }
+h1 { margin: 0 0 6px; font-size: 24px; font-weight: 700; }
+.subtitle { color: #d3dae5; margin: 0; }
+main { padding: 22px 28px 36px; max-width: 1600px; margin: auto; }
+.cards { display: grid; gap: 14px; margin-bottom: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+.card { background: var(--panel); border: 1px solid var(--border);
+  border-left: 5px solid var(--accent); border-radius: 6px; padding: 14px 16px;
+  text-align: left; font: inherit; color: inherit; cursor: pointer; }
+.card:hover { border-color: var(--accent); }
+.card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.card.selected { outline: 2px solid var(--accent); }
+.card-label { font-size: 12px; text-transform: uppercase; color: var(--muted); }
+.card-value { font-size: 34px; font-weight: 700; line-height: 1.1; }
+.card-mark { display: inline-block; margin-top: 6px; padding: 1px 8px; border-radius: 999px;
+  font-size: 11px; font-weight: 700; color: var(--accent); background: var(--accent-bg);
+  border: 1px solid var(--border); }
+.card.success { border-left-color: var(--success);
+  background: linear-gradient(135deg, var(--panel), var(--success-bg)); }
+.card.success .card-value, .card.success .card-mark { color: var(--success); }
+.card.error { border-left-color: var(--error);
+  background: linear-gradient(135deg, var(--panel), var(--error-bg)); }
+.card.error .card-value, .card.error .card-mark { color: var(--error); }
+.card.interrupted { border-left-color: var(--interrupted);
+  background: linear-gradient(135deg, var(--panel), var(--interrupted-bg)); }
+.card.interrupted .card-value, .card.interrupted .card-mark { color: var(--interrupted); }
+.filters { display: grid; gap: 12px; margin-bottom: 12px; background: var(--panel);
+  border: 1px solid var(--border); border-radius: 6px; padding: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+label { display: grid; gap: 5px; color: var(--muted); font-size: 12px; }
+select, input, button.clear { width: 100%; min-height: 36px; border: 1px solid var(--border);
+  border-radius: 4px; padding: 6px 8px; background: var(--panel); color: var(--text); font: inherit; }
+button.clear { cursor: pointer; align-self: end; }
+.count { color: var(--muted); margin: 8px 2px; font-size: 13px; }
+.table-wrap { background: var(--panel); border: 1px solid var(--border);
+  border-radius: 6px; overflow: auto; max-height: 72vh; }
+table { width: 100%; border-collapse: collapse; min-width: 1040px; }
+th, td { border-bottom: 1px solid var(--border); padding: 9px 10px;
+  text-align: left; vertical-align: top; }
+th { position: sticky; top: 0; z-index: 1; background: var(--panel); color: var(--muted);
+  font-size: 12px; text-transform: uppercase; cursor: pointer; user-select: none; white-space: nowrap; }
+th[aria-sort="ascending"]::after { content: " \\25B2"; }
+th[aria-sort="descending"]::after { content: " \\25BC"; }
+tr:last-child td { border-bottom: 0; }
+tbody tr:hover { background: var(--bg); }
+.pill { display: inline-flex; align-items: center; min-height: 24px; border-radius: 999px;
+  padding: 2px 9px; font-size: 12px; font-weight: 700; border: 1px solid var(--border);
+  white-space: nowrap; color: var(--muted); background: var(--bg); }
+.pill.success { color: var(--success); background: var(--success-bg); border-color: var(--success); }
+.pill.error { color: var(--error); background: var(--error-bg); border-color: var(--error); }
+.pill.interrupted { color: var(--interrupted); background: var(--interrupted-bg); border-color: var(--interrupted); }
+details { max-width: 420px; }
+summary { color: var(--accent); cursor: pointer; }
+pre { max-height: 260px; overflow: auto; white-space: pre-wrap; word-break: break-word;
+  background: var(--code-bg); border: 1px solid var(--border); border-radius: 4px; padding: 8px; }
+.empty { padding: 24px; color: var(--muted); }
+</style>
 </head>
 <body>
-  <header>
-    <h1>{escaped_title}</h1>
-    <p class="subtitle" id="subtitle"></p>
-  </header>
-  <main>
-    <section class="cards" id="cards"></section>
-    <section class="filters" id="filters">
-      <label>Status<select id="statusFilter"></select></label>
-      <label>Type<select id="typeFilter"></select></label>
-      <label>Target<select id="targetFilter"></select></label>
-      <label>Entity<select id="entityFilter"></select></label>
-      <label>Region<select id="regionFilter"></select></label>
-      <label>Task ID<select id="taskIdFilter"></select></label>
-      <label>Task name<select id="taskNameFilter"></select></label>
-      <label>Search<input id="searchFilter" type="search" placeholder="Filter visible fields"></label>
-    </section>
-    <section class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Status</th>
-            <th>Type</th>
-            <th>Target</th>
-            <th>Entity</th>
-            <th>Region</th>
-            <th>Task</th>
-            <th>Duration</th>
-            <th>Error</th>
-            <th>Result</th>
-          </tr>
-        </thead>
-        <tbody id="recordsBody"></tbody>
-      </table>
-      <div class="empty" id="emptyState" hidden>No matching records.</div>
-    </section>
-  </main>
-  <script id="report-data" type="application/json">{data_json}</script>
-  <script>
-    const data = JSON.parse(document.getElementById("report-data").textContent);
-    const records = data.records;
-    const controls = {{
-      status: document.getElementById("statusFilter"),
-      record_type: document.getElementById("typeFilter"),
-      target: document.getElementById("targetFilter"),
-      entity: document.getElementById("entityFilter"),
-      region: document.getElementById("regionFilter"),
-      task_id: document.getElementById("taskIdFilter"),
-      task_name: document.getElementById("taskNameFilter"),
-      search: document.getElementById("searchFilter")
-    }};
-    const fields = ["status", "record_type", "target", "entity", "region", "task_id", "task_name"];
+<header>
+  <h1>__TITLE__</h1>
+  <p class="subtitle" id="subtitle"></p>
+</header>
+<main>
+  <section class="cards" id="cards"></section>
+  <section class="filters" id="filters">
+    <label>Search<input id="searchFilter" type="search" placeholder="Filter visible fields"></label>
+    <label>Status<select id="statusFilter"></select></label>
+    <label>Type<select id="typeFilter"></select></label>
+    <label>Target<select id="targetFilter"></select></label>
+    <label>Entity<select id="entityFilter"></select></label>
+    <label>Region<select id="regionFilter"></select></label>
+    <label>Task ID<select id="taskIdFilter"></select></label>
+    <label>Task name<select id="taskNameFilter"></select></label>
+    <button class="clear" id="clearFilters" type="button">Clear filters</button>
+  </section>
+  <div class="count" id="count"></div>
+  <section class="table-wrap">
+    <table>
+      <thead>
+        <tr id="head"></tr>
+      </thead>
+      <tbody id="recordsBody"></tbody>
+    </table>
+    <div class="empty" id="emptyState" hidden>No matching records.</div>
+  </section>
+</main>
+<script id="report-data" type="application/json">__DATA__</script>
+<script>
+const data = JSON.parse(document.getElementById("report-data").textContent);
+const records = data.records;
+const controls = {
+  status: document.getElementById("statusFilter"),
+  record_type: document.getElementById("typeFilter"),
+  target: document.getElementById("targetFilter"),
+  entity: document.getElementById("entityFilter"),
+  region: document.getElementById("regionFilter"),
+  task_id: document.getElementById("taskIdFilter"),
+  task_name: document.getElementById("taskNameFilter"),
+  search: document.getElementById("searchFilter")
+};
+const fields = ["status", "record_type", "target", "entity", "region", "task_id", "task_name"];
+const columns = [
+  ["status", "Status"], ["record_type", "Type"], ["target", "Target"], ["entity", "Entity"],
+  ["region", "Region"], ["task", "Task"], ["duration_seconds", "Duration"],
+  ["error", "Error", false], ["result", "Result", false]
+];
+let activeCard = -1;
+let sortKey = "";
+let sortDir = 1;
 
-    function value(record, field) {{
-      if (field === "entity") {{
-        return record.entity_name || record.entity_id || "";
-      }}
-      return record[field] || "";
-    }}
+function value(record, field) {
+  if (field === "entity") return record.entity_name || record.entity_id || "";
+  if (field === "task") return [record.task_id, record.task_name].filter(Boolean).join(" / ");
+  return record[field] || "";
+}
 
-    function populateSelect(select, values, label) {{
-      select.innerHTML = "";
-      const all = document.createElement("option");
-      all.value = "";
-      all.textContent = `All ${{label}}`;
-      select.appendChild(all);
-      values.forEach((item) => {{
-        const option = document.createElement("option");
-        option.value = item;
-        option.textContent = item;
-        select.appendChild(option);
-      }});
-    }}
+function populateSelect(select, values, label) {
+  select.innerHTML = "";
+  const all = document.createElement("option");
+  all.value = "";
+  all.textContent = `All ${label}`;
+  select.appendChild(all);
+  values.forEach((item) => {
+    const option = document.createElement("option");
+    option.value = item;
+    option.textContent = item;
+    select.appendChild(option);
+  });
+}
 
-    function sortedValues(field) {{
-      return [...new Set(records.map((record) => value(record, field)).filter(Boolean))]
-        .sort((left, right) => left.localeCompare(right));
-    }}
+function sortedValues(field) {
+  return [...new Set(records.map((record) => value(record, field)).filter(Boolean))]
+    .sort((left, right) => left.localeCompare(right));
+}
 
-    function renderCards(cards) {{
-      const cardsRoot = document.getElementById("cards");
-      cardsRoot.innerHTML = "";
-      cards.forEach((card) => {{
-        const element = document.createElement("article");
-        element.className = `card ${{card.tone || ""}}`.trim();
-        element.innerHTML = `<div class="card-value"></div><div class="card-label"></div><div class="card-mark"></div>`;
-        element.querySelector(".card-label").textContent = card.label;
-        element.querySelector(".card-value").textContent = card.value;
-        element.querySelector(".card-mark").textContent = card.mark;
-        cardsRoot.appendChild(element);
-      }});
-    }}
+function cardMatches(record, card) {
+  const filter = card.filter || {};
+  return Object.entries(filter).every(([field, expected]) => {
+    const actual = value(record, field);
+    return Array.isArray(expected) ? expected.includes(actual) : actual === expected;
+  });
+}
 
-    function recordMatches(record) {{
-      for (const field of fields) {{
-        const expected = controls[field].value;
-        if (expected && value(record, field) !== expected) {{
-          return false;
-        }}
-      }}
-      const query = controls.search.value.trim().toLowerCase();
-      if (!query) {{
-        return true;
-      }}
-      return [
-        record.status,
-        record.record_type,
-        record.target,
-        record.entity_id,
-        record.entity_name,
-        record.entity_type,
-        record.region,
-        record.task_id,
-        record.task_name,
-        record.error
-      ].some((item) => String(item || "").toLowerCase().includes(query));
-    }}
+function renderCards(cards) {
+  const root = document.getElementById("cards");
+  root.innerHTML = "";
+  cards.forEach((card, index) => {
+    const element = document.createElement("button");
+    element.type = "button";
+    element.className = `card ${card.tone || ""}`.trim();
+    element.dataset.index = index;
+    element.title = "Click to filter; click again to clear";
+    element.innerHTML = '<div class="card-label"></div><div class="card-value"></div><span class="card-mark"></span>';
+    element.querySelector(".card-label").textContent = card.label;
+    element.querySelector(".card-value").textContent = card.value;
+    element.querySelector(".card-mark").textContent = card.mark;
+    element.addEventListener("click", () => {
+      const isAll = !card.filter || Object.keys(card.filter).length === 0;
+      activeCard = isAll || activeCard === index ? -1 : index;
+      renderTable();
+    });
+    root.appendChild(element);
+  });
+}
 
-    function statusClass(status) {{
-      if (status === "success" || status === "error" || status === "interrupted") {{
-        return status;
-      }}
-      return "unknown";
-    }}
+function recordMatches(record) {
+  if (activeCard >= 0 && !cardMatches(record, data.cards[activeCard])) return false;
+  for (const field of fields) {
+    const expected = controls[field].value;
+    if (expected && value(record, field) !== expected) return false;
+  }
+  const query = controls.search.value.trim().toLowerCase();
+  if (!query) return true;
+  return [record.status, record.record_type, record.target, record.entity_id, record.entity_name,
+    record.entity_type, record.region, record.task_id, record.task_name, record.error]
+    .some((item) => String(item || "").toLowerCase().includes(query));
+}
 
-    function detailCell(label, value) {{
-      if (value === null || value === undefined || value === "") {{
-        return "";
-      }}
-      const json = typeof value === "string" ? value : JSON.stringify(value, null, 2);
-      return `<details><summary>${{label}}</summary><pre></pre></details>`;
-    }}
+function statusClass(status) {
+  return ["success", "error", "interrupted"].includes(status) ? status : "unknown";
+}
 
-    function setDetailPre(cell, value) {{
-      const pre = cell.querySelector("pre");
-      if (pre) {{
-        pre.textContent = typeof value === "string" ? value : JSON.stringify(value, null, 2);
-      }}
-    }}
+function detailCell(label, content) {
+  if (content === null || content === undefined || content === "") return null;
+  const details = document.createElement("details");
+  const summary = document.createElement("summary");
+  summary.textContent = label;
+  const pre = document.createElement("pre");
+  pre.textContent = typeof content === "string" ? content : JSON.stringify(content, null, 2);
+  details.append(summary, pre);
+  return details;
+}
 
-    function renderTable() {{
-      const body = document.getElementById("recordsBody");
-      const empty = document.getElementById("emptyState");
-      body.innerHTML = "";
-      const matches = records.filter(recordMatches);
-      empty.hidden = matches.length > 0;
+function compare(left, right) {
+  const a = sortKey === "duration_seconds" ? Number(left[sortKey] ?? -1) : String(value(left, sortKey));
+  const b = sortKey === "duration_seconds" ? Number(right[sortKey] ?? -1) : String(value(right, sortKey));
+  return (a > b ? 1 : a < b ? -1 : 0) * sortDir;
+}
 
-      matches.forEach((record) => {{
-        const row = document.createElement("tr");
-        row.innerHTML = `
-          <td><span class="pill ${{statusClass(record.status)}}"></span></td>
-          <td></td>
-          <td></td>
-          <td></td>
-          <td></td>
-          <td></td>
-          <td></td>
-          <td>${{detailCell("error", record.error)}}</td>
-          <td>${{detailCell("result", record.result)}}</td>
-        `;
-        const cells = row.querySelectorAll("td");
-        cells[0].querySelector(".pill").textContent = record.status || "unknown";
-        cells[1].textContent = record.record_type || "";
-        cells[2].textContent = record.target || "";
-        cells[3].textContent = [record.entity_name, record.entity_id].filter(Boolean).join(" ");
-        cells[4].textContent = record.region || "";
-        cells[5].textContent = [record.task_id, record.task_name].filter(Boolean).join(" / ");
-        cells[6].textContent = record.duration_seconds === undefined || record.duration_seconds === null
-          ? ""
-          : `${{record.duration_seconds}}s`;
-        setDetailPre(cells[7], record.error);
-        setDetailPre(cells[8], record.result);
-        body.appendChild(row);
-      }});
-      document.getElementById("subtitle").textContent =
-        `${{matches.length}} of ${{records.length}} records shown`;
-    }}
+function renderHead() {
+  const head = document.getElementById("head");
+  head.innerHTML = "";
+  columns.forEach(([key, label, sortable]) => {
+    const th = document.createElement("th");
+    th.textContent = label;
+    if (sortable !== false) {
+      th.addEventListener("click", () => {
+        sortDir = sortKey === key ? -sortDir : 1;
+        sortKey = key;
+        renderTable();
+      });
+      if (sortKey === key) th.setAttribute("aria-sort", sortDir > 0 ? "ascending" : "descending");
+    }
+    head.appendChild(th);
+  });
+}
 
-    populateSelect(controls.status, sortedValues("status"), "statuses");
-    populateSelect(controls.record_type, sortedValues("record_type"), "types");
-    populateSelect(controls.target, sortedValues("target"), "targets");
-    populateSelect(controls.entity, sortedValues("entity"), "entities");
-    populateSelect(controls.region, sortedValues("region"), "regions");
-    populateSelect(controls.task_id, sortedValues("task_id"), "task IDs");
-    populateSelect(controls.task_name, sortedValues("task_name"), "task names");
-    renderCards(data.cards);
-    Object.values(controls).forEach((control) => control.addEventListener("input", renderTable));
-    renderTable();
-  </script>
+function renderTable() {
+  const body = document.getElementById("recordsBody");
+  body.innerHTML = "";
+  const matches = records.filter(recordMatches);
+  if (sortKey) matches.sort(compare);
+  document.getElementById("emptyState").hidden = matches.length > 0;
+  document.querySelectorAll("#cards .card").forEach((card) =>
+    card.classList.toggle("selected", Number(card.dataset.index) === activeCard));
+  renderHead();
+
+  matches.forEach((record) => {
+    const row = document.createElement("tr");
+    for (let i = 0; i < 9; i += 1) row.appendChild(document.createElement("td"));
+    const cells = row.children;
+    const pill = document.createElement("span");
+    pill.className = `pill ${statusClass(record.status)}`;
+    pill.textContent = record.status || "unknown";
+    cells[0].appendChild(pill);
+    cells[1].textContent = record.record_type || "";
+    cells[2].textContent = record.target || "";
+    cells[3].textContent = [record.entity_name, record.entity_id].filter(Boolean).join(" ");
+    cells[4].textContent = record.region || "";
+    cells[5].textContent = value(record, "task");
+    cells[6].textContent = record.duration_seconds === undefined || record.duration_seconds === null
+      ? "" : `${Number(record.duration_seconds).toFixed(1)}s`;
+    const error = detailCell("error", record.error);
+    const result = detailCell("result", record.result);
+    if (error) cells[7].appendChild(error);
+    if (result) cells[8].appendChild(result);
+    body.appendChild(row);
+  });
+  const label = activeCard >= 0 ? ` · card filter: ${data.cards[activeCard].label}` : "";
+  document.getElementById("count").textContent = `${matches.length} of ${records.length} records shown${label}`;
+  document.getElementById("subtitle").textContent =
+    `${records.length} records` + (data.summary.state ? ` · run ${data.summary.state}` : "");
+}
+
+populateSelect(controls.status, sortedValues("status"), "statuses");
+populateSelect(controls.record_type, sortedValues("record_type"), "types");
+populateSelect(controls.target, sortedValues("target"), "targets");
+populateSelect(controls.entity, sortedValues("entity"), "entities");
+populateSelect(controls.region, sortedValues("region"), "regions");
+populateSelect(controls.task_id, sortedValues("task_id"), "task IDs");
+populateSelect(controls.task_name, sortedValues("task_name"), "task names");
+renderCards(data.cards);
+Object.values(controls).forEach((control) => control.addEventListener("input", renderTable));
+document.getElementById("clearFilters").addEventListener("click", () => {
+  Object.values(controls).forEach((control) => { control.value = ""; });
+  activeCard = -1;
+  renderTable();
+});
+renderTable();
+</script>
 </body>
 </html>
 """
@@ -628,34 +524,58 @@ def _summary_cards(records: list[dict[str, object]]) -> list[dict[str, object]]:
         if record.get("record_type") == "task" and _is_unsuccessful(record)
     )
 
+    # Each card's optional "filter" maps a record field to the value(s) it
+    # selects; the report applies it when the card is clicked.
+    unsuccessful = ["error", "interrupted"]
     return [
-        {"label": "Records", "value": len(records), "mark": "ALL"},
-        {"label": "Succeeded", "value": success_count, "tone": "success", "mark": "OK"},
+        {"label": "Records", "value": len(records), "mark": "ALL", "filter": {}},
+        {
+            "label": "Succeeded",
+            "value": success_count,
+            "tone": "success",
+            "mark": "OK",
+            "filter": {"status": "success"},
+        },
         {
             "label": "Unsuccessful",
             "value": unsuccessful_count,
             "tone": "error",
             "mark": "ATTN",
+            "filter": {"status": unsuccessful},
         },
-        {"label": "Errors", "value": error_count, "tone": "error", "mark": "ERR"},
+        {
+            "label": "Errors",
+            "value": error_count,
+            "tone": "error",
+            "mark": "ERR",
+            "filter": {"status": "error"},
+        },
         {
             "label": "Interrupted",
             "value": interrupted_count,
             "tone": "interrupted",
             "mark": "INT",
+            "filter": {"status": "interrupted"},
         },
-        {"label": "Skipped", "value": skipped_count, "mark": "SKIP"},
+        {
+            "label": "Skipped",
+            "value": skipped_count,
+            "mark": "SKIP",
+            "filter": {"status": "skipped"},
+        },
         {
             "label": "Failed entities",
             "value": failed_entities,
             "tone": "error",
             "mark": "ENT",
+            "filter": {"record_type": "entity", "status": unsuccessful},
         },
         {
             "label": "Failed tasks",
             "value": failed_tasks,
             "tone": "error",
             "mark": "TASK",
+            "filter": {"record_type": "task", "status": unsuccessful},
         },
     ]
 
