@@ -83,3 +83,22 @@ class SingleFlightCache(Generic[KeyT, ValueT]):
         if flight.value is _MISSING:
             raise RuntimeError("Single-flight cache entry completed without a value")
         return cast("ValueT", flight.value), True, True
+
+    def pop(self, key: KeyT) -> ValueT:
+        """Remove and return one completed cached value.
+
+        Args:
+            key: Cache identity to remove.
+
+        Returns:
+            The completed cached value.
+
+        Raises:
+            KeyError: If the key has no completed cached value.
+            RuntimeError: If creation for the key is still in flight.
+        """
+
+        with self._lock:
+            if key in self._flights:
+                raise RuntimeError(f"Cannot remove in-flight cache key: {key!r}")
+            return self._values.pop(key)

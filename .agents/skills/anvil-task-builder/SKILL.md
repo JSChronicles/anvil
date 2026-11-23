@@ -1,14 +1,16 @@
 ---
 name: anvil-task-builder
-description: Builds and maintains Anvil task modules, workflows, schemas, runner behavior, SARIF-compatible detect_ tasks, and plugin templates. Use when user asks to create or edit an Anvil task, choose or change task scope, fix repeated regional execution, add dry-run behavior, record actions, return task results, update Anvil YAML or schemas, change account execution, update plugin templates, add payer-account concurrency, or build a management-account-only task.
+description: Builds and maintains Anvil tasks, providers, workflows, schemas, runner behavior, SARIF-compatible detect_ tasks, and plugin templates. Use when creating or editing an Anvil task or provider, changing task scope or account execution, adding dry-run behavior or result handling, updating Anvil YAML or schemas, changing provider runtime/session lifecycle, or building provider plugins and templates.
 metadata:
   author: JSChronicles
-  version: "0.13"
+  version: "0.14"
 ---
 
 # Anvil Task Builder
 
-Use this skill to create Anvil tasks that satisfy the runtime contract, behave safely in dry-run mode, and validate through Anvil's task discovery path.
+Use this skill to create Anvil tasks and providers that satisfy their runtime
+contracts, keep resource ownership bounded, behave safely in dry-run mode, and
+validate through Anvil's discovery paths.
 
 ## Workflow
 
@@ -21,6 +23,10 @@ Use this skill to create Anvil tasks that satisfy the runtime contract, behave s
 7. Apply normal Python and provider-specific implementation hygiene.
 8. Add or update YAML examples that reference the task when useful.
 9. Run `uv run anvil validate --tasks`.
+
+For provider work, first read `references/provider-runtime-lifecycle.md`, then
+validate the provider contract and its provider-specific test suite in addition
+to normal task validation.
 
 ## Core Rules
 
@@ -75,12 +81,19 @@ Use this skill to create Anvil tasks that satisfy the runtime contract, behave s
   `TYPE_CHECKING` when postponed annotations are enabled.
 - Validate required `metadata` values before use and raise clear `RuntimeError` messages.
 - Prefer provider SDK pagination helpers for list and describe APIs that can paginate.
+- Treat provider sessions as coordinate-scoped resources. Do not retain a session
+  in both the engine cache and the provider runtime. Sessions that own SDK
+  clients, transports, connection pools, or credentials must expose idempotent
+  cleanup, and provider-owned caches must have a bounded lifetime or explicit
+  eviction.
 
 ## Reference Loading
 
 Load only the reference files needed for the current task:
 
 - For stock task, plugin task, entry-point, and `run()` signature rules, read `references/runtime-contract.md`.
+- For creating or reviewing a provider runtime, session factory, client cache,
+  or provider plugin, read `references/provider-runtime-lifecycle.md`.
 - For choosing, changing, documenting, or reviewing task scope, read `references/task-scopes.md`.
 - For dry-run behavior, action recording, logging, and result shape, read `references/dry-run-and-actions.md`.
 - For task granularity, inventory task boundaries, performance, and region concurrency, read `references/task-granularity.md`.
@@ -92,10 +105,11 @@ Load only the reference files needed for the current task:
 
 ## Review Behavior
 
-When reviewing Anvil tasks, prioritize incorrect scope or repeated global work,
+When reviewing Anvil tasks or providers, prioritize incorrect scope or repeated global work,
 runtime contract violations, missing or weak `run()` docstrings for `--detail`,
 missing dry-run guards, unsafe provider mutation behavior, invalid metadata
-handling, missing task discovery wiring, and validation gaps. Verify scope
+handling, unbounded provider session/client caches, duplicated session ownership,
+missing cleanup paths, missing task discovery wiring, and validation gaps. Verify scope
 against the API's ownership boundary even when the declared scope passes
 validation; Anvil cannot infer that semantic choice.
 

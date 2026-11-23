@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import threading
 
+import pytest
+
 from anvil.singleflight import SingleFlightCache
 
 
@@ -97,6 +99,42 @@ def test_single_flight_cache_can_cache_none() -> None:
     assert cache.get_or_create(key="shared", create=create) == (None, False, False)
     assert cache.get_or_create(key="shared", create=create) == (None, True, False)
     assert calls == 1
+
+
+def test_single_flight_cache_pop_releases_completed_value() -> None:
+    cache = SingleFlightCache[str, str]()
+
+    cache.get_or_create(key="shared", create=lambda: "first")
+
+    assert cache.pop("shared") == "first"
+    assert cache.get_or_create(key="shared", create=lambda: "second") == (
+        "second",
+        False,
+        False,
+    )
+
+
+def test_single_flight_cache_rejects_pop_while_creation_is_in_flight() -> None:
+    cache = SingleFlightCache[str, str]()
+    started = threading.Event()
+    release = threading.Event()
+
+    def create() -> str:
+        started.set()
+        assert release.wait(timeout=1.0)
+        return "value"
+
+    thread = threading.Thread(
+        target=lambda: cache.get_or_create(key="shared", create=create)
+    )
+    thread.start()
+    assert started.wait(timeout=1.0)
+
+    with pytest.raises(RuntimeError, match="Cannot remove in-flight cache key"):
+        cache.pop("shared")
+
+    release.set()
+    _join_threads([thread])
 
 
 def test_single_flight_cache_allows_different_keys_to_create_concurrently() -> None:

@@ -180,7 +180,14 @@ class ProviderExecutionRuntime(Protocol):
     """Provider-owned lifecycle state for one execution target."""
 
     def build_session(self, *, region: str) -> object:
-        """Build a task session for a concrete provider region."""
+        """Build a task session for a concrete provider region.
+
+        The engine shares the returned session across tasks in that execution
+        coordinate and releases it after the coordinate settles. A session that
+        owns SDK clients, transports, or connection pools should expose an
+        idempotent ``close()`` method. Runtimes should not retain duplicate
+        references to returned sessions unless ``close()`` releases them.
+        """
 
     def record_region_outcome(
         self, *, region: str, duration_seconds: float, failed: bool, interrupted: bool
@@ -194,7 +201,11 @@ class ProviderExecutionRuntime(Protocol):
         """
 
     def close(self) -> None:
-        """Release any provider-owned runtime resources."""
+        """Release provider-owned resources and retained session references.
+
+        Implementations should be idempotent because cleanup also runs after
+        cancellation and partial execution failures.
+        """
 
 
 class Provider(Protocol):

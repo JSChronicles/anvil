@@ -52,6 +52,27 @@ class FakeClientSession:
         return object()
 
 
+class ClosableClient:
+    def __init__(self, *, fail: bool = False) -> None:
+        self.closed = False
+        self.fail = fail
+
+    def close(self) -> None:
+        self.closed = True
+        if self.fail:
+            raise RuntimeError("client close failed")
+
+
+class ClosableClientSession(FakeClientSession):
+    def __init__(self, clients: list[ClosableClient]) -> None:
+        super().__init__()
+        self.clients = iter(clients)
+
+    def client(self, service_name, *args, **kwargs):
+        self.client_calls.append((service_name, args, kwargs))
+        return next(self.clients)
+
+
 def test_create_base_session_omits_none_profile(monkeypatch):
     FakeBotoSession.created = []
     monkeypatch.setattr(session_module.boto3, "Session", FakeBotoSession)
@@ -229,3 +250,20 @@ def test_cached_client_session_separates_services_and_kwargs():
         ("ec2", (), {"region_name": "us-west-2"}),
         ("s3", (), {}),
     ]
+
+
+def test_cached_client_session_closes_and_releases_cached_clients():
+    ec2_client = ClosableClient()
+    s3_client = ClosableClient()
+    replacement_client = ClosableClient()
+    raw_session = ClosableClientSession([ec2_client, s3_client, replacement_client])
+    session = SessionFactory().create_cached_client_session(session=raw_session)
+    session.client("ec2")
+    session.client("s3")
+
+    session.close()
+
+    assert ec2_client.closed is True
+    assert s3_client.closed is True
+    replacement = session.client("ec2")
+    assert replacement is replacement_client

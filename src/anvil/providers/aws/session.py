@@ -96,6 +96,29 @@ class CachedClientSession:
 
         return client
 
+    def close(self) -> None:
+        """Close and release all clients cached by this regional session."""
+
+        clients = list(self._clients.values())
+        self._clients.clear()
+        errors: list[Exception] = []
+        closed_client_ids: set[int] = set()
+        for client in clients:
+            client_id = id(client)
+            if client_id in closed_client_ids:
+                continue
+            closed_client_ids.add(client_id)
+            close = getattr(client, "close", None)
+            if not callable(close):
+                continue
+            try:
+                close()
+            except Exception as error:
+                errors.append(error)
+
+        if errors:
+            raise ExceptionGroup("Failed to close cached AWS clients", errors)
+
     def __getattr__(self, name: str) -> object:
         return getattr(self._session, name)
 
