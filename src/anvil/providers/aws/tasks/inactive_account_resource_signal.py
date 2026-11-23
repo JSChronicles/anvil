@@ -30,6 +30,7 @@ RESOURCE_TYPE_FILTERS = (
 def _count(label: str, collect: Callable[[], int], warnings: list[str]) -> int:
     """Run one resource counter and return zero with a visible warning on failure."""
     from botocore.exceptions import BotoCoreError, ClientError
+
     try:
         return collect()
     except (BotoCoreError, ClientError) as error:
@@ -236,6 +237,7 @@ def run(
         RuntimeError: If ``metadata.owner_tag_keys`` is invalid.
     """
     from botocore.exceptions import BotoCoreError, ClientError
+
     count_warnings: list[str] = []
     counts = _resource_counts(session, count_warnings)
     total = sum(counts.values())

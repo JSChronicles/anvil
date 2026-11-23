@@ -418,6 +418,7 @@ def run(
         RuntimeError: If metadata or dependency data is invalid.
     """
     from botocore.exceptions import BotoCoreError, ClientError
+
     account_ids = _account_ids(dependency_data.get("accounts"))
     if not account_ids:
         return {"signals_by_account": {}}

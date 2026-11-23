@@ -214,6 +214,7 @@ def run(
         A mapping of account IDs to cost signals.
     """
     from botocore.exceptions import BotoCoreError, ClientError
+
     accounts = _accounts(dependency_data.get("accounts"))
     try:
         signals = collect_cost_signals(session.client("ce"), accounts)

@@ -66,6 +66,7 @@ def _operations_contact(
         BotoCoreError, ClientError: For any failure other than "no contact set".
     """
     from botocore.exceptions import ClientError
+
     request: dict[str, str] = {"AlternateContactType": OPERATIONS_CONTACT_TYPE}
     if account_id != management_account_id:
         request["AccountId"] = account_id
@@ -105,6 +106,7 @@ def collect_accounts(
     contact is collected as ``operations_contact``; otherwise it is ``None``.
     """
     from botocore.exceptions import BotoCoreError, ClientError
+
     accounts: list[dict[str, object]] = []
     paginator = org_client.get_paginator("list_accounts")
     for page in paginator.paginate():
