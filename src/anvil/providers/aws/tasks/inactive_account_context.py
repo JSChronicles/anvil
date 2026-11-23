@@ -11,6 +11,7 @@ from anvil.actions import ActionRecorder
 
 __LOGGER__ = logging.getLogger(__name__)
 TASK_SCOPE = "configured_target"
+OPERATIONS_CONTACT_TYPE = "OPERATIONS"
 
 DEFAULT_OWNER_TAG_KEYS = (
     "Owner",
@@ -51,10 +52,55 @@ def _list_tags(org_client: BaseClient, account_id: str) -> dict[str, str]:
     return tags
 
 
+def _operations_contact(
+    account_client: BaseClient, account_id: str, management_account_id: str | None
+) -> dict[str, str | None] | None:
+    """Return one account's Operations alternate contact, or None if unset.
+
+    The management account cannot name itself in ``AccountId``, so its own
+    contact is read from the caller's context instead.
+
+    Raises:
+        BotoCoreError, ClientError: For any failure other than "no contact set".
+    """
+    request: dict[str, str] = {"AlternateContactType": OPERATIONS_CONTACT_TYPE}
+    if account_id != management_account_id:
+        request["AccountId"] = account_id
+
+    try:
+        response = account_client.get_alternate_contact(**request)
+    except ClientError as error:
+        if error.response.get("Error", {}).get("Code") == "ResourceNotFoundException":
+            return None
+        raise
+
+    contact = response.get("AlternateContact")
+    if not isinstance(contact, dict):
+        return None
+
+    def _text(key: str) -> str | None:
+        value = contact.get(key)
+        return value.strip() if isinstance(value, str) and value.strip() else None
+
+    result = {
+        "name": _text("Name"),
+        "title": _text("Title"),
+        "email": _text("EmailAddress"),
+    }
+    return result if any(result.values()) else None
+
+
 def collect_accounts(
-    org_client: BaseClient, owner_tag_keys: tuple[str, ...]
+    org_client: BaseClient,
+    owner_tag_keys: tuple[str, ...],
+    account_client: BaseClient | None = None,
+    management_account_id: str | None = None,
 ) -> list[dict[str, object]]:
-    """Return active organization accounts with account-level ownership context."""
+    """Return active organization accounts with account-level ownership context.
+
+    When ``account_client`` is provided, each account's Operations alternate
+    contact is collected as ``operations_contact``; otherwise it is ``None``.
+    """
     accounts: list[dict[str, object]] = []
     paginator = org_client.get_paginator("list_accounts")
     for page in paginator.paginate():
@@ -85,6 +131,19 @@ def collect_accounts(
                 for key in owner_tag_keys
                 if key in tags and tags[key].strip()
             }
+            operations_contact = None
+            if account_client is not None:
+                try:
+                    operations_contact = _operations_contact(
+                        account_client, account_id, management_account_id
+                    )
+                except (BotoCoreError, ClientError) as error:
+                    warning = (
+                        f"Unable to collect Operations contact for account "
+                        f"{account_id}: {error}"
+                    )
+                    __LOGGER__.warning(warning)
+                    warnings.append(warning)
             accounts.append(
                 {
                     "account_id": account_id,
@@ -93,6 +152,7 @@ def collect_accounts(
                     "state": state,
                     "tags": tags,
                     "ownership_tags": ownership_tags,
+                    "operations_contact": operations_contact,
                     "warnings": warnings,
                 }
             )
@@ -113,11 +173,14 @@ def run(
     dependency_data: dict[str, object],
     actions: ActionRecorder,
 ) -> dict[str, object]:
-    """Collect organization accounts and account-level ownership tags.
+    """Collect organization accounts and account-level ownership context.
 
     This read-only task runs once for the configured AWS target and uses its
-    Organizations control plane. Account tags are returned as report context;
-    they are not an inactivity scoring input.
+    Organizations control plane. Account tags and each account's Operations
+    alternate contact are returned as report context; they are not an
+    inactivity scoring input. Reading member-account contacts needs
+    ``account:GetAlternateContact`` and trusted access for AWS Account
+    Management enabled in the organization.
 
     Args:
         provider: Provider name for the configured target.
@@ -139,7 +202,10 @@ def run(
         botocore.exceptions.ClientError: If Organizations cannot be queried.
     """
     accounts = collect_accounts(
-        session.client("organizations"), _owner_tag_keys(metadata)
+        session.client("organizations"),
+        _owner_tag_keys(metadata),
+        account_client=session.client("account"),
+        management_account_id=execution_target_id,
     )
     actions.record(f"Collected ownership context for {len(accounts)} AWS account(s)")
     __LOGGER__.info(

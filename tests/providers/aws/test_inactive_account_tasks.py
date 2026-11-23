@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from botocore.exceptions import ClientError
+
 from anvil.providers.aws.tasks import inactive_account_cloudtrail_signal
 from anvil.providers.aws.tasks import inactive_account_context
 from anvil.providers.aws.tasks import inactive_account_cost_signal
@@ -66,9 +68,97 @@ def test_context_returns_account_tags_as_non_scoring_context() -> None:
             "state": "ACTIVE",
             "tags": {"Owner": "platform-team", "Environment": "production"},
             "ownership_tags": {"Owner": "platform-team"},
+            "operations_contact": None,
             "warnings": [],
         }
     ]
+
+
+class FakeAccountClient:
+    def __init__(self, contacts: dict[str | None, object]) -> None:
+        self.contacts = contacts
+        self.calls: list[dict[str, str]] = []
+
+    def get_alternate_contact(self, **kwargs: str) -> dict[str, object]:
+        self.calls.append(kwargs)
+        outcome = self.contacts[kwargs.get("AccountId")]
+        if isinstance(outcome, Exception):
+            raise outcome
+        return {"AlternateContact": outcome}
+
+
+def _client_error(code: str) -> ClientError:
+    return ClientError(
+        {"Error": {"Code": code, "Message": code}}, "GetAlternateContact"
+    )
+
+
+def test_context_collects_operations_contact() -> None:
+    account_client = FakeAccountClient(
+        {
+            "111111111111": {
+                "Name": " Ops Team ",
+                "Title": "On-call",
+                "EmailAddress": "ops@example.com",
+                "PhoneNumber": "+15555550100",
+            }
+        }
+    )
+
+    result = inactive_account_context.collect_accounts(
+        FakeOrganizationsClient(), ("Owner",), account_client=account_client
+    )
+
+    assert result[0]["operations_contact"] == {
+        "name": "Ops Team",
+        "title": "On-call",
+        "email": "ops@example.com",
+    }
+    assert result[0]["warnings"] == []
+    assert account_client.calls == [
+        {"AlternateContactType": "OPERATIONS", "AccountId": "111111111111"}
+    ]
+
+
+def test_context_treats_missing_operations_contact_as_none_without_warning() -> None:
+    account_client = FakeAccountClient(
+        {"111111111111": _client_error("ResourceNotFoundException")}
+    )
+
+    result = inactive_account_context.collect_accounts(
+        FakeOrganizationsClient(), ("Owner",), account_client=account_client
+    )
+
+    assert result[0]["operations_contact"] is None
+    assert result[0]["warnings"] == []
+
+
+def test_context_warns_when_operations_contact_lookup_fails() -> None:
+    account_client = FakeAccountClient(
+        {"111111111111": _client_error("AccessDeniedException")}
+    )
+
+    result = inactive_account_context.collect_accounts(
+        FakeOrganizationsClient(), ("Owner",), account_client=account_client
+    )
+
+    assert result[0]["operations_contact"] is None
+    assert "Unable to collect Operations contact" in result[0]["warnings"][0]
+
+
+def test_context_omits_account_id_for_management_account() -> None:
+    account_client = FakeAccountClient(
+        {None: {"Name": "Root Ops", "EmailAddress": "root@example.com"}}
+    )
+
+    inactive_account_context.collect_accounts(
+        FakeOrganizationsClient(),
+        ("Owner",),
+        account_client=account_client,
+        management_account_id="111111111111",
+    )
+
+    assert account_client.calls == [{"AlternateContactType": "OPERATIONS"}]
 
 
 class FakeCostExplorerClient:
@@ -164,6 +254,7 @@ def test_report_fans_in_regions_and_keeps_tags_out_of_score() -> None:
         "account_name": "payments",
         "tags": {"Owner": "account-owner"},
         "ownership_tags": {"Owner": "account-owner"},
+        "operations_contact": {"name": "Ops Team", "email": "ops@example.com"},
     }
     cost = {"111111111111": {"cost_score": 100, "warnings": []}}
     activity = {
@@ -221,7 +312,13 @@ def test_report_fans_in_regions_and_keeps_tags_out_of_score() -> None:
     assert assessment["ownership_context"]["resource_ownership"]["owner_counts"] == {
         "payments-team": 3
     }
-    assert "payments-team" in assessment["recommendation"]
+    assert assessment["ownership_context"]["operations_contact"] == {
+        "name": "Ops Team",
+        "email": "ops@example.com",
+    }
+    assert "Ops Team <ops@example.com>" in assessment["recommendation"]
+    # A resource tag must not decide who the account owner is.
+    assert "payments-team" not in assessment["recommendation"]
 
 
 def test_inactive_account_task_scopes_match_resource_ownership_boundaries() -> None:

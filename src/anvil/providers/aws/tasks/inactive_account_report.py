@@ -184,19 +184,36 @@ def _warnings(signal: dict[str, object]) -> list[str]:
     return [str(warning) for warning in value]
 
 
+def _contact_label(contact: object) -> str:
+    """Format an Operations alternate contact as 'Name <email>'."""
+    if not isinstance(contact, dict):
+        return ""
+    name = contact.get("name")
+    email = contact.get("email")
+    parts = [str(name)] if name else []
+    if email:
+        parts.append(f"<{email}>")
+    return " ".join(parts)
+
+
 def _recommendation(
-    status: str, warnings: list[str], resource_owner_counts: dict[str, int]
+    status: str, warnings: list[str], operations_contact: object
 ) -> str:
-    """Build an actionable recommendation without scoring ownership tags."""
+    """Build an actionable recommendation without scoring ownership data.
+
+    Individual resource tags are deliberately not used to name an owner: one
+    tagged resource (for example a StackSet-deployed function) must not decide
+    who owns the whole account.
+    """
     if status == "ACTIVE":
         recommendation = "No action recommended."
     elif status == "POSSIBLY_INACTIVE":
         recommendation = "Review activity and resource purpose before taking action."
     else:
         recommendation = "Candidate for review and possible quarantine."
-    owners = sorted(resource_owner_counts)
-    if owners and status != "ACTIVE":
-        recommendation += f" Confirm with resource owner(s): {', '.join(owners)}."
+    contact = _contact_label(operations_contact)
+    if contact and status != "ACTIVE":
+        recommendation += f" Confirm with the account Operations contact: {contact}."
     if warnings:
         recommendation += " Telemetry is incomplete; verify manually."
     return recommendation
@@ -271,9 +288,12 @@ def build_report(
                 "ownership_context": {
                     "account_ownership_tags": account.get("ownership_tags", {}),
                     "account_tags": account.get("tags", {}),
+                    "operations_contact": account.get("operations_contact"),
                     "resource_ownership": ownership,
                 },
-                "recommendation": _recommendation(status, warnings, owner_counts),
+                "recommendation": _recommendation(
+                    status, warnings, account.get("operations_contact")
+                ),
                 "warnings": warnings,
             }
         )
@@ -326,7 +346,11 @@ def run(
     report = build_report(
         accounts=accounts,
         costs=_mapping(dependency_data.get("costs"), "costs"),
-        activity=_mapping(dependency_data.get("activity"), "activity"),
+        activity=(
+            _mapping(dependency_data["activity"], "activity")
+            if "activity" in dependency_data
+            else {}
+        ),
         regional_resources=_regional_results(dependency_data.get("regional_resources")),
     )
     account_count = len(accounts)
